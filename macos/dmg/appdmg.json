@@ -1,0 +1,16 @@
+{
+  "title": "K8Secret",
+  "background": "background.png",
+  "window": {
+    "size": {
+      "width": 660,
+      "height": 440
+    }
+  },
+  "contents": [
+    { "x": 165, "y": 255, "type": "file", "path": "../../build/K8Secret.app" },
+    { "x": 495, "y": 255, "type": "link", "path": "/Applications" }
+  ],
+  "icon-size": 80,
+  "format": "UDZO"
+}

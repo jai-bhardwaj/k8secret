@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Build artifacts
+build/
+macos/.build/
+macos/dmg/K8Secret-*.dmg
+k8secret-desktop
+
+# Node
+desktop/frontend/node_modules/
+desktop/frontend/dist/
+
+# Go binaries
+*.exe
+/k8secret

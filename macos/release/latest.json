@@ -1,0 +1,7 @@
+{
+  "version": "0.2.3",
+  "url": "https://orbitalk8releases.blob.core.windows.net/k8secret-releases/K8Secret-0.2.3.dmg",
+  "notes": "Initial release with auto-update support.",
+  "minOS": "14.0",
+  "date": "2026-04-09"
+}

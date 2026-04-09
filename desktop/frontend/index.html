@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>k8secret</title>
+  <link rel="stylesheet" href="src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header id="header">
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <div class="context" id="context-name">loading...</div>
+    </header>
+
+    <!-- Main layout -->
+    <div class="main">
+      <!-- Sidebar: Namespaces -->
+      <aside class="sidebar" id="sidebar">
+        <div class="panel-header">
+          <h2>Namespaces</h2>
+          <input type="text" id="ns-search" placeholder="Filter..." autocomplete="off" />
+        </div>
+        <div class="list" id="ns-list"></div>
+      </aside>
+
+      <!-- Content area -->
+      <section class="content" id="content">
+        <!-- Secrets list view -->
+        <div id="secrets-view" class="view">
+          <div class="panel-header">
+            <h2 id="secrets-title">Select a namespace</h2>
+            <input type="text" id="secret-search" placeholder="Filter..." autocomplete="off" />
+          </div>
+          <div class="table-wrap">
+            <table id="secrets-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Age</th>
+                </tr>
+              </thead>
+              <tbody id="secrets-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Secret detail view -->
+        <div id="detail-view" class="view hidden">
+          <div class="panel-header">
+            <button class="btn-back" id="btn-back">&larr; Back</button>
+            <h2 id="detail-title"></h2>
+            <div class="detail-actions">
+              <button class="btn btn-primary" id="btn-add-key">+ Add Key</button>
+              <button class="btn btn-success hidden" id="btn-save">Save Changes</button>
+              <button class="btn btn-ghost hidden" id="btn-discard">Discard</button>
+            </div>
+          </div>
+          <div class="kv-list" id="kv-list"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- Modal for editing / adding -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div class="modal">
+        <h3 id="modal-title">Edit Value</h3>
+        <label id="modal-key-label" class="modal-label">Key</label>
+        <input type="text" id="modal-key-input" class="modal-input hidden" placeholder="Key name" autocomplete="off" />
+        <label class="modal-label">Value</label>
+        <textarea id="modal-value-input" class="modal-textarea" rows="6" placeholder="Value"></textarea>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="modal-confirm">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="src/main.js" type="module"></script>
+</body>
+</html>

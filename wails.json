@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "k8secret",
+  "outputfilename": "k8secret-desktop",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "frontend:dir": "desktop/frontend",
+  "wailsjsdir": "desktop/frontend/src",
+  "author": {
+    "name": "k8secret"
+  },
+  "info": {
+    "companyName": "k8secret",
+    "productName": "k8secret",
+    "productVersion": "1.0.0"
+  }
+}
