@@ -104,6 +104,71 @@ struct ServiceDetailView: View {
             }
 
             Spacer()
+
+            // Port forward button — forward the first port
+            if let firstPort = svc.ports.first {
+                portForwardButton(svc, port: firstPort)
+            }
+        }
+    }
+
+    private func portForwardButton(_ svc: K8sService, port: ServicePort) -> some View {
+        let mgr = PortForwardManager.shared
+        let activeForward = mgr.forwards.first(where: {
+            $0.target == "svc/\(svc.name)" && $0.remotePort == port.port && ($0.status == .active || $0.status == .reconnecting)
+        })
+
+        return Group {
+            if let fwd = activeForward {
+                HStack(spacing: 8) {
+                    Button {
+                        mgr.openInBrowser(fwd.localURL)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(.green).frame(width: 6, height: 6)
+                            Text("localhost:\(fwd.localPort)")
+                                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.green.opacity(0.25), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.green)
+
+                    Button {
+                        mgr.stop(id: fwd.id)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                Button {
+                    mgr.forwardService(
+                        context: state.context,
+                        namespace: svc.namespace,
+                        serviceName: svc.name,
+                        remotePort: port.port
+                    )
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "network.badge.shield.half.filled")
+                            .font(.system(size: 12))
+                        Text("Port Forward")
+                            .font(.system(.caption, design: .monospaced, weight: .semibold))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.blue.opacity(0.25), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
         }
     }
 
@@ -187,6 +252,9 @@ struct ServiceDetailView: View {
 
                     Spacer()
 
+                    // Per-port forward button
+                    portForwardMiniButton(svc, port: port)
+
                     Text(port.protocol_)
                         .font(.system(.caption, design: .monospaced, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -212,6 +280,45 @@ struct ServiceDetailView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func portForwardMiniButton(_ svc: K8sService, port: ServicePort) -> some View {
+        let mgr = PortForwardManager.shared
+        let active = mgr.forwards.first(where: {
+            $0.target == "svc/\(svc.name)" && $0.remotePort == port.port && ($0.status == .active || $0.status == .reconnecting)
+        })
+
+        return Group {
+            if let fwd = active {
+                Button {
+                    mgr.openInBrowser(fwd.localURL)
+                } label: {
+                    HStack(spacing: 4) {
+                        Circle().fill(.green).frame(width: 5, height: 5)
+                        Text(":\(fwd.localPort)")
+                            .font(.system(.caption2, design: .monospaced, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .tint(.green)
+            } else {
+                Button {
+                    mgr.forwardService(
+                        context: state.context,
+                        namespace: svc.namespace,
+                        serviceName: svc.name,
+                        remotePort: port.port
+                    )
+                } label: {
+                    Image(systemName: "bolt.horizontal")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .help("Port forward \(port.port)")
+            }
+        }
     }
 
     private func selectorSection(_ svc: K8sService) -> some View {

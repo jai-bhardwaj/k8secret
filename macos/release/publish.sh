@@ -95,7 +95,8 @@ az storage blob upload \
     --name "latest.json" \
     --file "/tmp/k8secret-latest.json" \
     --overwrite \
-    --content-type "application/json"
+    --content-type "application/json" \
+    --content-cache-control "no-cache, no-store, must-revalidate"
 
 rm /tmp/k8secret-latest.json
 

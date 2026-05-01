@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DeploymentDetailView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.openWindow) private var openWindow
     @State private var showRestartAlert = false
 
     var body: some View {
@@ -70,7 +71,6 @@ struct DeploymentDetailView: View {
                 Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
             }
             .help("Refresh")
-
         }
     }
 
@@ -154,8 +154,53 @@ struct DeploymentDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
             Spacer()
+
+            liveTailButton(dep)
         }
+    }
+
+    private func liveTailButton(_ dep: K8sDeployment) -> some View {
+        Button {
+            let matchingPods = state.pods.filter { $0.name.hasPrefix(dep.name) }
+            if matchingPods.isEmpty {
+                Task {
+                    guard let ns = state.selectedNamespace else { return }
+                    let allPods = (try? await K8sClient().listPodsAfterConnect(
+                        context: state.context, namespace: ns.name)) ?? []
+                    let depPods = allPods.filter { $0.name.hasPrefix(dep.name) }
+                    if depPods.isEmpty {
+                        state.showToast("No pods found for \(dep.name)", isError: true)
+                        return
+                    }
+                    let podNames = depPods.map(\.name).joined(separator: ",")
+                    openWindow(id: "log-stream", value: LogStreamID(
+                        context: state.context, namespace: dep.namespace,
+                        pod: podNames, container: ""
+                    ))
+                }
+            } else {
+                let podNames = matchingPods.map(\.name).joined(separator: ",")
+                openWindow(id: "log-stream", value: LogStreamID(
+                    context: state.context, namespace: dep.namespace,
+                    pod: podNames, container: ""
+                ))
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "text.line.last.and.arrowtriangle.forward")
+                    .font(.system(size: 12))
+                Text("Live Tail")
+                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.blue.opacity(0.25), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.blue)
     }
 
     private func statusBadge(_ dep: K8sDeployment) -> some View {

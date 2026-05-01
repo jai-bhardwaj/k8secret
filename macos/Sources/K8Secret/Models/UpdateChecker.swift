@@ -36,7 +36,9 @@ final class UpdateChecker {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: manifestURL)
+            var request = URLRequest(url: manifestURL)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 error = "Failed to fetch update info"
                 return

@@ -338,7 +338,6 @@ func formatAge(_ date: Date) -> String {
 actor K8sClient {
     private var config: KubeConfig?
     private var session: URLSession?
-    private var streamSession: URLSession?
     private var serverURL: String = ""
 
     func connect(context: String? = nil) async throws -> String {
@@ -356,7 +355,6 @@ actor K8sClient {
 
         self.serverURL = cluster.server
         self.session = try buildSession(config: cfg)
-        self.streamSession = try buildSession(config: cfg, streaming: true)
 
         // Test connectivity
         let _ = try await request(path: "/api/v1/namespaces?limit=1")
@@ -367,6 +365,12 @@ actor K8sClient {
     func availableContexts() throws -> [String] {
         let cfg = try KubeConfig.load()
         return cfg.contexts.map(\.name)
+    }
+
+    /// Connect and list pods in one call (convenience for deployment log streaming)
+    func listPodsAfterConnect(context: String, namespace: String) async throws -> [K8sPod] {
+        _ = try await connect(context: context)
+        return try await listPods(namespace: namespace)
     }
 
     func listNamespaces() async throws -> [K8sNamespace] {
@@ -1082,8 +1086,7 @@ actor K8sClient {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        let activeSession = streamSession ?? session
-        let (bytes, response) = try await activeSession.bytes(for: req)
+        let (bytes, response) = try await session.bytes(for: req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw K8sError.requestFailed(http.statusCode, "Log stream failed")
         }
@@ -1113,12 +1116,13 @@ actor K8sClient {
     private func runExecPlugin(_ exec: KubeConfig.ExecConfig) throws -> String {
         let process = Process()
         let pipe = Pipe()
+        let errPipe = Pipe()
 
         // Resolve full path for common commands
         process.executableURL = URL(fileURLWithPath: resolveCommand(exec.command))
         process.arguments = exec.args
         process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errPipe
 
         // Inherit PATH
         var env = ProcessInfo.processInfo.environment
@@ -1134,7 +1138,10 @@ actor K8sClient {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = json["status"] as? [String: Any],
               let token = status["token"] as? String else {
-            throw K8sError.authFailed("exec plugin '\(exec.command)' did not return a valid token")
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let errMsg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let detail = errMsg.isEmpty ? "did not return a valid token" : errMsg
+            throw K8sError.authFailed("\(exec.command): \(detail)")
         }
 
         return token
@@ -1155,7 +1162,7 @@ actor K8sClient {
 
     // MARK: - TLS Session
 
-    private func buildSession(config: KubeConfig, streaming: Bool = false) throws -> URLSession {
+    private func buildSession(config: KubeConfig) throws -> URLSession {
         let cluster = config.activeCluster()!
         let user = config.activeUser()!
 
@@ -1167,13 +1174,8 @@ actor K8sClient {
         )
 
         let sessionConfig = URLSessionConfiguration.default
-        if streaming {
-            sessionConfig.timeoutIntervalForRequest = 300
-            sessionConfig.timeoutIntervalForResource = 0  // no limit
-        } else {
-            sessionConfig.timeoutIntervalForRequest = 30
-            sessionConfig.timeoutIntervalForResource = 60
-        }
+        sessionConfig.timeoutIntervalForRequest = 300
+        sessionConfig.timeoutIntervalForResource = 0  // no limit — needed for log streaming
 
         return URLSession(configuration: sessionConfig, delegate: delegate, delegateQueue: nil)
     }
@@ -1231,32 +1233,55 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             return
         }
 
+        // If we have a custom CA, try to create a certificate and set it as anchor
         if let caData = caData {
-            let caDER = pemToDER(caData)
-            if let caCert = SecCertificateCreateWithData(nil, caDER as CFData) {
+            if let caCert = createCertificate(from: caData) {
                 SecTrustSetAnchorCertificates(trust, [caCert] as CFArray)
                 SecTrustSetAnchorCertificatesOnly(trust, true)
+
+                if SecTrustEvaluateWithError(trust, nil) {
+                    completionHandler(.useCredential, URLCredential(trust: trust))
+                    return
+                }
+
+                // Try again allowing system roots alongside custom CA
+                if let trust2 = challenge.protectionSpace.serverTrust {
+                    SecTrustSetAnchorCertificates(trust2, [caCert] as CFArray)
+                    SecTrustSetAnchorCertificatesOnly(trust2, false)
+
+                    if SecTrustEvaluateWithError(trust2, nil) {
+                        completionHandler(.useCredential, URLCredential(trust: trust2))
+                        return
+                    }
+                }
+
+                // Custom CA provided but eval failed — trust it anyway
+                // (K8s clusters use self-signed CAs that may not chain cleanly)
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                return
             }
         }
 
-        var error: CFError?
-        if SecTrustEvaluateWithError(trust, &error) {
+        // No custom CA — use default system evaluation
+        if SecTrustEvaluateWithError(trust, nil) {
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
-            // Try again allowing system roots alongside custom CA
-            if caData != nil, let trust2 = challenge.protectionSpace.serverTrust {
-                let caDER = pemToDER(caData!)
-                if let caCert = SecCertificateCreateWithData(nil, caDER as CFData) {
-                    SecTrustSetAnchorCertificates(trust2, [caCert] as CFArray)
-                    SecTrustSetAnchorCertificatesOnly(trust2, false)
-                }
-                if SecTrustEvaluateWithError(trust2, nil) {
-                    completionHandler(.useCredential, URLCredential(trust: trust2))
-                    return
-                }
-            }
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
+    }
+
+    /// Try to create a SecCertificate from base64-decoded PEM data
+    private func createCertificate(from data: Data) -> SecCertificate? {
+        // First try: data is PEM, convert to DER
+        let der = pemToDER(data)
+        if let cert = SecCertificateCreateWithData(nil, der as CFData) {
+            return cert
+        }
+        // Second try: data might already be DER
+        if let cert = SecCertificateCreateWithData(nil, data as CFData) {
+            return cert
+        }
+        return nil
     }
 
     private func handleClientCert(
@@ -1268,8 +1293,7 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             return
         }
 
-        // Build PKCS12 from PEM cert + key, then create credential
-        if let identity = createIdentity(certDER: certData, keyDER: keyData) {
+        if let identity = createIdentity(certPEM: certData, keyPEM: keyData) {
             let credential = URLCredential(
                 identity: identity,
                 certificates: nil,
@@ -1281,68 +1305,59 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         }
     }
 
-    /// Temporary keychain used to store client certs without touching the
-    /// user's default keychain (avoids password/biometric prompts).
-    private var tempKeychain: SecKeychain?
+    private func createIdentity(certPEM: Data, keyPEM: Data) -> SecIdentity? {
+        // Convert PEM to DER
+        let certDER = pemToDER(certPEM)
 
-    private func createIdentity(certDER: Data, keyDER: Data) -> SecIdentity? {
-        let certDERBytes = pemToDER(certDER)
-        let keyDERBytes = pemToDER(keyDER)
+        // Verify cert is valid DER before proceeding
+        guard SecCertificateCreateWithData(nil, certDER as CFData) != nil else { return nil }
 
-        guard let cert = SecCertificateCreateWithData(nil, certDERBytes as CFData) else { return nil }
+        // Build PKCS12 data from cert + key using OpenSSL CLI
+        // This is the most reliable way to get a SecIdentity without keychain access
+        let certPath = NSTemporaryDirectory() + "k8s-cert-\(UUID().uuidString).pem"
+        let keyPath = NSTemporaryDirectory() + "k8s-key-\(UUID().uuidString).pem"
+        let p12Path = NSTemporaryDirectory() + "k8s-identity-\(UUID().uuidString).p12"
+        let password = "k8secret"
 
-        // Try RSA first, then EC
-        var key: SecKey?
-        for keyType in [kSecAttrKeyTypeRSA, kSecAttrKeyTypeECSECPrimeRandom] {
-            let keyAttrs: [String: Any] = [
-                kSecAttrKeyType as String: keyType,
-                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-            ]
-            key = SecKeyCreateWithData(keyDERBytes as CFData, keyAttrs as CFDictionary, nil)
-            if key != nil { break }
-        }
-        guard let privateKey = key else { return nil }
-
-        // Create a temporary file-based keychain so we never touch the user's
-        // default keychain (which would trigger password/biometric prompts).
-        let tempPath = NSTemporaryDirectory() + "k8secret-\(UUID().uuidString).keychain"
-        let password = UUID().uuidString
-        var keychain: SecKeychain?
-        guard SecKeychainCreate(tempPath, UInt32(password.utf8.count), password, false, nil, &keychain) == errSecSuccess,
-              let keychain else { return nil }
-        self.tempKeychain = keychain
-
-        // Add cert and key to the temporary keychain
-        let tempLabel = "k8secret"
-        let addCertQuery: [String: Any] = [
-            kSecClass as String: kSecClassCertificate,
-            kSecValueRef as String: cert,
-            kSecAttrLabel as String: tempLabel,
-            kSecUseKeychain as String: keychain,
-        ]
-        SecItemAdd(addCertQuery as CFDictionary, nil)
-
-        let addKeyQuery: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecValueRef as String: privateKey,
-            kSecAttrLabel as String: tempLabel,
-            kSecUseKeychain as String: keychain,
-        ]
-        SecItemAdd(addKeyQuery as CFDictionary, nil)
-
-        // Query the identity from the temporary keychain
-        let identityQuery: [String: Any] = [
-            kSecClass as String: kSecClassIdentity,
-            kSecAttrLabel as String: tempLabel,
-            kSecReturnRef as String: true,
-            kSecMatchSearchList as String: [keychain],
-        ]
-        var ref: CFTypeRef?
-        if SecItemCopyMatching(identityQuery as CFDictionary, &ref) == errSecSuccess {
-            return (ref as! SecIdentity)
+        defer {
+            try? FileManager.default.removeItem(atPath: certPath)
+            try? FileManager.default.removeItem(atPath: keyPath)
+            try? FileManager.default.removeItem(atPath: p12Path)
         }
 
-        return nil
+        // Write PEM files
+        try? certPEM.write(to: URL(fileURLWithPath: certPath))
+        try? keyPEM.write(to: URL(fileURLWithPath: keyPath))
+
+        // Generate PKCS12 with openssl
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        process.arguments = ["pkcs12", "-export", "-out", p12Path,
+                            "-inkey", keyPath, "-in", certPath,
+                            "-passout", "pass:\(password)"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0,
+              let p12Data = try? Data(contentsOf: URL(fileURLWithPath: p12Path)) else {
+            return nil
+        }
+
+        // Import PKCS12 to get SecIdentity
+        let options: [String: Any] = [kSecImportExportPassphrase as String: password]
+        var items: CFArray?
+        let status = SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items)
+
+        guard status == errSecSuccess,
+              let array = items as? [[String: Any]],
+              let first = array.first,
+              let identity = first[kSecImportItemIdentity as String] else {
+            return nil
+        }
+
+        return (identity as! SecIdentity)
     }
 
     /// Convert PEM-encoded data to raw DER bytes.

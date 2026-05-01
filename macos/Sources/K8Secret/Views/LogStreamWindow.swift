@@ -17,6 +17,26 @@ struct LogStreamWindow: View {
             Divider()
             statusBar
         }
+        .overlay {
+            if let toast = copyToast {
+                VStack {
+                    Text(toast)
+                        .font(.system(.caption, design: .monospaced, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .transition(.opacity)
+                    Spacer()
+                }
+                .padding(.top, 50)
+                .onAppear {
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        withAnimation { copyToast = nil }
+                    }
+                }
+            }
+        }
         .frame(minWidth: 700, minHeight: 400)
         .navigationTitle("\(logID.pod) — \(logID.container)")
         .task {
@@ -89,6 +109,22 @@ struct LogStreamWindow: View {
             }
 
             Divider().frame(height: 16)
+
+            // Copy filtered logs
+            Button {
+                let text = state.filteredLines.map { line in
+                    let ts = line.timestamp.map { "\($0) " } ?? ""
+                    return "\(ts)\(line.text)"
+                }.joined(separator: "\n")
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                copyToast = "Copied \(state.filteredLines.count) lines"
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .help("Copy all visible logs")
 
             // Clear
             Button {
@@ -163,121 +199,22 @@ struct LogStreamWindow: View {
     // MARK: - Log content
 
     @State private var scrollProxy: ScrollViewProxy?
-
     @State private var visibleIDs: Set<Int> = []
+    @State private var copyToast: String?
+
+    @State private var autoScroll = true
 
     private var logContent: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(state.filteredLines) { line in
-                        logLineView(line)
-                            .id(line.id)
-                            .onAppear { visibleIDs.insert(line.id) }
-                            .onDisappear { visibleIDs.remove(line.id) }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
-            }
-            .background(Color.black.opacity(0.3))
-            .onAppear { scrollProxy = proxy }
-            .onChange(of: state.filteredLines.count) { oldCount, newCount in
-                // Check if the previous last line is currently visible
-                let prevLastID = newCount > oldCount
-                    ? state.filteredLines[max(0, oldCount - 1)].id
-                    : state.filteredLines.last?.id ?? 0
-
-                let userIsAtBottom = oldCount == 0 || visibleIDs.contains(prevLastID)
-
-                if userIsAtBottom, let id = state.filteredLines.last?.id {
-                    proxy.scrollTo(id, anchor: .bottomLeading)
-                }
-            }
-        }
-    }
-
-    private func logLineView(_ line: LogStreamState.LogLine) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            // Line number
-            Text("\(line.id)")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .frame(width: 40, alignment: .trailing)
-                .padding(.trailing, 8)
-
-            // Level indicator
-            Rectangle()
-                .fill(line.level.color)
-                .frame(width: 3)
-                .padding(.vertical, 1)
-
-            // Timestamp
-            if let ts = line.timestamp {
-                Text(formatTimestamp(ts))
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 6)
-            }
-
-            // Log text with search highlighting
-            if state.search.isEmpty {
-                Text(line.text)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(line.level == .error ? .red : line.level == .warn ? .orange : .primary)
-                    .textSelection(.enabled)
-                    .lineLimit(state.wrapLines ? nil : 1)
-            } else {
-                highlightedText(line.text, search: state.search)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .lineLimit(state.wrapLines ? nil : 1)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 1)
-        .background(
-            line.level == .error ? Color.red.opacity(0.06) :
-            line.level == .warn ? Color.orange.opacity(0.04) : Color.clear
+        SelectableLogView(
+            lines: state.filteredLines,
+            search: state.search,
+            wrapLines: state.wrapLines,
+            autoScroll: $autoScroll
         )
-    }
-
-    private func highlightedText(_ text: String, search: String) -> Text {
-        guard !search.isEmpty else { return Text(text) }
-
-        var result = Text("")
-        var remaining = text[text.startIndex...]
-
-        while let range = remaining.range(of: search, options: .caseInsensitive) {
-            // Text before match
-            if range.lowerBound > remaining.startIndex {
-                result = result + Text(remaining[remaining.startIndex..<range.lowerBound])
-                    .foregroundStyle(.primary)
-            }
-            // Highlighted match — bold yellow since .background isn't available on Text concatenation
-            result = result + Text(remaining[range])
-                .foregroundStyle(.yellow)
-                .bold()
-                .underline()
-
-            remaining = remaining[range.upperBound...]
+        .background(Color.black.opacity(0.3))
+        .onChange(of: state.filteredLines.count) { _, _ in
+            autoScroll = true
         }
-
-        // Remaining text
-        if !remaining.isEmpty {
-            result = result + Text(remaining).foregroundStyle(.primary)
-        }
-
-        return result
-    }
-
-    private func formatTimestamp(_ ts: String) -> String {
-        // Extract just HH:MM:SS from ISO timestamp
-        guard ts.count >= 19,
-              let tIdx = ts.firstIndex(of: "T") else { return ts }
-        let timeStart = ts.index(after: tIdx)
-        let timeEnd = ts.index(timeStart, offsetBy: 8, limitedBy: ts.endIndex) ?? ts.endIndex
-        return String(ts[timeStart..<timeEnd])
     }
 
     // MARK: - Status bar
@@ -333,6 +270,196 @@ struct LogStreamWindow: View {
         .padding(.horizontal, 12)
         .frame(height: 24)
         .background(.bar)
+    }
+}
+
+// MARK: - Native selectable log view backed by NSTextView
+
+struct SelectableLogView: NSViewRepresentable {
+    let lines: [LogStreamState.LogLine]
+    let search: String
+    let wrapLines: Bool
+    @Binding var autoScroll: Bool
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        let textView = NSTextView()
+
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.isRichText = true
+        textView.usesFontPanel = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.textContainerInset = NSSize(width: 8, height: 4)
+
+        if wrapLines {
+            textView.textContainer?.widthTracksTextView = true
+            textView.isHorizontallyResizable = false
+        } else {
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            textView.isHorizontallyResizable = true
+        }
+
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = !wrapLines
+        scrollView.drawsBackground = false
+
+        context.coordinator.textView = textView
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = context.coordinator.textView else { return }
+
+        // Update wrap mode
+        if wrapLines {
+            textView.textContainer?.widthTracksTextView = true
+            textView.isHorizontallyResizable = false
+            scrollView.hasHorizontalScroller = false
+        } else {
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            textView.isHorizontallyResizable = true
+            scrollView.hasHorizontalScroller = true
+        }
+
+        // Only rebuild text if lines changed
+        let newCount = lines.count
+        if newCount != context.coordinator.lastLineCount || search != context.coordinator.lastSearch {
+            let attributed = buildAttributedString()
+            textView.textStorage?.setAttributedString(attributed)
+            context.coordinator.lastLineCount = newCount
+            context.coordinator.lastSearch = search
+
+            if autoScroll {
+                DispatchQueue.main.async {
+                    textView.scrollToEndOfDocument(nil)
+                }
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator {
+        var textView: NSTextView?
+        var lastLineCount = 0
+        var lastSearch = ""
+    }
+
+    private func buildAttributedString() -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
+        let monoFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let lineNumFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        let tsFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+
+        let defaultAttrs: [NSAttributedString.Key: Any] = [
+            .font: monoFont,
+            .foregroundColor: NSColor.textColor
+        ]
+        let lineNumAttrs: [NSAttributedString.Key: Any] = [
+            .font: lineNumFont,
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ]
+        let tsAttrs: [NSAttributedString.Key: Any] = [
+            .font: tsFont,
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ]
+        let errorAttrs: [NSAttributedString.Key: Any] = [
+            .font: monoFont,
+            .foregroundColor: NSColor.systemRed
+        ]
+        let warnAttrs: [NSAttributedString.Key: Any] = [
+            .font: monoFont,
+            .foregroundColor: NSColor.systemOrange
+        ]
+        let highlightAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+            .foregroundColor: NSColor.systemYellow,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+
+        let podFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
+
+        for (i, line) in lines.enumerated() {
+            let lineNum = NSAttributedString(string: String(format: "%4d  ", line.id), attributes: lineNumAttrs)
+            result.append(lineNum)
+
+            // Pod name prefix for multi-pod streams
+            if let podName = line.podName {
+                let shortName = shortenPodName(podName)
+                let podAttrs: [NSAttributedString.Key: Any] = [
+                    .font: podFont,
+                    .foregroundColor: line.podColor ?? NSColor.secondaryLabelColor
+                ]
+                result.append(NSAttributedString(string: "[\(shortName)]  ", attributes: podAttrs))
+            }
+
+            if let ts = line.timestamp {
+                let formatted = formatTimestamp(ts)
+                result.append(NSAttributedString(string: "\(formatted)  ", attributes: tsAttrs))
+            }
+
+            let textAttrs: [NSAttributedString.Key: Any]
+            switch line.level {
+            case .error: textAttrs = errorAttrs
+            case .warn: textAttrs = warnAttrs
+            default: textAttrs = defaultAttrs
+            }
+
+            if !search.isEmpty {
+                appendHighlighted(to: result, text: line.text, search: search, baseAttrs: textAttrs, highlightAttrs: highlightAttrs)
+            } else {
+                result.append(NSAttributedString(string: line.text, attributes: textAttrs))
+            }
+
+            if i < lines.count - 1 {
+                result.append(NSAttributedString(string: "\n", attributes: defaultAttrs))
+            }
+        }
+
+        return result
+    }
+
+    private func appendHighlighted(to result: NSMutableAttributedString, text: String, search: String, baseAttrs: [NSAttributedString.Key: Any], highlightAttrs: [NSAttributedString.Key: Any]) {
+        var remaining = text[text.startIndex...]
+
+        while let range = remaining.range(of: search, options: .caseInsensitive) {
+            if range.lowerBound > remaining.startIndex {
+                result.append(NSAttributedString(string: String(remaining[remaining.startIndex..<range.lowerBound]), attributes: baseAttrs))
+            }
+            result.append(NSAttributedString(string: String(remaining[range]), attributes: highlightAttrs))
+            remaining = remaining[range.upperBound...]
+        }
+
+        if !remaining.isEmpty {
+            result.append(NSAttributedString(string: String(remaining), attributes: baseAttrs))
+        }
+    }
+
+    private func formatTimestamp(_ ts: String) -> String {
+        guard ts.count >= 19,
+              let tIdx = ts.firstIndex(of: "T") else { return ts }
+        let timeStart = ts.index(after: tIdx)
+        let timeEnd = ts.index(timeStart, offsetBy: 8, limitedBy: ts.endIndex) ?? ts.endIndex
+        return String(ts[timeStart..<timeEnd])
+    }
+
+    /// Shorten pod name to just the unique suffix (e.g., "app-6f7b8c9d-x4k2p" → "x4k2p")
+    private func shortenPodName(_ name: String) -> String {
+        let parts = name.split(separator: "-")
+        if parts.count >= 3 {
+            return String(parts.suffix(1).joined())
+        }
+        return String(name.suffix(8))
     }
 }
 

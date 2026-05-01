@@ -1,7 +1,7 @@
 import Foundation
 
 enum AppConstants {
-    static let version = "0.3.4"
+    static let version = "0.5.2"
     static let appName = "K8Secret"
 
     // Auto-update: Azure Blob Storage manifest URL

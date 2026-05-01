@@ -130,6 +130,9 @@ struct StatusBarView: View {
                 statusDivider
             }
 
+            // Active port forwards
+            portForwardsMenu
+
             // Connection status — plain, no pill
             connectionInfo
 
@@ -206,6 +209,59 @@ struct StatusBarView: View {
         }
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
+    }
+
+    // MARK: - Port forwards menu
+
+    @ViewBuilder
+    private var portForwardsMenu: some View {
+        let mgr = PortForwardManager.shared
+        let activeCount = mgr.forwards.filter { $0.status == .active || $0.status == .reconnecting }.count
+
+        if !mgr.forwards.isEmpty {
+            statusDivider
+
+            Menu {
+                ForEach(mgr.forwards) { fwd in
+                    Section(fwd.displayName) {
+                        if fwd.status == .active {
+                            Button {
+                                mgr.openInBrowser(fwd.localURL)
+                            } label: {
+                                Label("Open localhost:\(fwd.localPort)", systemImage: "safari")
+                            }
+                        }
+                        if fwd.status == .failed, let err = fwd.error {
+                            Text(err)
+                        }
+                        Button(role: .destructive) {
+                            mgr.stop(id: fwd.id)
+                        } label: {
+                            Label("Stop", systemImage: "xmark.circle")
+                        }
+                    }
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    mgr.stopAll()
+                } label: {
+                    Label("Stop All", systemImage: "xmark.circle.fill")
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "bolt.horizontal.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
+                    Text("\(activeCount)")
+                        .font(.system(.caption2, design: .monospaced, weight: .bold))
+                        .foregroundStyle(.green)
+                }
+            }
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+        }
     }
 
     // MARK: - Mini gauge

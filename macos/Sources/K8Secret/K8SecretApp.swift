@@ -5,6 +5,16 @@ struct K8SecretApp: App {
     @Environment(\.openWindow) private var openWindow
     @State private var showUpdateSheet = false
 
+    init() {
+        // Clean up port forwards when the app terminates
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil, queue: .main
+        ) { _ in
+            PortForwardManager.shared.stopAll()
+        }
+    }
+
     var body: some Scene {
         // Default window — connects to last-used or current context
         WindowGroup(id: "cluster") {
