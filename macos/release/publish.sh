@@ -1,28 +1,50 @@
-#!/bin/bash
-# Build, package, and publish a new K8Secret release to Azure Blob Storage
+#!/usr/bin/env bash
+# Build, package, and publish a new K8Secret release to GitHub Releases.
 #
 # Prerequisites:
-#   brew install azure-cli
-#   npm install -g appdmg  (optional, falls back to hdiutil)
-#   az login
+#   brew install gh jq
+#   gh auth login
 #
 # Usage:
-#   ./publish.sh <version> [release notes]
-#   ./publish.sh 0.2.4
-#   ./publish.sh 0.2.4 "Fixed pod log streaming"
+#   ./macos/release/publish.sh <version> [release notes]
+#   ./macos/release/publish.sh 0.5.3
+#   ./macos/release/publish.sh 0.5.3 "Fixed pod log streaming"
 
 set -euo pipefail
 
 VERSION="${1:?Usage: ./publish.sh <version> [release notes]}"
 NOTES="${2:-K8Secret v${VERSION}}"
-STORAGE_ACCOUNT="${K8SECRET_STORAGE_ACCOUNT:-orbitalk8releases}"
-CONTAINER="k8secret-releases"
+TAG="v${VERSION}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MACOS_DIR="$(dirname "$SCRIPT_DIR")"
 ROOT_DIR="$(dirname "$MACOS_DIR")"
+RELEASE_DIR="$ROOT_DIR/release"
 APP_BUNDLE="$ROOT_DIR/build/K8Secret.app"
 DMG_PATH="$MACOS_DIR/dmg/K8Secret-${VERSION}.dmg"
+
+# Sanity checks
+if ! command -v gh >/dev/null 2>&1; then
+    echo "Error: gh CLI not found. Install with: brew install gh" >&2
+    exit 1
+fi
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: jq not found. Install with: brew install jq" >&2
+    exit 1
+fi
+if ! gh auth status >/dev/null 2>&1; then
+    echo "Error: gh CLI not authenticated. Run: gh auth login" >&2
+    exit 1
+fi
+if git -C "$ROOT_DIR" rev-parse "$TAG" >/dev/null 2>&1; then
+    echo "Error: Tag $TAG already exists. Bump the version." >&2
+    exit 1
+fi
+if [[ -n "$(git -C "$ROOT_DIR" status --porcelain)" ]]; then
+    echo "Warning: working tree is dirty. Continue? [y/N]"
+    read -r REPLY
+    [[ "$REPLY" =~ ^[Yy]$ ]] || exit 1
+fi
 
 echo "==> Building K8Secret v${VERSION}"
 
@@ -47,7 +69,7 @@ BINARY="$MACOS_DIR/.build/arm64-apple-macosx/release/K8Secret"
 cp "$BINARY" "$APP_BUNDLE/Contents/MacOS/k8secret"
 echo "    Copied binary to app bundle"
 
-# Step 5: Ensure Info.plist has ATS exception
+# Step 5: Ensure Info.plist has ATS exception (preserves backward compat)
 if ! /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$PLIST" &>/dev/null; then
     /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST"
     /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
@@ -69,38 +91,55 @@ hdiutil create -volname "K8Secret" -fs HFS+ -srcfolder "$STAGING" -ov "$DMG_PATH
 rm -rf "$STAGING"
 echo "    Created $DMG_PATH"
 
-# Step 8: Upload to Azure
-echo "==> Uploading to Azure..."
-az storage blob upload \
-    --account-name "$STORAGE_ACCOUNT" \
-    --container-name "$CONTAINER" \
-    --name "K8Secret-${VERSION}.dmg" \
-    --file "$DMG_PATH" \
-    --overwrite
+# Step 8: Compute sha256 (for release notes only — installer trusts HTTPS + git)
+SHA="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+echo "    sha256: $SHA"
 
-# Step 9: Update manifest
-cat > /tmp/k8secret-latest.json <<EOF
-{
-  "version": "${VERSION}",
-  "url": "https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER}/K8Secret-${VERSION}.dmg",
-  "notes": "${NOTES}",
-  "minOS": "14.0",
-  "date": "$(date +%Y-%m-%d)"
-}
-EOF
+# Step 9: Commit version bump + tag
+cd "$ROOT_DIR"
+git add "$CONSTANTS"
+git diff --cached --quiet || git commit -m "release: bump to ${VERSION}"
+git tag "$TAG"
 
-az storage blob upload \
-    --account-name "$STORAGE_ACCOUNT" \
-    --container-name "$CONTAINER" \
-    --name "latest.json" \
-    --file "/tmp/k8secret-latest.json" \
-    --overwrite \
-    --content-type "application/json" \
-    --content-cache-control "no-cache, no-store, must-revalidate"
+# Step 10: Create GitHub release with DMG attached
+echo "==> Creating GitHub release..."
+gh release create "$TAG" "$DMG_PATH" \
+    --title "K8Secret ${VERSION}" \
+    --notes "${NOTES}
 
-rm /tmp/k8secret-latest.json
+sha256: \`${SHA}\`
+
+Install:
+\`\`\`bash
+curl -fsSL https://raw.githubusercontent.com/jai-bhardwaj/k8secret/main/release/install.sh | bash
+\`\`\`"
+
+# Step 11: Update release/latest.json so the installer + in-app updater pick this up
+echo "==> Updating manifest..."
+mkdir -p "$RELEASE_DIR"
+TODAY="$(date +%Y-%m-%d)"
+DMG_URL="https://github.com/jai-bhardwaj/k8secret/releases/download/${TAG}/K8Secret-${VERSION}.dmg"
+jq -n \
+    --arg version "$VERSION" \
+    --arg url "$DMG_URL" \
+    --arg notes "$NOTES" \
+    --arg date "$TODAY" \
+    '{
+        version: $version,
+        url: $url,
+        notes: $notes,
+        minOS: "14.0",
+        date: $date
+    }' > "$RELEASE_DIR/latest.json"
+
+git add "$RELEASE_DIR/latest.json"
+git commit -m "release: ${VERSION} manifest"
+
+# Step 12: Push commits + tag so the manifest and release are both live
+git push
+git push --tags
 
 echo ""
-echo "==> K8Secret v${VERSION} published!"
-echo "    Manifest: https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER}/latest.json"
-echo "    DMG:      https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER}/K8Secret-${VERSION}.dmg"
+echo "==> K8Secret v${VERSION} published."
+echo "    Release: https://github.com/jai-bhardwaj/k8secret/releases/tag/${TAG}"
+echo "    DMG:     $DMG_URL"

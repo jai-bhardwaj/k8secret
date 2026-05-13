@@ -57,10 +57,10 @@ Switch contexts from the sidebar dropdown or open a second cluster in a new wind
 One-liner (downloads the latest signed `.dmg`, copies `K8Secret.app` to `/Applications`):
 
 ```bash
-curl -fsSL https://orbitalk8releases.blob.core.windows.net/k8secret-releases/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jai-bhardwaj/k8secret/main/release/install.sh | bash
 ```
 
-Or grab the `.dmg` manually from the [latest manifest](https://orbitalk8releases.blob.core.windows.net/k8secret-releases/latest.json).
+Or grab the `.dmg` manually from the [latest GitHub release](https://github.com/jai-bhardwaj/k8secret/releases/latest), or look up the version + URL via the [release manifest](https://raw.githubusercontent.com/jai-bhardwaj/k8secret/main/release/latest.json).
 
 K8Secret ships **ad-hoc signed**, not notarized — the installer strips the quarantine bit so it launches without a Gatekeeper prompt. If you build from source, you'll need to do the same (see [Building](#building-from-source)).
 
@@ -90,7 +90,7 @@ The binary lands at `.build/arm64-apple-macosx/release/K8Secret`. To produce a r
 codesign --force --deep --sign - build/K8Secret.app
 ```
 
-A complete release pipeline (DMG creation, version bump, Azure upload) is in [`macos/release/publish.sh`](macos/release/publish.sh).
+A complete release pipeline (DMG creation, version bump, GitHub release upload via `gh` CLI) is in [`macos/release/publish.sh`](macos/release/publish.sh). The public installer + manifest live at the repo root in [`release/`](release/) so they're shared across future platforms.
 
 ---
 
@@ -121,9 +121,11 @@ macos/                          # the macOS app (the current product)
 │   └── Views/                  # SwiftUI views per resource type
 ├── dmg/                        # DMG packaging assets
 └── release/
-    ├── install.sh              # public install one-liner
-    ├── latest.json             # current-version manifest
-    └── publish.sh              # build + sign + upload to Azure
+    └── publish.sh              # build + sign + create GitHub release
+
+release/                        # platform-agnostic installer + manifest
+├── install.sh                  # public install one-liner
+└── latest.json                 # current-version manifest (served via raw.githubusercontent)
 ```
 
 The repo also contains an older Go/Wails prototype at the root and in `desktop/`, `internal/` — kept around for reference, not actively maintained.
@@ -135,7 +137,8 @@ The repo also contains an older Go/Wails prototype at the root and in `desktop/`
 K8Secret runs entirely on your machine. The only outbound network calls are:
 
 1. **Your Kubernetes API servers** (whatever's in your kubeconfig)
-2. **Azure Blob Storage** (`orbitalk8releases.blob.core.windows.net`) — only to check for app updates and download new versions
+2. **`raw.githubusercontent.com`** — to check for app updates (one small JSON fetch on launch)
+3. **`github.com`** — to download new versions when one is available
 
 No telemetry, no analytics, no crash reporting. Secrets never leave your laptop.
 
