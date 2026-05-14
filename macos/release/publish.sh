@@ -170,6 +170,15 @@ fi
 git tag "$TAG"
 ok "Tag $TAG created"
 
+# Push commits + the tag BEFORE creating the GitHub release.
+# `gh release create` refuses to attach an asset to a tag that doesn't
+# yet exist on the remote — and creating it via --target would point
+# at HEAD instead of our explicit version-bump commit. Pushing first is
+# the cheapest correct fix.
+git push >/dev/null
+git push origin "$TAG" >/dev/null
+ok "Pushed commits + tag $TAG"
+
 # ---------------------------------------------------------------------------
 # Create GitHub release
 # ---------------------------------------------------------------------------
@@ -220,12 +229,11 @@ git commit -m "release: ${VERSION} manifest" >/dev/null
 ok "Manifest committed"
 
 # ---------------------------------------------------------------------------
-# Push everything
+# Push the manifest commit
 # ---------------------------------------------------------------------------
-step "Pushing to origin"
+step "Pushing manifest"
 git push >/dev/null
-git push --tags >/dev/null
-ok "Pushed commits + tag"
+ok "Manifest live on main"
 
 printf "\n✓ K8Secret v${VERSION} live.\n"
 printf "  Release: https://github.com/jai-bhardwaj/k8secret/releases/tag/${TAG}\n"
