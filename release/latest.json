@@ -1,7 +1,7 @@
 {
-  "version": "0.5.4",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.4/K8Secret-0.5.4.dmg",
-  "notes": "Test release to verify in-app auto-updater flow.",
+  "version": "0.5.5",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.5/K8Secret-0.5.5.dmg",
+  "notes": "Fixes the recurring keychain password prompt on every TLS handshake — client-cert private keys now go into a per-process temp keychain instead of the login keychain.",
   "minOS": "14.0",
   "date": "2026-05-27"
 }
