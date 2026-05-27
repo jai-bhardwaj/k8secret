@@ -1345,8 +1345,14 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             return nil
         }
 
-        // Import PKCS12 to get SecIdentity
-        let options: [String: Any] = [kSecImportExportPassphrase as String: password]
+        // Import PKCS12 into a per-process temp keychain so the imported
+        // private key doesn't land in the user's login keychain (which
+        // would prompt for the login password on every TLS handshake
+        // after each ad-hoc-signed app update — see TempKeychain).
+        var options: [String: Any] = [kSecImportExportPassphrase as String: password]
+        if let tempKC = TempKeychain.shared.get() {
+            options[kSecImportExportKeychain as String] = tempKC
+        }
         var items: CFArray?
         let status = SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items)
 

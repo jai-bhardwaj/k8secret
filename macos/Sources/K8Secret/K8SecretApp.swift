@@ -12,6 +12,7 @@ struct K8SecretApp: App {
             object: nil, queue: .main
         ) { _ in
             PortForwardManager.shared.stopAll()
+            TempKeychain.shared.cleanup()
         }
     }
 
