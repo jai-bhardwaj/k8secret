@@ -1,7 +1,7 @@
 {
-  "version": "0.5.2",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.2/K8Secret-0.5.2.dmg",
-  "notes": "First GitHub Releases-hosted version. Native macOS, native Swift, MIT.",
+  "version": "0.5.3",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.3/K8Secret-0.5.3.dmg",
+  "notes": "Maintenance release: publish pipeline tag-ordering fix; manifest sync. No user-facing app changes.",
   "minOS": "14.0",
-  "date": "2026-05-14"
+  "date": "2026-05-27"
 }
