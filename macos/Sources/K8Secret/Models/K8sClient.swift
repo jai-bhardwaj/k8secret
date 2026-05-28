@@ -1306,64 +1306,50 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     }
 
     private func createIdentity(certPEM: Data, keyPEM: Data) -> SecIdentity? {
-        // Convert PEM to DER
         let certDER = pemToDER(certPEM)
+        let keyDER = pemToDER(keyPEM)
 
-        // Verify cert is valid DER before proceeding
-        guard SecCertificateCreateWithData(nil, certDER as CFData) != nil else { return nil }
+        guard let cert = SecCertificateCreateWithData(nil, certDER as CFData) else { return nil }
 
-        // Build PKCS12 data from cert + key using OpenSSL CLI
-        // This is the most reliable way to get a SecIdentity without keychain access
-        let certPath = NSTemporaryDirectory() + "k8s-cert-\(UUID().uuidString).pem"
-        let keyPath = NSTemporaryDirectory() + "k8s-key-\(UUID().uuidString).pem"
-        let p12Path = NSTemporaryDirectory() + "k8s-identity-\(UUID().uuidString).p12"
-        let password = "k8secret"
-
-        defer {
-            try? FileManager.default.removeItem(atPath: certPath)
-            try? FileManager.default.removeItem(atPath: keyPath)
-            try? FileManager.default.removeItem(atPath: p12Path)
+        // Build the private key in memory — try RSA, then EC. Keeping the key
+        // in-memory and out of the login keychain is the path that never
+        // prompted before v0.5.2 introduced the openssl/PKCS12 import.
+        var privateKey: SecKey?
+        for keyType in [kSecAttrKeyTypeRSA, kSecAttrKeyTypeECSECPrimeRandom] {
+            let attrs: [String: Any] = [
+                kSecAttrKeyType as String: keyType,
+                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            ]
+            if let key = SecKeyCreateWithData(keyDER as CFData, attrs as CFDictionary, nil) {
+                privateKey = key
+                break
+            }
         }
+        guard let privateKey else { return nil }
 
-        // Write PEM files
-        try? certPEM.write(to: URL(fileURLWithPath: certPath))
-        try? keyPEM.write(to: URL(fileURLWithPath: keyPath))
+        // A SecIdentity can only be formed from a keychain-resident key, so add
+        // the cert + key to the per-process temp keychain — never the login
+        // keychain (see TempKeychain). Pairing is by public-key match, so no
+        // labels are needed and concurrent clusters can't collide.
+        guard let tempKC = TempKeychain.shared.get() else { return nil }
 
-        // Generate PKCS12 with openssl
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
-        process.arguments = ["pkcs12", "-export", "-out", p12Path,
-                            "-inkey", keyPath, "-in", certPath,
-                            "-passout", "pass:\(password)"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        // errSecDuplicateItem here is fine — a prior handshake already added it.
+        SecItemAdd([
+            kSecClass as String: kSecClassCertificate,
+            kSecValueRef as String: cert,
+            kSecUseKeychain as String: tempKC,
+        ] as CFDictionary, nil)
+        SecItemAdd([
+            kSecClass as String: kSecClassKey,
+            kSecValueRef as String: privateKey,
+            kSecUseKeychain as String: tempKC,
+        ] as CFDictionary, nil)
 
-        guard process.terminationStatus == 0,
-              let p12Data = try? Data(contentsOf: URL(fileURLWithPath: p12Path)) else {
+        var identity: SecIdentity?
+        guard SecIdentityCreateWithCertificate([tempKC] as CFArray, cert, &identity) == errSecSuccess else {
             return nil
         }
-
-        // Import PKCS12 into a per-process temp keychain so the imported
-        // private key doesn't land in the user's login keychain (which
-        // would prompt for the login password on every TLS handshake
-        // after each ad-hoc-signed app update — see TempKeychain).
-        var options: [String: Any] = [kSecImportExportPassphrase as String: password]
-        if let tempKC = TempKeychain.shared.get() {
-            options[kSecImportExportKeychain as String] = tempKC
-        }
-        var items: CFArray?
-        let status = SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items)
-
-        guard status == errSecSuccess,
-              let array = items as? [[String: Any]],
-              let first = array.first,
-              let identity = first[kSecImportItemIdentity as String] else {
-            return nil
-        }
-
-        return (identity as! SecIdentity)
+        return identity
     }
 
     /// Convert PEM-encoded data to raw DER bytes.
