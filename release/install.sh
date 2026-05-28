@@ -54,9 +54,10 @@ fi
 echo "Installing to $INSTALL_DIR..."
 cp -R "$MOUNT_DIR/$APP_NAME.app" "$INSTALL_DIR/"
 
-# Strip quarantine and re-sign ad-hoc so Gatekeeper stays quiet
+# Strip the quarantine bit so Gatekeeper doesn't block the app. The app is
+# already ad-hoc signed at publish time, so we don't re-sign here — removing
+# quarantine is the only step Gatekeeper cares about for an ad-hoc app.
 xattr -cr "$INSTALL_DIR/$APP_NAME.app"
-codesign --force --deep --sign - "$INSTALL_DIR/$APP_NAME.app" 2>/dev/null || true
 
 # Unmount
 hdiutil detach "$MOUNT_DIR" -quiet
