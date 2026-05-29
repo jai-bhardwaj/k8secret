@@ -52,19 +52,18 @@ command -v jq >/dev/null 2>&1   || fail "jq not found. brew install jq"
 command -v swift >/dev/null 2>&1 || fail "swift not found in PATH"
 gh auth status >/dev/null 2>&1  || fail "gh CLI not authenticated. gh auth login"
 
-# Xcode must be selected — Command Line Tools alone can't build SwiftUI apps
+# A usable macOS SDK is required. Full Xcode is preferred, but the Command
+# Line Tools build this Swift package fine too (verified: swift build produces
+# a working binary), so accept either as long as the SDK version resolves.
 XCODE_DEV_DIR="$(xcode-select -p 2>/dev/null || true)"
 case "$XCODE_DEV_DIR" in
     *Xcode.app/Contents/Developer*) ok "Xcode active at $XCODE_DEV_DIR" ;;
-    *) fail "Xcode (full app) is not active. Currently using: ${XCODE_DEV_DIR:-none}
-   Install Xcode from the App Store, then:
-     sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
-     sudo xcodebuild -license accept" ;;
+    *) printf "    ⚠ Full Xcode not active (using: %s). Building with Command Line Tools.\n" "${XCODE_DEV_DIR:-none}" ;;
 esac
 
-PLATFORM_PATH="$(xcrun --sdk macosx --show-sdk-platform-path 2>/dev/null || true)"
-[[ -n "$PLATFORM_PATH" ]] || fail "xcrun can't resolve macosx SDK platform path. Re-run xcode-select."
-ok "macOS SDK: $(xcrun --sdk macosx --show-sdk-version)"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+[[ -n "$SDK_VERSION" ]] || fail "xcrun can't resolve the macOS SDK. Install Xcode, or run: xcode-select --install"
+ok "macOS SDK: $SDK_VERSION"
 
 [[ -f "$PLIST_TEMPLATE" ]] || fail "Missing $PLIST_TEMPLATE"
 
