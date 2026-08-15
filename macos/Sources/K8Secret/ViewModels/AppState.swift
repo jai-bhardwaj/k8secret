@@ -22,7 +22,7 @@ final class AppState {
     var selectedResourceType: ResourceType = .deployments
     /// Where the window is looking. Overview and Events are destinations that
     /// aren't resource lists; when a resource is selected the two stay in sync.
-    var selectedDestination: AppDestination = .resource(.deployments)
+    var selectedDestination: AppDestination = .overview
     /// "All namespaces" scope: lists aggregate across every namespace and rows
     /// carry a namespace badge. Selecting an item scopes back into its own
     /// namespace so detail panes are always unambiguous.

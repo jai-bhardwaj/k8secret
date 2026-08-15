@@ -65,7 +65,7 @@ struct ServicesListView: View {
                 ContentUnavailableView {
                     Label("No Services", systemImage: "network")
                 } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
+                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace from the menu above, or a different resource type in the sidebar.")
                 }
             } else if state.filteredServices.isEmpty {
                 ContentUnavailableView.search(text: state.serviceSearch)

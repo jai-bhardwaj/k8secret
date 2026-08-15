@@ -139,6 +139,31 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var scopeToolbar: some ToolbarContent {
         ToolbarItem(placement: .automatic) {
+            // The prototype's search field: the ⌘K affordance lives in the
+            // toolbar so the palette is discoverable, not a secret handshake.
+            Button {
+                state.paletteOpen = true
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                    Text("Jump to any resource…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("⌘K")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1.5)
+                        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4.5)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
+            }
+            .buttonStyle(.plain)
+            .help("Jump to any resource or action (⌘K)")
+        }
+        ToolbarItem(placement: .automatic) {
             Button {
                 showSettings = true
             } label: {
@@ -173,13 +198,12 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 5) {
-                    Text("namespace")
-                        .foregroundStyle(.secondary)
-                    Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—"))
-                        .fontWeight(.semibold)
-                }
-                .font(.callout)
+                // One concatenated Text: toolbar Menu labels flatten HStacks
+                // and dropped the name entirely.
+                (Text("namespace ").foregroundStyle(.secondary)
+                 + Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—")).bold())
+                    .font(.callout)
+                    .lineLimit(1)
             }
             .help("Scope every list to one namespace, or all of them")
         }

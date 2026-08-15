@@ -41,8 +41,10 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+
+            portForwardsFooter
         }
-        .navigationSplitViewColumnWidth(min: 180, ideal: 208, max: 280)
+        .navigationSplitViewColumnWidth(min: 190, ideal: 216, max: 280)
         .navigationTitle("K8Secret")
     }
 
@@ -52,16 +54,23 @@ struct SidebarView: View {
                 .font(.system(size: 13))
                 .frame(width: 18)
                 .foregroundStyle(state.selectedDestination == destination ? Theme.accent : Color.secondary)
+            // The floor is load-bearing: this List proposes near-zero width to
+            // its rows, and a flexible Text collapses to nothing — the sidebar
+            // rendered as a column of anonymous icons. Same fix, same reason,
+            // as the old namespace rows.
             Text(destination.title)
                 .lineLimit(1)
-            Spacer(minLength: 2)
+                .frame(minWidth: 110, maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
             if let count = count(for: destination), count > 0 {
                 Text("\(count)")
                     .font(.caption)
                     .foregroundStyle(state.selectedDestination == destination ? Theme.accent : Color.secondary)
                     .monospacedDigit()
+                    .fixedSize()
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .tag(destination)
         .accessibilityLabel(accessibilityText(for: destination))
     }
@@ -87,6 +96,53 @@ struct SidebarView: View {
             return "\(destination.title), \(c)"
         }
         return destination.title
+    }
+
+    /// The prototype's sidebar anchor: active forwards always visible, one
+    /// click to stop — a background tunnel should never be out of sight.
+    @ViewBuilder
+    private var portForwardsFooter: some View {
+        let mine = PortForwardManager.shared.forwards.filter { $0.context == state.context }
+        VStack(alignment: .leading, spacing: 4) {
+            Divider()
+            Text("PORT FORWARDS")
+                .font(.system(size: 9.5, weight: .semibold))
+                .kerning(0.7)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+            if mine.isEmpty {
+                Text("None active")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            } else {
+                ForEach(mine) { fwd in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(fwd.status == .active ? Theme.ok : Theme.warn)
+                            .frame(width: 6, height: 6)
+                        Text(":\(String(fwd.localPort)) → \(fwd.displayName)")
+                            .font(.system(.caption, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button {
+                            PortForwardManager.shared.stop(id: fwd.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Stop forwarding \(fwd.displayName)")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 2)
+                }
+                Spacer().frame(height: 6)
+            }
+        }
     }
 
     private var contextSwitcher: some View {
