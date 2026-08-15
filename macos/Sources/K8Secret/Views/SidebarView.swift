@@ -103,7 +103,7 @@ struct SidebarView: View {
             }
             .searchable(text: $state.namespaceSearch, placement: .sidebar, prompt: "Filter namespaces")
         }
-        .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 340)
+        .navigationSplitViewColumnWidth(min: 230, ideal: 260, max: 360)
         .navigationTitle("Namespaces")
         .overlay {
             if state.namespaces.isEmpty && state.connectionState != .connecting {
@@ -151,7 +151,7 @@ struct NamespaceRow: View {
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(minWidth: 90, maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
 
             // "Active" is the state of virtually every namespace, so showing it
             // spent the row's width saying nothing. Only the exception is worth

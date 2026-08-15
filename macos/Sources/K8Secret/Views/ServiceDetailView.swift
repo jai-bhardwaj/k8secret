@@ -8,10 +8,17 @@ struct ServiceDetailView: View {
             if let svc = state.selectedService {
                 detailContent(svc)
             } else {
-                ContentUnavailableView {
-                    Label("Select a Service", systemImage: "network")
-                } description: {
-                    Text("Choose a service to view its details.")
+                // Only prompt for a selection when one is possible. With an empty
+                // list this sat beside "No Services" telling the user to choose
+                // from nothing — two placeholders contradicting each other.
+                if !state.services.isEmpty {
+                    ContentUnavailableView {
+                        Label("Select a Service", systemImage: "network")
+                    } description: {
+                        Text("Choose a service to view its details.")
+                    }
+                } else {
+                    Color.clear
                 }
             }
         }

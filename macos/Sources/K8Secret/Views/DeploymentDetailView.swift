@@ -10,10 +10,17 @@ struct DeploymentDetailView: View {
             if let dep = state.selectedDeployment {
                 deploymentDetail(dep)
             } else {
-                ContentUnavailableView {
-                    Label("Select a Deployment", systemImage: "shippingbox")
-                } description: {
-                    Text("Choose a deployment to view its details.")
+                // Only prompt for a selection when one is possible. With an empty
+                // list this sat beside "No Deployments" telling the user to choose
+                // from nothing — two placeholders contradicting each other.
+                if !state.deployments.isEmpty {
+                    ContentUnavailableView {
+                        Label("Select a Deployment", systemImage: "shippingbox")
+                    } description: {
+                        Text("Choose a deployment to view its details.")
+                    }
+                } else {
+                    Color.clear
                 }
             }
         }

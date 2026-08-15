@@ -11,10 +11,17 @@ struct PodDetailView: View {
             if let pod = state.selectedPod {
                 podDetail(pod)
             } else {
-                ContentUnavailableView {
-                    Label("Select a Pod", systemImage: "circle.hexagongrid")
-                } description: {
-                    Text("Choose a pod to view its details and logs.")
+                // Only prompt for a selection when one is possible. With an empty
+                // list this sat beside "No Pods" telling the user to choose
+                // from nothing — two placeholders contradicting each other.
+                if !state.pods.isEmpty {
+                    ContentUnavailableView {
+                        Label("Select a Pod", systemImage: "circle.hexagongrid")
+                    } description: {
+                        Text("Choose a pod to view its details and logs.")
+                    }
+                } else {
+                    Color.clear
                 }
             }
         }

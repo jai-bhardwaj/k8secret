@@ -8,10 +8,17 @@ struct SecretDetailView: View {
 
         Group {
             if state.selectedSecret == nil {
-                ContentUnavailableView {
-                    Label("Select a Secret", systemImage: "key")
-                } description: {
-                    Text("Choose a secret to view and edit its data.")
+                // Only prompt for a selection when one is possible. With an empty
+                // list this sat beside "No Secrets" telling the user to choose
+                // from nothing — two placeholders contradicting each other.
+                if !state.secrets.isEmpty {
+                    ContentUnavailableView {
+                        Label("Select a Secret", systemImage: "key")
+                    } description: {
+                        Text("Choose a secret to view and edit its data.")
+                    }
+                } else {
+                    Color.clear
                 }
             } else if state.loadingData {
                 VStack(spacing: 12) {

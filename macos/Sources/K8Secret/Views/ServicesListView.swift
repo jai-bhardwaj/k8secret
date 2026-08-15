@@ -41,6 +41,10 @@ struct ServicesListView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: state.isRefreshing)
+        // A list of names, ages and status pills needs real width. Without a
+        // floor this column collapsed next to the detail pane and truncated
+        // its own empty-state title to "No Deploy…".
+        .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
         .navigationTitle(state.selectedNamespace?.name ?? "Services")
     }
 
