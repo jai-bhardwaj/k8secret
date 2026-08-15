@@ -76,11 +76,17 @@ struct SettingsView: View {
     }
 
     /// Applied at launch too, from K8SecretApp.
+    ///
+    /// `NSApplication.shared`, never the `NSApp` global: this runs inside
+    /// `App.init()`, before AppKit has populated `NSApp`, and the global is an
+    /// implicitly-unwrapped optional — using it there crashed the app on
+    /// launch before the first frame.
     static func apply(appearanceOverride: String) {
+        let app = NSApplication.shared
         switch appearanceOverride {
-        case "light": NSApp.appearance = NSAppearance(named: .aqua)
-        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-        default: NSApp.appearance = nil
+        case "light": app.appearance = NSAppearance(named: .aqua)
+        case "dark": app.appearance = NSAppearance(named: .darkAqua)
+        default: app.appearance = nil
         }
     }
 }

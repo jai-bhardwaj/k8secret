@@ -307,3 +307,18 @@ final class DestinationStateTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "clusterTint.\(state.context)")
     }
 }
+
+// MARK: - Launch smoke
+
+final class AppearanceApplyTests: XCTestCase {
+    /// SettingsView.apply runs inside App.init(), before AppKit populates the
+    /// NSApp global — reaching for NSApp there crashed the app before its
+    /// first frame. NSApplication.shared is the safe spelling; this pins that
+    /// all three values survive being applied in a bare process context.
+    func testApplyDoesNotCrashForAnyValue() {
+        for value in ["light", "dark", "system", "garbage"] {
+            SettingsView.apply(appearanceOverride: value)
+        }
+        SettingsView.apply(appearanceOverride: "system")   // leave neutral
+    }
+}
