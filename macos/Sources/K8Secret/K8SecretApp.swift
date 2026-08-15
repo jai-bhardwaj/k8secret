@@ -15,7 +15,8 @@ struct K8SecretApp: App {
             MainActor.assumeIsolated {
                 PortForwardManager.shared.stopAll()
             }
-            TempKeychain.shared.cleanup()
+            // Remove the throwaway keychain holding any client-cert identity.
+            TransientKeychain.shared.cleanup()
         }
     }
 
