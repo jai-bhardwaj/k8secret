@@ -7,7 +7,7 @@ struct PodsListView: View {
         @Bindable var state = state
 
         Group {
-            if state.selectedNamespace == nil {
+            if state.selectedNamespace == nil && !state.allNamespaces {
                 ContentUnavailableView {
                     Label("Select a Namespace", systemImage: "sidebar.left")
                 } description: {
@@ -52,7 +52,8 @@ struct PodsListView: View {
         @Bindable var state = state
 
         return List(state.filteredPods, selection: $state.selectedPod) { pod in
-            PodRow(pod: pod, metrics: state.metrics(for: pod.name))
+            PodRow(pod: pod, metrics: state.metrics(for: pod.name),
+                   showNamespace: state.allNamespaces)
                 .tag(pod)
         }
         .searchable(text: $state.podSearch, prompt: "Filter pods")
@@ -86,6 +87,7 @@ struct PodsListView: View {
 struct PodRow: View {
     let pod: K8sPod
     let metrics: PodMetrics?
+    var showNamespace = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -97,6 +99,8 @@ struct PodRow: View {
                 Text(pod.name)
                     .font(.system(.body, design: .monospaced, weight: .medium))
                     .lineLimit(1)
+
+                if showNamespace { NamespaceBadge(name: pod.namespace) }
 
                 Spacer()
 
@@ -112,7 +116,7 @@ struct PodRow: View {
                 HStack(spacing: 12) {
                     metricsChip(
                         icon: "cpu",
-                        color: .blue,
+                        color: Theme.cpu,
                         usage: m.totalCPU,
                         requestPct: m.cpuPercent(pod: pod),
                         limitPct: m.cpuLimitPercent(pod: pod)
@@ -120,7 +124,7 @@ struct PodRow: View {
 
                     metricsChip(
                         icon: "memorychip",
-                        color: .purple,
+                        color: Theme.memory,
                         usage: m.totalMemory,
                         requestPct: m.memPercent(pod: pod),
                         limitPct: m.memLimitPercent(pod: pod)
@@ -214,9 +218,7 @@ struct PodRow: View {
         .background(color.opacity(0.05), in: RoundedRectangle(cornerRadius: 5))
     }
 
-    private func pctColor(_ p: Int) -> Color {
-        p > 90 ? .red : p > 70 ? .orange : .green
-    }
+    private func pctColor(_ p: Int) -> Color { Theme.pressure(p) }
 
     // MARK: - Phase icon & badge
 
@@ -261,10 +263,10 @@ struct PodRow: View {
 
     private var phaseColor: Color {
         switch pod.phase.lowercased() {
-        case "running": return .green
-        case "succeeded": return .blue
-        case "pending": return .yellow
-        case "failed": return .red
+        case "running": return Theme.ok
+        case "succeeded": return Theme.cpu
+        case "pending": return Theme.warn
+        case "failed": return Theme.bad
         default: return .secondary
         }
     }

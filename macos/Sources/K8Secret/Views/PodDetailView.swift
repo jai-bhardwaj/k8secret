@@ -27,27 +27,51 @@ struct PodDetailView: View {
         }
     }
 
+    /// Tabs instead of one long scroll: Logs get the full pane height they
+    /// deserve, and Events stop living below three screens of sections.
+    enum DetailTab: String, CaseIterable { case overview = "Overview", logs = "Logs", events = "Events" }
+    @State private var tab: DetailTab = .overview
+
     @ViewBuilder
     private func podDetail(_ pod: K8sPod) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                headerSection(pod)
-
-                // Metrics cards
-                if let m = state.metrics(for: pod.name) {
-                    metricsSection(m)
-                }
-
-                Divider()
-                infoSection(pod)
-                Divider()
-                containersSection(pod)
-                Divider()
-                logsSection(pod)
-                labelsBlock(pod)
-                eventsBlock
+        VStack(spacing: 0) {
+            Picker("Section", selection: $tab) {
+                ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
-            .padding(24)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            switch tab {
+            case .overview:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        headerSection(pod)
+                        if let m = state.metrics(for: pod.name) {
+                            metricsSection(m)
+                        }
+                        Divider()
+                        infoSection(pod)
+                        Divider()
+                        containersSection(pod)
+                        labelsBlock(pod)
+                    }
+                    .padding(24)
+                }
+            case .logs:
+                // Full-height logs — the reason tabs exist.
+                logsSection(pod)
+                    .padding(16)
+            case .events:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        eventsBlock
+                    }
+                    .padding(24)
+                }
+            }
         }
         .navigationTitle(pod.name)
         .toolbar { podToolbar(pod) }

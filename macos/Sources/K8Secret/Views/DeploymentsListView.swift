@@ -7,7 +7,7 @@ struct DeploymentsListView: View {
         @Bindable var state = state
 
         Group {
-            if state.selectedNamespace == nil {
+            if state.selectedNamespace == nil && !state.allNamespaces {
                 ContentUnavailableView {
                     Label("Select a Namespace", systemImage: "sidebar.left")
                 } description: {
@@ -52,7 +52,7 @@ struct DeploymentsListView: View {
         @Bindable var state = state
 
         return List(state.filteredDeployments, selection: $state.selectedDeployment) { dep in
-            DeploymentRow(deployment: dep)
+            DeploymentRow(deployment: dep, showNamespace: state.allNamespaces)
                 .tag(dep)
         }
         .searchable(text: $state.deploymentSearch, prompt: "Filter deployments")
@@ -85,6 +85,7 @@ struct DeploymentsListView: View {
 
 struct DeploymentRow: View {
     let deployment: K8sDeployment
+    var showNamespace = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -102,9 +103,12 @@ struct DeploymentRow: View {
                 }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(deployment.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(deployment.name)
+                        .font(.system(.body, design: .monospaced, weight: .medium))
+                        .lineLimit(1)
+                    if showNamespace { NamespaceBadge(name: deployment.namespace) }
+                }
 
                 HStack(spacing: 8) {
                     // Replicas badge
@@ -114,7 +118,7 @@ struct DeploymentRow: View {
                         Text(verbatim: "\(deployment.readyReplicas)/\(deployment.replicas)")
                     }
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(deployment.readyReplicas == deployment.replicas ? .green : .orange)
+                    .foregroundStyle(deployment.readyReplicas == deployment.replicas ? Theme.ok : Theme.warn)
 
                     // Image name (shortened)
                     if let image = deployment.images.first {

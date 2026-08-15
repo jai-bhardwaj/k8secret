@@ -30,6 +30,9 @@ final class AppState {
     /// Per-context cluster color — the "am I in prod?" glance. Persisted per
     /// context name; loaded on connect and on context switch.
     var clusterTint: Theme.ClusterTint = .mint
+    /// ⌘K overlay visibility — lives here so the palette can be summoned from
+    /// menu commands and dismissed from anywhere.
+    var paletteOpen = false
 
     // Data
     var namespaces: [K8sNamespace] = []

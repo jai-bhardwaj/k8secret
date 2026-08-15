@@ -19,6 +19,17 @@ struct ContentView: View {
                     mainView
                 }
 
+                // ⌘K command palette
+                if state.paletteOpen {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                        .onTapGesture { state.paletteOpen = false }
+                    CommandPaletteView()
+                        .padding(.top, 60)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
                 // Toast overlay
                 if let msg = state.toastMessage {
                     VStack {
@@ -38,6 +49,13 @@ struct ContentView: View {
 
             StatusBarView()
         }
+        .background {
+            // Invisible ⌘K hook, per-window so multi-window stays independent.
+            Button("") { state.paletteOpen.toggle() }
+                .keyboardShortcut("k", modifiers: .command)
+                .hidden()
+        }
+        .motion(Motion.panel, value: state.paletteOpen)
         .task {
             await state.connect()
             await UpdateChecker.shared.checkForUpdates()

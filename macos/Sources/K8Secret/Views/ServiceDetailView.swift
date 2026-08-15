@@ -44,6 +44,7 @@ struct ServiceDetailView: View {
                 if !svc.selector.isEmpty {
                     Divider()
                     selectorSection(svc)
+                    endpointsSection(svc)
                 }
 
                 // Labels
@@ -457,6 +458,64 @@ struct ServiceDetailView: View {
                     .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                 }
             }
+        }
+    }
+
+    /// The selector resolved to actual pods: "which pods back this service"
+    /// is the question routing debugging always ends at. A selector matching
+    /// nothing is said out loud — traffic to that service goes nowhere.
+    private func endpointsSection(_ svc: K8sService) -> some View {
+        let matching = state.pods.filter { pod in
+            !svc.selector.isEmpty && svc.selector.allSatisfy { key, value in
+                pod.labels[key] == value
+            }
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Endpoints", systemImage: "point.3.connected.trianglepath.dotted")
+                .font(.system(.headline, design: .monospaced, weight: .semibold))
+
+            if matching.isEmpty {
+                Text("No pods match this selector — traffic to this service goes nowhere.")
+                    .font(.caption)
+                    .foregroundStyle(Theme.warn)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(matching) { pod in
+                        Button {
+                            jumpToPod(pod)
+                        } label: {
+                            HStack(spacing: 9) {
+                                Circle()
+                                    .fill(pod.phase == "Running" ? Theme.ok : Theme.bad)
+                                    .frame(width: 7, height: 7)
+                                Text(pod.name)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Text(pod.podIP.isEmpty ? "—" : pod.podIP)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                                Text(pod.ready)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(pod.readyCount == pod.totalCount ? Theme.ok : Theme.warn)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open pod \(pod.name)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func jumpToPod(_ pod: K8sPod) {
+        Task {
+            await state.selectResourceType(.pods)
+            state.selectedPod = state.pods.first { $0.id == pod.id }
         }
     }
 

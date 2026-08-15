@@ -32,26 +32,51 @@ struct DeploymentDetailView: View {
         }
     }
 
+    enum DetailTab: String, CaseIterable { case overview = "Overview", events = "Events" }
+    @State private var tab: DetailTab = .overview
+
     @ViewBuilder
     private func deploymentDetail(_ dep: K8sDeployment) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                headerSection(dep)
-
-                // Rollout progress bar
-                if state.showsRolloutBanner {
-                    rolloutBanner
-                }
-
-                Divider()
-                scaleSection(dep)
-                Divider()
-                imagesSection(dep)
-                conditionsBlock(dep)
-                labelsBlock(dep)
-                eventsBlock
+        VStack(spacing: 0) {
+            // The rollout banner stays above the tabs: an in-flight write is
+            // never allowed to hide behind a tab the user isn't on.
+            if state.showsRolloutBanner {
+                rolloutBanner
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
             }
-            .padding(24)
+
+            Picker("Section", selection: $tab) {
+                ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            switch tab {
+            case .overview:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        headerSection(dep)
+                        Divider()
+                        scaleSection(dep)
+                        Divider()
+                        imagesSection(dep)
+                        conditionsBlock(dep)
+                        labelsBlock(dep)
+                    }
+                    .padding(24)
+                }
+            case .events:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        eventsBlock
+                    }
+                    .padding(24)
+                }
+            }
         }
         .onDisappear {
             state.stopRolloutPolling()
