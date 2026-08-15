@@ -3,5 +3,6 @@
   "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.6/K8Secret-0.5.6.dmg",
   "notes": "K8Secret v0.5.6",
   "minOS": "14.0",
-  "date": "2026-05-29"
+  "date": "2026-05-29",
+  "sha256": "5c20a811b5f7851f91d4a23afe0bc524e214265d446b05e33ace890c3bbc4fba"
 }

@@ -28,16 +28,22 @@
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
+    <!-- ATS stays on for the public internet: API servers and the update host are
+         HTTPS. Local networking is exempted so `kubectl proxy` and local clusters
+         (minikube, kind, Rancher Desktop) on http://localhost still work. -->
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsArbitraryLoads</key>
+        <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 Sujal Sharma. MIT license.</string>
     <key>NSSupportsAutomaticTermination</key>
     <true/>
+    <!-- Sudden termination would let macOS SIGKILL the process, skipping
+         applicationWillTerminate — which is where child `kubectl port-forward`
+         processes are reaped. Leaving it off keeps them from being orphaned. -->
     <key>NSSupportsSuddenTermination</key>
-    <true/>
+    <false/>
 </dict>
 </plist>
