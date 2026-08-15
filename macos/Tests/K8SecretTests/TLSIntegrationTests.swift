@@ -10,13 +10,14 @@ import XCTest
 /// Skipped unless `K8SECRET_TLS_LAB` points at a directory containing `ca.crt`
 /// and `other.crt`, with a TLS server on `K8SECRET_TLS_PORT` presenting a
 /// certificate signed by `ca.crt`. See `scripts/tls-lab.sh`.
-final class TLSIntegrationTests: XCTestCase {
+final class TLSIntegrationTests: PromptFreeTestCase {
 
     private var lab: URL!
     private var port: String!
     private var tempDir: URL!
 
     override func setUpWithError() throws {
+        try super.setUpWithError()
         let env = ProcessInfo.processInfo.environment
         guard let labPath = env["K8SECRET_TLS_LAB"] else {
             throw XCTSkip("K8SECRET_TLS_LAB not set — skipping TLS integration tests")
@@ -34,6 +35,7 @@ final class TLSIntegrationTests: XCTestCase {
         // implicitly-unwrapped, so teardown has to tolerate the skipped case.
         if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
         unsetenv("KUBECONFIG")
+        try super.tearDownWithError()
     }
 
     /// Write a kubeconfig pointing at the test server and make it the active one.

@@ -8,7 +8,7 @@ import Security
 /// were reproducible from the code alone — they came from *state left behind*: a
 /// registration without a file, a keychain deleted out from under a running
 /// instance. These pin the rules that keep that from happening.
-final class TransientKeychainTests: XCTestCase {
+final class TransientKeychainTests: PromptFreeTestCase {
 
     private let prefix = "k8secret-kc-"
 

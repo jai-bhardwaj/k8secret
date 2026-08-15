@@ -11,11 +11,12 @@ import Security
 /// Skipped unless `K8SECRET_LIVE=1`. Expects a cluster reachable from the
 /// current kubeconfig with a `payments` namespace containing a `app-config`
 /// secret and an `api` deployment. See scripts/live-cluster.sh.
-final class LiveClusterTests: XCTestCase {
+final class LiveClusterTests: PromptFreeTestCase {
 
     private let namespace = "payments"
 
     override func setUpWithError() throws {
+        try super.setUpWithError()
         guard ProcessInfo.processInfo.environment["K8SECRET_LIVE"] == "1" else {
             throw XCTSkip("K8SECRET_LIVE not set — skipping live cluster tests")
         }

@@ -12,9 +12,10 @@ import XCTest
 /// `getDeployment` returns. Skipped unless `K8SECRET_LIVE=1`; expects the
 /// `payments` namespace with an `api` deployment. See LiveClusterTests.
 @MainActor
-final class RolloutSelectionTests: XCTestCase {
+final class RolloutSelectionTests: PromptFreeTestCase {
 
     override func setUpWithError() throws {
+        try super.setUpWithError()
         guard ProcessInfo.processInfo.environment["K8SECRET_LIVE"] == "1" else {
             throw XCTSkip("K8SECRET_LIVE not set — skipping live rollout tests")
         }
