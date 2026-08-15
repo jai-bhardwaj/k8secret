@@ -1,8 +1,8 @@
 {
-  "version": "0.5.6",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.6/K8Secret-0.5.6.dmg",
-  "notes": "K8Secret v0.5.6",
+  "version": "0.5.7",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.7/K8Secret-0.5.7.dmg",
+  "notes": "Security and reliability release.\n\nTLS verification now fails closed — a server certificate that doesn't chain to the CA in your kubeconfig is refused instead of trusted. Updates are verified against a published SHA-256 before anything is mounted or installed. Secret values are masked by default, copied to a concealed clipboard that self-clears, and saved as a single atomic merge-patch conditional on resourceVersion. Client-certificate auth works again (cert chains and EC keys) with no keychain prompts. Pods stay live via a watch stream instead of polling. Universal binary for Intel and Apple Silicon. 137 tests and CI, from zero.",
   "minOS": "14.0",
-  "date": "2026-05-29",
-  "sha256": "5c20a811b5f7851f91d4a23afe0bc524e214265d446b05e33ace890c3bbc4fba"
+  "date": "2026-08-15",
+  "sha256": "8352e596cea96d3643d03796239aa9de5b61f6fb0750c146d68132cfeb803697"
 }
