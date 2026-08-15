@@ -52,6 +52,7 @@ echo ""
 
 # Download DMG
 TMP_DMG="$(mktemp /tmp/K8Secret-XXXXX.dmg)"
+# shellcheck disable=SC2317  # invoked by the EXIT trap, not called directly
 cleanup() { rm -f "$TMP_DMG"; }
 trap cleanup EXIT
 curl -fSL --progress-bar "$DMG_URL" -o "$TMP_DMG"
@@ -75,11 +76,14 @@ fi
 
 # Mount (DMG checksum verification left on)
 MOUNT_DIR="$(hdiutil attach "$TMP_DMG" -nobrowse -noautoopen 2>/dev/null | grep "Volumes" | awk -F'\t' '{print $NF}')"
-[[ -n "$MOUNT_DIR" && -d "$MOUNT_DIR/$APP_NAME.app" ]] || {
+if [[ -z "$MOUNT_DIR" || ! -d "$MOUNT_DIR/$APP_NAME.app" ]]; then
     echo "Could not find $APP_NAME.app in the downloaded disk image." >&2
-    [[ -n "$MOUNT_DIR" ]] && hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+    if [[ -n "$MOUNT_DIR" ]]; then
+        hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+    fi
     exit 1
-}
+fi
+# shellcheck disable=SC2317  # invoked by the EXIT trap, not called directly
 cleanup() { hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true; rm -f "$TMP_DMG"; }
 
 # Stage the new version alongside the old one, then swap. The previous install is

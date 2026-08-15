@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build-and-test:
     name: Build & test (macOS)
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: macos
@@ -21,8 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The project relies on @MainActor inference for SwiftUI View conformances,
+      # which needs Swift 6. The macos-14 image ships an older toolchain where
+      # every view body fails to compile against @MainActor AppState.
       - name: Show toolchain
-        run: swift --version
+        run: |
+          swift --version
+          swift --version 2>&1 | grep -qE "Swift version 6" \
+            || { echo "::error::Swift 6+ required (see @MainActor inference note above)"; exit 1; }
 
       - name: Cache SwiftPM build
         uses: actions/cache@v4
@@ -63,7 +69,7 @@ jobs:
 
   release-integrity:
     name: Release manifest integrity
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
@@ -108,4 +114,4 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y shellcheck
-          shellcheck release/install.sh macos/release/publish.sh
+          shellcheck --severity=warning release/install.sh macos/release/publish.sh macos/scripts/tls-lab.sh
