@@ -4,7 +4,9 @@ struct ContentView: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
-        VStack(spacing: 0) {
+        @Bindable var state = state
+
+        return VStack(spacing: 0) {
             UpdateBannerView(checker: UpdateChecker.shared)
 
             ZStack {
@@ -39,6 +41,26 @@ struct ContentView: View {
         .task {
             await state.connect()
             await UpdateChecker.shared.checkForUpdates()
+        }
+        // Single confirmation surface for every irreversible action, so a new
+        // destructive operation can't ship without one by simply forgetting to add
+        // an alert to its own view.
+        .alert(
+            state.confirmAction?.title ?? "",
+            isPresented: Binding(
+                get: { state.confirmAction != nil },
+                set: { if !$0 { state.confirmAction = nil } }
+            ),
+            presenting: state.confirmAction
+        ) { action in
+            Button("Cancel", role: .cancel) { state.confirmAction = nil }
+            Button(action.confirmLabel, role: action.destructive ? .destructive : nil) {
+                let work = action.action
+                state.confirmAction = nil
+                Task { await work() }
+            }
+        } message: { action in
+            Text(action.message)
         }
     }
 

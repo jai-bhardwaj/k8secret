@@ -21,10 +21,15 @@ struct SecretDetailView: View {
                         .font(.callout)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if state.isLocked {
+                lockedView
             } else {
                 detailContent
             }
         }
+        // Any interaction with the window counts as activity and pushes the
+        // auto-lock back out.
+        .onHover { _ in state.noteUserActivity() }
         .sheet(item: $state.editingKey) { kv in
             EditSheet(
                 key: kv.key,
@@ -39,6 +44,20 @@ struct SecretDetailView: View {
                 state.stageAdd(key: key, value: value)
             }
         }
+    }
+
+    private var lockedView: some View {
+        ContentUnavailableView {
+            Label("Values hidden", systemImage: "lock.fill")
+        } description: {
+            Text("\(state.selectedSecret?.name ?? "This secret") was cleared from memory after \(Int(AppState.autoLockInterval / 60)) minutes of inactivity.")
+        } actions: {
+            Button("Show values") {
+                Task { await state.unlockSecrets() }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func currentValue(for key: String) -> String {
@@ -71,6 +90,7 @@ struct SecretDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
 
                     Text("\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
                         .font(.system(.caption, design: .monospaced))
@@ -118,6 +138,7 @@ struct SecretDetailView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("n", modifiers: .command)
                 .help("Add Key (⌘N)")
+                .accessibilityLabel("Add Key (⌘N)")
                 .padding(20)
             }
         }
@@ -133,7 +154,7 @@ struct SecretDetailView: View {
                 .disabled(!state.hasChanges)
 
                 Button {
-                    Task { await state.saveChanges() }
+                    state.requestSaveChanges()
                 } label: {
                     Label("Save", systemImage: "checkmark.circle.fill")
                 }
@@ -145,11 +166,13 @@ struct SecretDetailView: View {
                     Label("Import", systemImage: "square.and.arrow.down")
                 }
                 .help("Bulk import keys")
+                .accessibilityLabel("Bulk import keys")
 
                 Button { state.showYAMLEditor = true } label: {
                     Label("YAML", systemImage: "doc.text")
                 }
                 .help("Edit raw YAML")
+                .accessibilityLabel("Edit raw YAML")
             }
         }
         .sheet(isPresented: $state.showBulkImport) {
@@ -192,7 +215,7 @@ struct SecretDetailView: View {
             .controlSize(.small)
 
             Button("Save All") {
-                Task { await state.saveChanges() }
+                state.requestSaveChanges()
             }
             .buttonStyle(.borderedProminent)
             .tint(.green)
@@ -227,6 +250,15 @@ struct KVRow: View {
 
     @State private var showCopied = false
 
+    /// Values start hidden. Reveal is per-row and resets whenever the row is
+    /// rebuilt (different secret, namespace or context).
+    @State private var isRevealed = false
+
+    /// Fixed-width mask so the dots don't leak the length of the secret.
+    private static func mask(_ value: String) -> String {
+        value.isEmpty ? "(empty)" : String(repeating: "•", count: 12)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Line 1: Status icon + Key + Actions
@@ -243,10 +275,22 @@ struct KVRow: View {
 
                 // Actions
                 HStack(spacing: 4) {
+                    // Reveal toggle
+                    Button {
+                        isRevealed.toggle()
+                    } label: {
+                        Image(systemName: isRevealed ? "eye.slash" : "eye")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help(isRevealed ? "Hide value" : "Reveal value")
+                    .accessibilityLabel(isRevealed ? "Hide value for \(kv.key)" : "Reveal value for \(kv.key)")
+
                     // Copy button
                     Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(kv.value, forType: .string)
+                        SecretPasteboard.copySecret(kv.value)
                         showCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             showCopied = false
@@ -258,7 +302,8 @@ struct KVRow: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("Copy value")
+                    .help("Copy value (hidden from clipboard history, cleared after \(Int(SecretPasteboard.clearAfter))s)")
+                    .accessibilityLabel("Copy value for \(kv.key)")
                     .disabled(kv.status == .deleted)
 
                     actions
@@ -266,16 +311,29 @@ struct KVRow: View {
                 .opacity(isHovered ? 1 : 0.6)
             }
 
-            // Line 2: Value
+            // Line 2: Value — masked until explicitly revealed, so screen shares,
+            // screenshots and shoulder-surfing don't leak every secret in the
+            // namespace just because someone opened the app.
             HStack(spacing: 0) {
-                Text(kv.value)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(kv.status == .deleted ? Color.secondary : Color.primary.opacity(0.7))
-                    .strikethrough(kv.status == .deleted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isRevealed {
+                    Text(kv.value)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(kv.status == .deleted ? Color.secondary : Color.primary.opacity(0.7))
+                        .strikethrough(kv.status == .deleted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(Self.mask(kv.value))
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .strikethrough(kv.status == .deleted)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("Value hidden for \(kv.key)")
+                        .onTapGesture { isRevealed = true }
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -347,6 +405,7 @@ struct KVRow: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Undo delete")
+                .accessibilityLabel("Undo delete")
             } else {
                 Button {
                     state.editingKey = K8sKeyValue(id: kv.key, key: kv.key, value: kv.value)
@@ -357,6 +416,7 @@ struct KVRow: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Edit value")
+                .accessibilityLabel("Edit value")
 
                 Button {
                     state.stageDelete(key: kv.key)
@@ -368,6 +428,7 @@ struct KVRow: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Delete key")
+                .accessibilityLabel("Delete key")
             }
 
             if kv.status == .modified || kv.status == .added {
@@ -380,6 +441,7 @@ struct KVRow: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Undo change")
+                .accessibilityLabel("Undo change")
             }
         }
     }

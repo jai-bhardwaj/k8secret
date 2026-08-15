@@ -8,7 +8,7 @@ enum YAMLSerializer {
         } else if let arr = value as? [Any] {
             return serializeSequence(arr, indent: indent)
         } else if let str = value as? String {
-            return serializeString(str)
+            return serializeString(str, indent: indent)
         } else if let num = value as? NSNumber {
             // Check if it's a boolean
             if num === kCFBooleanTrue { return "true" }
@@ -86,24 +86,63 @@ enum YAMLSerializer {
         return lines.joined(separator: "\n")
     }
 
-    private static func serializeString(_ str: String) -> String {
+    private static func serializeString(_ str: String, indent: Int) -> String {
         if str.isEmpty { return "''" }
+
         if str.contains("\n") {
-            // Multi-line string
-            let lines = str.components(separatedBy: "\n")
-            return "|\n" + lines.map { "  \($0)" }.joined(separator: "\n")
+            // Block scalar. The body sits one level deeper than the key, and the
+            // chomping indicator has to match whether the value ends in a newline —
+            // plain `|` implies a trailing newline, so a value without one must use
+            // `|-` or it grows a character every time it's edited and re-applied.
+            let pad = String(repeating: "  ", count: indent)
+            let endsWithNewline = str.hasSuffix("\n")
+            let body = endsWithNewline ? String(str.dropLast()) : str
+            let header = endsWithNewline ? "|" : "|-"
+
+            let rendered = body
+                .components(separatedBy: "\n")
+                .map { $0.isEmpty ? "" : pad + $0 }
+                .joined(separator: "\n")
+            return "\(header)\n\(rendered)"
         }
-        // Quote if contains special chars
+
+        // Quote anything that would parse back as a non-string. The parser now types
+        // scalars, so an unquoted "3" would return as the number 3 and an unquoted
+        // "true" as a boolean — silently changing the resource on round-trip.
         let needsQuoting = str.contains(":") || str.contains("#") || str.contains("{") ||
             str.contains("}") || str.contains("[") || str.contains("]") || str.contains(",") ||
             str.contains("&") || str.contains("*") || str.contains("!") || str.contains("|") ||
             str.contains(">") || str.contains("'") || str.contains("\"") ||
+            str.contains("\t") ||
             str.hasPrefix(" ") || str.hasSuffix(" ") ||
-            str == "true" || str == "false" || str == "null" || str == "yes" || str == "no"
+            str.hasPrefix("-") || str.hasPrefix("?") || str.hasPrefix("%") || str.hasPrefix("@") ||
+            looksLikeNonString(str)
+
         if needsQuoting {
-            let escaped = str.replacingOccurrences(of: "\"", with: "\\\"")
+            let escaped = str
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
             return "\"\(escaped)\""
         }
         return str
+    }
+
+    /// True when the plain text would be re-read as a bool, null or number.
+    private static func looksLikeNonString(_ str: String) -> Bool {
+        switch str {
+        case "true", "True", "TRUE", "false", "False", "FALSE",
+             "null", "Null", "NULL", "~", "yes", "no", "on", "off":
+            return true
+        default:
+            break
+        }
+
+        var body = Substring(str)
+        if body.hasPrefix("-") || body.hasPrefix("+") { body = body.dropFirst() }
+        guard !body.isEmpty else { return false }
+
+        // Integer or simple decimal, matching what the parser will accept back.
+        let digitsAndOneDot = body.allSatisfy { ($0.isASCII && $0.isNumber) || $0 == "." }
+        return digitsAndOneDot && body.filter { $0 == "." }.count <= 1 && body.contains(where: \.isNumber)
     }
 }

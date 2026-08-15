@@ -64,6 +64,7 @@ struct DeploymentDetailView: View {
                 Label("Restart", systemImage: "arrow.clockwise")
             }
             .help("Rolling restart")
+            .accessibilityLabel("Rolling restart")
 
             Button {
                 Task { await state.refreshCurrentResource() }
@@ -71,6 +72,7 @@ struct DeploymentDetailView: View {
                 Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
             }
             .help("Refresh")
+            .accessibilityLabel("Refresh")
         }
     }
 
@@ -234,7 +236,7 @@ struct DeploymentDetailView: View {
                 HStack(spacing: 8) {
                     Button {
                         if dep.replicas > 0 {
-                            Task { await state.scaleDeployment(dep, to: dep.replicas - 1) }
+                            state.requestScale(dep, to: dep.replicas - 1)
                         }
                     } label: {
                         Image(systemName: "minus")
@@ -242,6 +244,7 @@ struct DeploymentDetailView: View {
                             .frame(width: 32, height: 32)
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel("Scale down one replica")
                     .disabled(dep.replicas <= 0 || state.scaling)
 
                     Text("\(dep.replicas)")
@@ -249,13 +252,14 @@ struct DeploymentDetailView: View {
                         .frame(minWidth: 40)
 
                     Button {
-                        Task { await state.scaleDeployment(dep, to: dep.replicas + 1) }
+                        state.requestScale(dep, to: dep.replicas + 1)
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 14, weight: .bold))
                             .frame(width: 32, height: 32)
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel("Scale up one replica")
                     .disabled(state.scaling)
                 }
             }

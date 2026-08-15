@@ -106,6 +106,7 @@ struct LogStreamWindow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Jump to bottom")
+                .accessibilityLabel("Jump to bottom")
             }
 
             Divider().frame(height: 16)
@@ -125,6 +126,7 @@ struct LogStreamWindow: View {
             }
             .buttonStyle(.plain)
             .help("Copy all visible logs")
+            .accessibilityLabel("Copy all visible logs")
 
             // Clear
             Button {
@@ -135,6 +137,7 @@ struct LogStreamWindow: View {
             }
             .buttonStyle(.plain)
             .help("Clear logs")
+            .accessibilityLabel("Clear logs")
 
             // Stream toggle
             Button {
@@ -241,6 +244,16 @@ struct LogStreamWindow: View {
                 Text("(\(state.lines.count) total)")
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.tertiary)
+            }
+
+            // The buffer is capped, so say when history has scrolled out of it
+            // rather than presenting a truncated view as if it were complete.
+            if state.droppedLines > 0 {
+                Text("· \(state.droppedLines) earlier lines dropped")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .help("The log buffer holds the most recent lines only. Older output is no longer in memory.")
+                    .accessibilityLabel("\(state.droppedLines) earlier lines dropped from the buffer")
             }
 
             Spacer()

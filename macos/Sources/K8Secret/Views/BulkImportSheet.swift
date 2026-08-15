@@ -239,9 +239,9 @@ struct ExportSheet: View {
                 Button("Close") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Copy to Clipboard") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(content, forType: .string)
-                    state.showToast("Copied to clipboard")
+                    // This is a full secret export — keep it out of clipboard history.
+                    SecretPasteboard.copySecret(content)
+                    state.showToast("Copied — clipboard clears in \(Int(SecretPasteboard.clearAfter))s")
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)

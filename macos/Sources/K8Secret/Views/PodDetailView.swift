@@ -64,6 +64,7 @@ struct PodDetailView: View {
                     .foregroundStyle(.red)
             }
             .help("Delete pod")
+            .accessibilityLabel("Delete pod")
 
             Button {
                 Task { await state.refreshCurrentResource() }

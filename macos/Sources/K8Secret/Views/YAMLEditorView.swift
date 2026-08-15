@@ -33,10 +33,10 @@ struct YAMLEditorView: View {
                 if hasEdits {
                     Button("Apply") {
                         state.rawYAML = editedYAML
-                        Task {
-                            await state.applyRawYAML()
-                            dismiss()
-                        }
+                        // Close the sheet first — the confirmation is presented by
+                        // ContentView and would otherwise be covered by it.
+                        dismiss()
+                        state.requestApplyRawYAML()
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)
