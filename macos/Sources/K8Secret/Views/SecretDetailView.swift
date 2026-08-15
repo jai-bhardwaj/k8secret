@@ -163,11 +163,18 @@ struct SecretDetailView: View {
                 Button {
                     state.requestSaveChanges()
                 } label: {
-                    Label("Save", systemImage: "checkmark.circle.fill")
+                    // Going dim was the only sign a save was happening. A write to
+                    // a live secret is exactly the moment to show progress.
+                    if state.saving {
+                        Label { Text("Saving") } icon: { ProgressView().controlSize(.small) }
+                    } else {
+                        Label("Save", systemImage: "checkmark.circle.fill")
+                    }
                 }
                 .tint(.green)
                 .opacity(state.hasChanges ? 1 : 0)
                 .disabled(!state.hasChanges || state.saving)
+                .animation(.easeOut(duration: 0.15), value: state.saving)
 
                 Button { state.showBulkImport = true } label: {
                     Label("Import", systemImage: "square.and.arrow.down")
@@ -221,13 +228,23 @@ struct SecretDetailView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
 
-            Button("Save All") {
+            Button {
                 state.requestSaveChanges()
+            } label: {
+                if state.saving {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small)
+                        Text("Saving…")
+                    }
+                } else {
+                    Text("Save All")
+                }
             }
             .buttonStyle(.borderedProminent)
             .tint(.green)
             .controlSize(.small)
             .disabled(state.saving)
+            .animation(.easeOut(duration: 0.15), value: state.saving)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)

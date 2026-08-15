@@ -726,17 +726,37 @@ final class AppState {
     func apply(_ event: K8sClient.PodWatchEvent) {
         lastUpdated = Date()
         liveUpdatesInterrupted = false
+
         switch event {
-        case .added(let pod), .modified(let pod):
+        case .added(let pod):
+            if let idx = pods.firstIndex(where: { $0.id == pod.id }) {
+                // A replay of something already listed: update in place, silently.
+                pods[idx] = pod
+            } else {
+                // A genuinely new pod. Animate the insert — rows arriving on their
+                // own popped into existence, which reads as the list glitching
+                // rather than the cluster changing.
+                withAnimation(Motion.listChange) {
+                    pods.append(pod)
+                }
+            }
+            if selectedPod?.id == pod.id { selectedPod = pod }
+
+        case .modified(let pod):
+            // In-place field changes must not animate: a restart count ticking is
+            // not a list change, and animating it would shuffle rows under the
+            // pointer.
             if let idx = pods.firstIndex(where: { $0.id == pod.id }) {
                 pods[idx] = pod
             } else {
-                pods.append(pod)
+                withAnimation(Motion.listChange) { pods.append(pod) }
             }
             if selectedPod?.id == pod.id { selectedPod = pod }
 
         case .deleted(let pod):
-            pods.removeAll { $0.id == pod.id }
+            withAnimation(Motion.listChange) {
+                pods.removeAll { $0.id == pod.id }
+            }
             if selectedPod?.id == pod.id { selectedPod = nil }
 
         case .bookmark:
@@ -825,24 +845,39 @@ final class AppState {
     func requestScale(_ dep: K8sDeployment, to replicas: Int) {
         let takingDown = replicas == 0 && dep.replicas > 0
 
-        guard takingDown || looksLikeProduction else {
+        // A big jump is usually deliberate, but it is also what a typo looks like
+        // — now that the count can be typed, "20" instead of "2" is one keystroke
+        // away and would schedule eighteen extra pods.
+        let jump = replicas - dep.replicas
+        let bigJump = jump >= Self.largeScaleUp
+
+        guard takingDown || bigJump || looksLikeProduction else {
             Task { await scaleDeployment(dep, to: replicas) }
             return
         }
 
-        let what = takingDown
-            ? "Scale \(dep.name) to 0 replicas? It will stop serving traffic."
-            : "Scale \(dep.name) from \(dep.replicas) to \(replicas) replicas?"
+        let what: String
+        if takingDown {
+            what = "Scale \(dep.name) to 0 replicas? It will stop serving traffic."
+        } else if bigJump {
+            what = "Scale \(dep.name) from \(dep.replicas) to \(replicas) replicas? "
+                 + "That's \(jump) more pod\(jump == 1 ? "" : "s") to schedule."
+        } else {
+            what = "Scale \(dep.name) from \(dep.replicas) to \(replicas) replicas?"
+        }
 
         confirm(
-            title: takingDown ? "Scale to zero" : "Scale deployment",
+            title: takingDown ? "Stop \(dep.name)?" : "Scale deployment",
             message: what + productionWarning,
-            confirmLabel: takingDown ? "Scale to 0" : "Scale",
+            confirmLabel: takingDown ? "Stop" : "Scale",
             destructive: takingDown
         ) { [weak self] in
             await self?.scaleDeployment(dep, to: replicas)
         }
     }
+
+    /// An increase of at least this many replicas asks first.
+    private static let largeScaleUp = 5
 
     func scaleDeployment(_ dep: K8sDeployment, to replicas: Int) async {
         scaling = true

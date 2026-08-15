@@ -40,7 +40,7 @@ struct ServicesListView: View {
                     .accessibilityLabel("Refreshing")
             }
         }
-        .animation(.easeOut(duration: 0.15), value: state.isRefreshing)
+        .motion(Motion.stateChange, value: state.isRefreshing)
         // A list of names, ages and status pills needs real width. Without a
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".

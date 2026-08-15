@@ -4,6 +4,10 @@ struct DeploymentDetailView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
     @State private var showRestartAlert = false
+    /// Text backing the editable replica count. Kept as a String so a partially
+    /// typed value ("" or "1" on the way to "100") doesn't fight the stepper.
+    @State private var replicaInput = ""
+    @FocusState private var replicaFieldFocused: Bool
 
     var body: some View {
         Group {
@@ -65,12 +69,17 @@ struct DeploymentDetailView: View {
     @ToolbarContentBuilder
     private func deploymentToolbar(_ dep: K8sDeployment) -> some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            // Carries a text label and a warning tint. Sitting next to Refresh as
+            // a bare circular arrow, this was a rolling restart of a live
+            // deployment one mis-click away from a data refresh.
             Button {
                 showRestartAlert = true
             } label: {
-                Label("Restart", systemImage: "arrow.clockwise")
+                Label("Restart", systemImage: "arrow.trianglehead.clockwise.rotate.90")
             }
-            .help("Rolling restart")
+            .labelStyle(.titleAndIcon)
+            .tint(.orange)
+            .help("Rolling restart — recreates every pod")
             .accessibilityLabel("Rolling restart")
 
             Button {
@@ -230,15 +239,15 @@ struct DeploymentDetailView: View {
             Label("Replicas", systemImage: "square.stack.3d.up.fill")
                 .font(.system(.headline, design: .monospaced, weight: .semibold))
 
-            HStack(spacing: 20) {
-                HStack(spacing: 24) {
+            HStack(spacing: 16) {
+                HStack(spacing: 18) {
                     replicaStat("Desired", value: dep.replicas, color: .primary)
                     replicaStat("Ready", value: dep.readyReplicas, color: .green)
                     replicaStat("Updated", value: dep.updatedReplicas, color: .blue)
                     replicaStat("Available", value: dep.availableReplicas, color: .green)
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
                 HStack(spacing: 8) {
                     Button {
@@ -254,9 +263,43 @@ struct DeploymentDetailView: View {
                     .accessibilityLabel("Scale down one replica")
                     .disabled(dep.replicas <= 0 || state.scaling)
 
-                    Text(verbatim: "\(dep.replicas)")
-                        .font(.system(.title2, design: .monospaced, weight: .bold))
-                        .frame(minWidth: 40)
+                    // Type the count directly. With only +/- available, going from
+                    // 2 to 100 meant 98 clicks and 98 API calls, and there was no
+                    // way to state a target at all.
+                    ZStack {
+                        TextField("", text: $replicaInput)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.center)
+                            .font(.system(.title2, design: .monospaced, weight: .bold))
+                            .frame(width: 56)
+                            .padding(.vertical, 4)
+                            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(replicaFieldFocused ? Color.accentColor : .clear, lineWidth: 1.5)
+                            )
+                            .focused($replicaFieldFocused)
+                            .disabled(state.scaling)
+                            .opacity(state.scaling ? 0.25 : 1)
+                            .onSubmit { commitReplicaInput(dep) }
+                            .onChange(of: replicaFieldFocused) { _, focused in
+                                // Committing on blur too, so clicking away doesn't
+                                // silently discard what was typed.
+                                if !focused { commitReplicaInput(dep) }
+                            }
+                            .accessibilityLabel("Replica count")
+                            .help("Type a replica count and press Return")
+
+                        if state.scaling {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                    .motion(Motion.stateChange, value: state.scaling)
+                    // Track the cluster while the user isn't editing.
+                    .onAppear { replicaInput = String(dep.replicas) }
+                    .onChange(of: dep.replicas) { _, newValue in
+                        if !replicaFieldFocused { replicaInput = String(newValue) }
+                    }
 
                     Button {
                         state.requestScale(dep, to: dep.replicas + 1)
@@ -268,20 +311,78 @@ struct DeploymentDetailView: View {
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Scale up one replica")
                     .disabled(state.scaling)
+
+                    // Taking a workload down is a thing people actually want to do,
+                    // and clicking minus until it reaches zero is a poor way to
+                    // express it. Confirms, like any scale to zero.
+                    if dep.replicas > 0 {
+                        Button {
+                            replicaFieldFocused = false
+                            state.requestScale(dep, to: 0)
+                        } label: {
+                            Text("Stop")
+                                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize()
+                                .padding(.horizontal, 4)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .disabled(state.scaling)
+                        .fixedSize()
+                        .help("Scale to 0 — stops all pods for this deployment")
+                        .accessibilityLabel("Stop deployment, scale to zero")
+                    }
                 }
+                // Never let the controls be the thing that compresses — Stop was
+                // squeezed to an unlabelled grey box against the pane edge.
+                .fixedSize()
             }
         }
     }
+
+    /// Apply a typed replica count, or put the field back if it isn't usable.
+    private func commitReplicaInput(_ dep: K8sDeployment) {
+        let trimmed = replicaInput.trimmingCharacters(in: .whitespaces)
+
+        // Reject anything that isn't a plain non-negative integer rather than
+        // guessing — this scales a live workload.
+        guard let target = Int(trimmed), target >= 0, trimmed.allSatisfy(\.isNumber) else {
+            replicaInput = String(dep.replicas)
+            state.showToast("Replicas must be a whole number, 0 or more.", isError: true)
+            return
+        }
+        guard target != dep.replicas else { return }
+        guard target <= Self.maxReplicas else {
+            replicaInput = String(dep.replicas)
+            state.showToast("\(target) replicas is beyond what this control will set (max \(Self.maxReplicas)).", isError: true)
+            return
+        }
+
+        state.requestScale(dep, to: target)
+    }
+
+    /// A ceiling on what a typed value can request. A stray keystroke turning 2
+    /// into 2000 would try to schedule two thousand pods.
+    private static let maxReplicas = 500
 
     private func replicaStat(_ label: String, value: Int, color: Color) -> some View {
         VStack(spacing: 2) {
             Text(verbatim: "\(value)")
                 .font(.system(.title3, design: .monospaced, weight: .bold))
                 .foregroundStyle(color)
+                .contentTransition(.numericText())
+            // "Desired" and "Available" were being hyphenated across two lines
+            // once the scale controls shared the row.
             Text(label)
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
         }
+        .motion(Motion.stateChange, value: value)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(value) \(label.lowercased())")
     }
 
     private func imagesSection(_ dep: K8sDeployment) -> some View {
