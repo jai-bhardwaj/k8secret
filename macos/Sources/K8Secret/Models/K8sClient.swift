@@ -367,8 +367,20 @@ actor K8sClient {
     func connect(context: String? = nil) async throws -> String {
         var cfg = try KubeConfig.load()
 
-        if let context, !context.isEmpty {
+        // Only honour a requested context that still exists. The app remembers the
+        // last context it connected to, and that name can disappear — a context
+        // renamed, a cluster torn down, a kubeconfig swapped. Forcing it anyway
+        // dead-ends on "Cluster not found for current context", which reads like
+        // the cluster is broken rather than the remembered name being stale.
+        if let context, !context.isEmpty, cfg.contexts.contains(where: { $0.name == context }) {
             cfg.currentContext = context
+        }
+
+        // Fall back to any context that resolves, so a stale `current-context` in
+        // the file itself doesn't strand the user either.
+        if !cfg.contexts.contains(where: { $0.name == cfg.currentContext }),
+           let first = cfg.contexts.first {
+            cfg.currentContext = first.name
         }
 
         self.config = cfg
