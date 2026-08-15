@@ -188,6 +188,13 @@ private struct NavRowButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .onAppear {
+            // Debug-only: render the hover state on demand so pixel parity of
+            // hover can be screenshot-verified without synthesized input.
+            if ProcessInfo.processInfo.environment["K8SECRET_UITEST_HOVER"] == destination.title {
+                hovering = true
+            }
+        }
         .motion(Motion.stateChange, value: hovering)
         .accessibilityLabel(count.map { "\(destination.title), \($0)" } ?? destination.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

@@ -59,7 +59,7 @@ struct PodsListView: View {
             PodRow(pod: pod, metrics: state.metrics(for: pod.name),
                    showNamespace: state.allNamespaces)
                 .tag(pod)
-                .vnextRow(isSelected: state.selectedPod?.id == pod.id)
+                .vnextRow(isSelected: state.selectedPod?.id == pod.id, hoverKey: pod.name)
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.line)
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))

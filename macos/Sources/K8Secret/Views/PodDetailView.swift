@@ -30,18 +30,17 @@ struct PodDetailView: View {
     /// Tabs instead of one long scroll: Logs get the full pane height they
     /// deserve, and Events stop living below three screens of sections.
     enum DetailTab: String, CaseIterable { case overview = "Overview", logs = "Logs", events = "Events" }
-    @State private var tab: DetailTab = .overview
 
     @ViewBuilder
     private func podDetail(_ pod: K8sPod) -> some View {
         VStack(spacing: 0) {
             UnderlineTabBar(
                 tabs: DetailTab.allCases.map { ($0, $0.rawValue) },
-                selection: $tab
+                selection: Binding(get: { state.podDetailTab }, set: { state.podDetailTab = $0 })
             )
             .padding(.top, 6)
 
-            switch tab {
+            switch state.podDetailTab {
             case .overview:
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {

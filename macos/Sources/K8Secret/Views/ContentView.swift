@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
-    @State private var showSettings = false
+
 
     var body: some View {
         @Bindable var state = state
@@ -55,16 +55,17 @@ struct ContentView: View {
             Button("") { state.paletteOpen.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
                 .hidden()
-            Button("") { showSettings = true }
+            Button("") { state.settingsOpen = true }
                 .keyboardShortcut(",", modifiers: .command)
                 .hidden()
         }
-        .sheet(isPresented: $showSettings) {
+        .sheet(isPresented: $state.settingsOpen) {
             SettingsView()
                 .environment(state)
         }
         .motion(Motion.panel, value: state.paletteOpen)
         .task {
+            UITestTour.startIfRequested(state: state)
             await state.connect()
             await UpdateChecker.shared.checkForUpdates()
         }
@@ -167,7 +168,7 @@ struct ContentView: View {
         }
         ToolbarItem(placement: .automatic) {
             Button {
-                showSettings = true
+                state.settingsOpen = true
             } label: {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -255,12 +256,16 @@ struct ContentView: View {
 struct ToastView: View {
     let message: String
     let isError: Bool
+    // Scheme from AppKit's effectiveAppearance, not the environment: both the
+    // colorScheme environment and dynamic NSColors misreport inside this
+    // transition subtree (observed light in a provably dark window).
+    private var scheme: ColorScheme { Theme.currentScheme }
 
     var body: some View {
         HStack(spacing: 0) {
             // The prototype's left status bar: state as form before words.
             RoundedRectangle(cornerRadius: 2)
-                .fill(isError ? Theme.bad : Theme.ok)
+                .fill(isError ? Theme.bad(scheme) : Theme.ok(scheme))
                 .frame(width: 3)
                 .padding(.vertical, 2)
             Text(message)
@@ -271,8 +276,8 @@ struct ToastView: View {
         }
         .frame(maxWidth: 340, alignment: .leading)
         .fixedSize(horizontal: true, vertical: true)
-        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.lineStrong, lineWidth: 1))
+        .background(Theme.raised(scheme), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.lineStrong(scheme), lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .accessibilityLabel("\(isError ? "Error" : "Done"): \(message)")
     }

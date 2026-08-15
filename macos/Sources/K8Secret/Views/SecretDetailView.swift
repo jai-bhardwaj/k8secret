@@ -2,7 +2,6 @@ import SwiftUI
 
 struct SecretDetailView: View {
     @Environment(AppState.self) private var state
-    @State private var showEnvExport = false
 
     /// What the user is looking at: cluster values with staged edits applied,
     /// staged additions included, staged deletions excluded — the export must
@@ -170,7 +169,7 @@ struct SecretDetailView: View {
             }
         }
         .navigationTitle(state.selectedSecret?.name ?? "")
-        .sheet(isPresented: $showEnvExport) {
+        .sheet(isPresented: $state.secretExportOpen) {
             EnvExportSheet(
                 title: state.selectedSecret?.name ?? "secret",
                 pairs: exportPairs,
@@ -180,7 +179,7 @@ struct SecretDetailView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    showEnvExport = true
+                    state.secretExportOpen = true
                 } label: {
                     Label("Export .env", systemImage: "square.and.arrow.up")
                 }

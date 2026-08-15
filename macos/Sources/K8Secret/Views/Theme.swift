@@ -96,6 +96,35 @@ enum Theme {
     /// Slight overshoot, reserved for pops: dialogs, toasts, switch thumbs.
     static let spring = Animation.spring(response: 0.32, dampingFraction: 0.78)
 
+    /// The app's actual appearance, from AppKit's authority. Exists because
+    /// SwiftUI's colorScheme environment misreports inside the toast's
+    /// transition subtree on Sonoma (observed: .light in a provably dark
+    /// window), and dynamic NSColors misresolve in the same place.
+    static var currentScheme: ColorScheme {
+        NSApplication.shared.effectiveAppearance
+            .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+    }
+
+    // MARK: - Scheme-resolved variants
+
+    /// For views that render inside detached compositing layers (a `.shadow`,
+    /// a snapshot, a transition): AppKit resolves dynamic NSColors there
+    /// against the *system default* appearance, not the window's — the toast
+    /// rendered as a light card on a dark app. These resolve through SwiftUI's
+    /// own environment instead, which is always the view's truth.
+    static func raised(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0x161B24) : Color(hex: 0xF7F9FC)
+    }
+    static func lineStrong(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0x2E3847) : Color(hex: 0xC9D2DF)
+    }
+    static func ok(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0x34C77B) : Color(hex: 0x1F9D5B)
+    }
+    static func bad(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0xE5564F) : Color(hex: 0xC6423B)
+    }
+
     // MARK: - Plumbing
 
     private static func dynamic(light: UInt32, dark: UInt32) -> Color {
@@ -108,5 +137,16 @@ enum Theme {
                 alpha: 1
             )
         })
+    }
+}
+
+
+private extension Color {
+    init(hex: UInt32) {
+        self.init(
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
     }
 }

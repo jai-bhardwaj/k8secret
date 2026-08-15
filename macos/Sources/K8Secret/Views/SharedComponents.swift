@@ -185,10 +185,17 @@ struct FilterField: View {
 /// drawing is disabled with a clear listRowBackground.
 struct VNextRow: ViewModifier {
     let isSelected: Bool
+    var hoverKey: String? = nil
     @State private var hovering = false
 
     func body(content: Content) -> some View {
         content
+            .onAppear {
+                if let hoverKey,
+                   ProcessInfo.processInfo.environment["K8SECRET_UITEST_HOVERROW"] == hoverKey {
+                    hovering = true
+                }
+            }
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(
@@ -202,8 +209,8 @@ struct VNextRow: ViewModifier {
 }
 
 extension View {
-    func vnextRow(isSelected: Bool) -> some View {
-        modifier(VNextRow(isSelected: isSelected))
+    func vnextRow(isSelected: Bool, hoverKey: String? = nil) -> some View {
+        modifier(VNextRow(isSelected: isSelected, hoverKey: hoverKey))
     }
 
     /// The pane-level styling every vNext list column shares.

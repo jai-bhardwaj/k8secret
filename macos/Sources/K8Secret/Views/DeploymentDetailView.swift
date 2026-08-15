@@ -33,7 +33,6 @@ struct DeploymentDetailView: View {
     }
 
     enum DetailTab: String, CaseIterable { case overview = "Overview", events = "Events" }
-    @State private var tab: DetailTab = .overview
 
     @ViewBuilder
     private func deploymentDetail(_ dep: K8sDeployment) -> some View {
@@ -48,11 +47,11 @@ struct DeploymentDetailView: View {
 
             UnderlineTabBar(
                 tabs: DetailTab.allCases.map { ($0, $0.rawValue) },
-                selection: $tab
+                selection: Binding(get: { state.deploymentDetailTab }, set: { state.deploymentDetailTab = $0 })
             )
             .padding(.top, 6)
 
-            switch tab {
+            switch state.deploymentDetailTab {
             case .overview:
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {

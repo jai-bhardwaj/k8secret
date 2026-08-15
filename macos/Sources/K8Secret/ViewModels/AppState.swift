@@ -33,6 +33,12 @@ final class AppState {
     /// ⌘K overlay visibility — lives here so the palette can be summoned from
     /// menu commands and dismissed from anywhere.
     var paletteOpen = false
+    /// Sheet/tab state hoisted from the views so it survives selection changes
+    /// and can be driven by the debug tour (UITestTour).
+    var settingsOpen = false
+    var secretExportOpen = false
+    var podDetailTab: PodDetailView.DetailTab = .overview
+    var deploymentDetailTab: DeploymentDetailView.DetailTab = .overview
 
     // Data
     var namespaces: [K8sNamespace] = []
@@ -613,21 +619,41 @@ final class AppState {
             loadingDeployments = false
         case .pods:
             loadingPods = true
-            do {
-                // The watch does its own initial list, so take the version-bearing
-                // one here and hand it straight to the watcher rather than listing
-                // the namespace twice on every selection.
-                let page = try await client.listPodsWithVersion(namespace: ns.name)
-                if stillCurrent() { pods = page.pods }
-                if let metrics = try? await client.getPodMetrics(namespace: ns.name), stillCurrent() {
-                    podMetrics = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
+            if wasAll {
+                // All-namespaces: aggregate plain lists; the watch and metrics
+                // polling are per-namespace machinery and stay off in this
+                // scope — rows still refresh through the destination poll.
+                stopMetricsPolling()
+                do {
+                    let listed = try await listScoped { [client] in try await client.listPods(namespace: $0) }
+                    if stillCurrent() { pods = listed }
+                    var merged: [String: PodMetrics] = [:]
+                    for name in scopedNamespaceNames {
+                        if let metrics = try? await client.getPodMetrics(namespace: name) {
+                            for m in metrics { merged[m.name] = m }
+                        }
+                    }
+                    if stillCurrent() { podMetrics = merged }
                 }
+                catch { showToast("Failed to load pods: \(error.localizedDescription)", isError: true) }
+                loadingPods = false
+            } else {
+                do {
+                    // The watch does its own initial list, so take the version-bearing
+                    // one here and hand it straight to the watcher rather than listing
+                    // the namespace twice on every selection.
+                    let page = try await client.listPodsWithVersion(namespace: ns.name)
+                    if stillCurrent() { pods = page.pods }
+                    if let metrics = try? await client.getPodMetrics(namespace: ns.name), stillCurrent() {
+                        podMetrics = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
+                    }
+                }
+                catch { showToast("Failed to load pods: \(error.localizedDescription)", isError: true) }
+                loadingPods = false
+                // A manual refresh re-lists, but the watch is already delivering
+                // changes — restarting it would drop the stream and re-list again.
+                if restartWatch { startMetricsPolling() }
             }
-            catch { showToast("Failed to load pods: \(error.localizedDescription)", isError: true) }
-            loadingPods = false
-            // A manual refresh re-lists, but the watch is already delivering
-            // changes — restarting it would drop the stream and re-list again.
-            if restartWatch { startMetricsPolling() }
         case .services:
             stopMetricsPolling()
             loadingServices = true
