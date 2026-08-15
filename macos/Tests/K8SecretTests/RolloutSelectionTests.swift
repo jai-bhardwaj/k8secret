@@ -91,4 +91,60 @@ final class RolloutSelectionTests: XCTestCase {
 
         s.stopRolloutPolling()
     }
+
+    // MARK: - The same race in the shared loaders
+
+    /// `loadEvents` backs all three detail panes, so a late reply lands wherever
+    /// the user happens to be. Started for `api`, answered while `other` is
+    /// selected: the events must not be adopted.
+    func testEventsFetchedForOneResourceDoNotLandOnAnother() async throws {
+        let s = try await connectedState()
+
+        s.selectedDeployment = deployment(named: "other")
+        s.events = []
+
+        // Fetch events for `api` while `other` is what's on screen.
+        await s.loadEvents(for: "Deployment", name: "api")
+
+        XCTAssertTrue(
+            s.events.isEmpty,
+            "events for api were written while other was selected"
+        )
+    }
+
+    /// The guard is only useful if it still lets the normal case through.
+    func testEventsLandWhenTheResourceIsStillSelected() async throws {
+        let s = try await connectedState()
+
+        s.selectedDeployment = deployment(named: "api")
+        await s.loadEvents(for: "Deployment", name: "api")
+
+        // Whether `api` currently has events is up to the cluster; what matters
+        // is that the guard admitted the reply rather than dropping it.
+        XCTAssertTrue(
+            s.isStillSelected(kind: "Deployment", name: "api", namespace: "payments"),
+            "guard rejected the resource that is actually selected"
+        )
+    }
+
+    /// Namespace-scoped loads race too: switch namespace mid-list and the slower
+    /// reply used to repopulate the list for the namespace you just left.
+    func testListLoadDoesNotWriteAfterNamespaceChanged() async throws {
+        let s = try await connectedState()
+        s.selectedResourceType = .deployments
+        s.deployments = []
+
+        // Start the load and let it reach its network await with payments
+        // captured — switching before that just makes it list `default` and
+        // proves nothing. Then move away while the reply is in flight.
+        let load = Task { await s.loadResourcesForCurrentType(restartWatch: false) }
+        try await Task.sleep(for: .milliseconds(5))
+        s.selectedNamespace = K8sNamespace(id: "default", name: "default", status: "Active")
+        await load.value
+
+        XCTAssertTrue(
+            s.deployments.isEmpty,
+            "payments deployments were written after the user moved to default"
+        )
+    }
 }

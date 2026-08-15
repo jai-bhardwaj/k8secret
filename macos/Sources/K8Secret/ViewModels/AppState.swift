@@ -430,15 +430,21 @@ final class AppState {
 
     func loadResourcesForCurrentType(restartWatch: Bool = true) async {
         guard let ns = selectedNamespace else { return }
+        // Switching namespaces twice in quick succession leaves two loads racing,
+        // and the slower one wins by arriving last — the list then shows a
+        // namespace the sidebar says you left.
+        func stillCurrent() -> Bool { selectedNamespace?.name == ns.name }
         switch selectedResourceType {
         case .secrets:
             loadingSecrets = true
-            do { secrets = try await client.listSecrets(namespace: ns.name) }
+            do { let listed = try await client.listSecrets(namespace: ns.name)
+                 if stillCurrent() { secrets = listed } }
             catch { showToast("Failed to load secrets: \(error.localizedDescription)", isError: true) }
             loadingSecrets = false
         case .deployments:
             loadingDeployments = true
-            do { deployments = try await client.listDeployments(namespace: ns.name) }
+            do { let listed = try await client.listDeployments(namespace: ns.name)
+                 if stillCurrent() { deployments = listed } }
             catch { showToast("Failed to load deployments: \(error.localizedDescription)", isError: true) }
             loadingDeployments = false
         case .pods:
@@ -448,8 +454,8 @@ final class AppState {
                 // one here and hand it straight to the watcher rather than listing
                 // the namespace twice on every selection.
                 let page = try await client.listPodsWithVersion(namespace: ns.name)
-                pods = page.pods
-                if let metrics = try? await client.getPodMetrics(namespace: ns.name) {
+                if stillCurrent() { pods = page.pods }
+                if let metrics = try? await client.getPodMetrics(namespace: ns.name), stillCurrent() {
                     podMetrics = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
                 }
             }
@@ -461,7 +467,8 @@ final class AppState {
         case .services:
             stopMetricsPolling()
             loadingServices = true
-            do { services = try await client.listServices(namespace: ns.name) }
+            do { let listed = try await client.listServices(namespace: ns.name)
+                 if stillCurrent() { services = listed } }
             catch { showToast("Failed to load services: \(error.localizedDescription)", isError: true) }
             loadingServices = false
         }
@@ -483,6 +490,15 @@ final class AppState {
         loadingData = true
         do {
             let result = try await client.getSecretData(namespace: ns.name, name: secret.name)
+            // Decrypted values under the wrong name is the worst version of this
+            // race: click one secret while another's fetch is in flight and you
+            // were shown its contents as though they belonged to the one named on
+            // screen. `secretResourceVersion` is the save's precondition, so it
+            // has to describe the same secret as the values beside it.
+            guard isStillSelected(kind: "Secret", name: secret.name, namespace: ns.name) else {
+                loadingData = false
+                return
+            }
             secretData = result.items
             secretResourceVersion = result.resourceVersion
         } catch {
@@ -563,8 +579,15 @@ final class AppState {
         do {
             let data = try await client.getRawResource(path: apiPath)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            // Apply PUTs `rawYAML` back to `yamlResourcePath`. If a slower load
+            // lands after a newer one, those two describe different objects — so
+            // the editor would be showing one resource while aimed at another.
+            // The API server rejects a name mismatch, but the editor should never
+            // get into that state to begin with.
+            guard yamlResourcePath == apiPath else { return }
             rawYAML = YAMLSerializer.serialize(json)
         } catch {
+            guard yamlResourcePath == apiPath else { return }
             rawYAML = "# Error loading resource: \(error.localizedDescription)"
         }
         loadingYAML = false
@@ -696,6 +719,10 @@ final class AppState {
                       self.selectedResourceType == .pods else { break }
 
                 if let metrics = try? await self.client.getPodMetrics(namespace: ns.name) {
+                    // Namespace can change while this is in flight, and pod
+                    // metrics key on bare name — so one namespace's readings can
+                    // land against another's identically-named pods.
+                    guard !Task.isCancelled, self.selectedNamespace?.name == ns.name else { break }
                     let updated = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
                     if updated != self.podMetrics { self.podMetrics = updated }
                     self.lastUpdated = Date()
@@ -717,6 +744,7 @@ final class AppState {
                 do {
                     // Re-list to get a consistent snapshot plus the version to watch from.
                     let page = try await self.client.listPodsWithVersion(namespace: ns.name)
+                    guard !Task.isCancelled, self.selectedNamespace?.name == ns.name else { return }
                     self.pods = page.pods
                     self.reconcileSelectedPod()
                     self.lastUpdated = Date()
@@ -730,8 +758,15 @@ final class AppState {
                     }
 
                     try await self.client.watchPods(namespace: ns.name, resourceVersion: version) { event in
+                        // This hop is an unstructured Task, so it does not inherit
+                        // the watch's cancellation: events already in the callback
+                        // still ran after the watch was torn down, applying one
+                        // namespace's pod changes to whatever namespace had since
+                        // been opened. The namespace it was started for is the
+                        // only thing that makes it safe to apply.
                         Task { @MainActor [weak self] in
-                            self?.apply(event)
+                            guard let self, self.selectedNamespace?.name == ns.name else { return }
+                            self.apply(event)
                         }
                     }
                     // A watch ends normally when the server's timeout elapses; loop
@@ -1042,9 +1077,20 @@ final class AppState {
         guard let ns = selectedNamespace, let pod = selectedPod else { return }
         loadingLogs = true
         do {
-            podLogs = try await client.getPodLogs(namespace: ns.name, name: pod.name, container: container)
-            if podLogs.isEmpty { podLogs = "(no logs available)" }
+            let fetched = try await client.getPodLogs(namespace: ns.name, name: pod.name, container: container)
+            // Logs are the pane people read most carefully, so showing one pod's
+            // output under another's name is worth guarding even though the fetch
+            // is usually quick.
+            guard isStillSelected(kind: "Pod", name: pod.name, namespace: ns.name) else {
+                loadingLogs = false
+                return
+            }
+            podLogs = fetched.isEmpty ? "(no logs available)" : fetched
         } catch {
+            guard isStillSelected(kind: "Pod", name: pod.name, namespace: ns.name) else {
+                loadingLogs = false
+                return
+            }
             podLogs = "Error loading logs: \(error.localizedDescription)"
         }
         loadingLogs = false
@@ -1071,6 +1117,23 @@ final class AppState {
 
     // MARK: - Events
 
+    /// Whether `name` is still the selected resource of `kind`, in `namespace`.
+    ///
+    /// Every load has to ask this after its await. A request takes as long as it
+    /// takes and the user is free to click elsewhere meanwhile, so a reply that
+    /// arrives late describes a resource that may no longer be on screen —
+    /// writing it anyway puts one resource's data under another one's name.
+    func isStillSelected(kind: String, name: String, namespace: String) -> Bool {
+        guard selectedNamespace?.name ?? "default" == namespace else { return false }
+        switch kind {
+        case "Pod":        return selectedPod?.name == name
+        case "Deployment": return selectedDeployment?.name == name
+        case "Service":    return selectedService?.name == name
+        case "Secret":     return selectedSecret?.name == name
+        default:           return true   // cluster-scoped: nothing to race against
+        }
+    }
+
     func loadEvents(for kind: String, name: String) async {
         // Nodes are cluster-scoped, events are in default namespace
         let ns = selectedNamespace?.name ?? "default"
@@ -1079,6 +1142,10 @@ final class AppState {
                 namespace: ns,
                 fieldSelector: "involvedObject.name=\(name),involvedObject.kind=\(kind)"
             )
+            // The events pane belongs to whatever is selected now, which may not
+            // be what this fetch was for: clicking B while A's events are in
+            // flight used to land A's events under B.
+            guard isStillSelected(kind: kind, name: name, namespace: ns) else { return }
             // Assign only on a real change. This refetches every 5s while a detail
             // pane is open, and reassigning an identical array still invalidates
             // the view — the events list visibly reshuffled and lost scroll
