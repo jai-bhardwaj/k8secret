@@ -65,6 +65,15 @@ final class AppState {
     var deletions: Set<String> = []
     var additions: [String: String] = [:]
 
+    // Liveness
+    //
+    // Polling and watch failures were swallowed by `try?`, so a window could sit
+    // showing minutes-old data with a green "connected" dot and no way to tell.
+    // These let the UI say when data last arrived and whether updates are still
+    // flowing.
+    var lastUpdated: Date?
+    var liveUpdatesInterrupted = false
+
     // Loading states
     var loadingSecrets = false
     var loadingData = false
@@ -337,7 +346,33 @@ final class AppState {
         }
     }
 
-    func loadResourcesForCurrentType() async {
+    /// True while a list is being fetched *and* there is nothing to show yet.
+    ///
+    /// The loading flags used to drive a full-screen spinner unconditionally, so
+    /// every refresh — manual or automatic — replaced the list with a spinner and
+    /// then rebuilt it, losing scroll position and flashing the content. A refresh
+    /// of data that is already on screen should be invisible.
+    var isInitialLoad: Bool {
+        switch selectedResourceType {
+        case .secrets:     return loadingSecrets && secrets.isEmpty
+        case .deployments: return loadingDeployments && deployments.isEmpty
+        case .pods:        return loadingPods && pods.isEmpty
+        case .services:    return loadingServices && services.isEmpty
+        }
+    }
+
+    /// True while refreshing content that is already visible.
+    var isRefreshing: Bool {
+        let loading = switch selectedResourceType {
+        case .secrets:     loadingSecrets
+        case .deployments: loadingDeployments
+        case .pods:        loadingPods
+        case .services:    loadingServices
+        }
+        return loading && !isInitialLoad
+    }
+
+    func loadResourcesForCurrentType(restartWatch: Bool = true) async {
         guard let ns = selectedNamespace else { return }
         switch selectedResourceType {
         case .secrets:
@@ -364,7 +399,9 @@ final class AppState {
             }
             catch { showToast("Failed to load pods: \(error.localizedDescription)", isError: true) }
             loadingPods = false
-            startMetricsPolling()
+            // A manual refresh re-lists, but the watch is already delivering
+            // changes — restarting it would drop the stream and re-list again.
+            if restartWatch { startMetricsPolling() }
         case .services:
             stopMetricsPolling()
             loadingServices = true
@@ -549,13 +586,18 @@ final class AppState {
                       let dep = self.selectedDeployment,
                       let ns = self.selectedNamespace else { break }
 
-                // Fetch only the single deployment
+                // Fetch only the single deployment. Assign only on a real change:
+                // an identical value still invalidates every view reading it, so
+                // the detail pane rebuilt itself every 5 seconds while idle.
                 if let updated = try? await self.client.getDeployment(namespace: ns.name, name: dep.name) {
-                    self.selectedDeployment = updated
-                    // Update in the list too so the sidebar row stays in sync
-                    if let idx = self.deployments.firstIndex(where: { $0.id == updated.id }) {
+                    if updated != self.selectedDeployment {
+                        self.selectedDeployment = updated
+                    }
+                    if let idx = self.deployments.firstIndex(where: { $0.id == updated.id }),
+                       self.deployments[idx] != updated {
                         self.deployments[idx] = updated
                     }
+                    self.lastUpdated = Date()
                 }
 
                 // Refresh events silently
@@ -591,7 +633,9 @@ final class AppState {
                       self.selectedResourceType == .pods else { break }
 
                 if let metrics = try? await self.client.getPodMetrics(namespace: ns.name) {
-                    self.podMetrics = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
+                    let updated = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
+                    if updated != self.podMetrics { self.podMetrics = updated }
+                    self.lastUpdated = Date()
                 }
             }
         }
@@ -612,6 +656,8 @@ final class AppState {
                     let page = try await self.client.listPodsWithVersion(namespace: ns.name)
                     self.pods = page.pods
                     self.reconcileSelectedPod()
+                    self.lastUpdated = Date()
+                    self.liveUpdatesInterrupted = false
                     backoff = 1
 
                     guard let version = page.resourceVersion else {
@@ -632,6 +678,8 @@ final class AppState {
                     continue
                 } catch {
                     if Task.isCancelled { return }
+                    // Surface the gap rather than quietly showing stale rows.
+                    self.liveUpdatesInterrupted = true
                     try? await Task.sleep(for: .seconds(backoff))
                     backoff = min(30, backoff * 2)
                 }
@@ -641,6 +689,8 @@ final class AppState {
 
     /// Non-private so watch-event handling can be tested without a live cluster.
     func apply(_ event: K8sClient.PodWatchEvent) {
+        lastUpdated = Date()
+        liveUpdatesInterrupted = false
         switch event {
         case .added(let pod), .modified(let pod):
             if let idx = pods.firstIndex(where: { $0.id == pod.id }) {
@@ -681,13 +731,21 @@ final class AppState {
     func loadClusterMetrics() async {
         do {
             let m = try await client.getClusterMetrics()
-            clusterCPUPercent = m.cpuPercent
-            clusterMemPercent = m.memPercent
-            clusterCPUUsed = formatCPU(m.cpuUsed)
-            clusterCPUTotal = formatCPU(m.cpuTotal)
-            clusterMemUsed = formatMem(m.memUsedKi)
-            clusterMemTotal = formatMem(m.memTotalKi)
-        } catch { /* silently fail — metrics may not be available */ }
+            // Guarded so an unchanged reading doesn't invalidate the status bar.
+            if clusterCPUPercent != m.cpuPercent { clusterCPUPercent = m.cpuPercent }
+            if clusterMemPercent != m.memPercent { clusterMemPercent = m.memPercent }
+
+            let cpuUsed = formatCPU(m.cpuUsed), cpuTotal = formatCPU(m.cpuTotal)
+            let memUsed = formatMem(m.memUsedKi), memTotal = formatMem(m.memTotalKi)
+            if clusterCPUUsed != cpuUsed { clusterCPUUsed = cpuUsed }
+            if clusterCPUTotal != cpuTotal { clusterCPUTotal = cpuTotal }
+            if clusterMemUsed != memUsed { clusterMemUsed = memUsed }
+            if clusterMemTotal != memTotal { clusterMemTotal = memTotal }
+            lastUpdated = Date()
+        } catch {
+            // Metrics-server is optional; its absence is not a connection problem
+            // and must not be reported as one.
+        }
     }
 
     func startClusterMetricsPolling() {
@@ -902,25 +960,39 @@ final class AppState {
         // Nodes are cluster-scoped, events are in default namespace
         let ns = selectedNamespace?.name ?? "default"
         do {
-            events = try await client.getEvents(
+            let fetched = try await client.getEvents(
                 namespace: ns,
                 fieldSelector: "involvedObject.name=\(name),involvedObject.kind=\(kind)"
             )
+            // Assign only on a real change. This refetches every 5s while a detail
+            // pane is open, and reassigning an identical array still invalidates
+            // the view — the events list visibly reshuffled and lost scroll
+            // position twelve times a minute for no reason.
+            if fetched != events { events = fetched }
         } catch {
-            events = []
+            // A failed refresh should not erase events that are already on screen;
+            // only clear when there was nothing to preserve.
+            if events.isEmpty { events = [] }
         }
     }
 
     // MARK: - Refresh
 
     func refreshCurrentResource() async {
-        await loadResourcesForCurrentType()
-        // Re-select current item to refresh detail
-        if let dep = selectedDeployment {
-            if let updated = deployments.first(where: { $0.id == dep.id }) {
-                selectedDeployment = updated
-            }
+        await loadResourcesForCurrentType(restartWatch: false)
+
+        // Keep the detail pane pointing at the refreshed copy of whatever is open,
+        // matched by id — the value will have changed.
+        if let dep = selectedDeployment, let updated = deployments.first(where: { $0.id == dep.id }) {
+            selectedDeployment = updated
         }
+        if let pod = selectedPod, let updated = pods.first(where: { $0.id == pod.id }) {
+            selectedPod = updated
+        }
+        if let svc = selectedService, let updated = services.first(where: { $0.id == svc.id }) {
+            selectedService = updated
+        }
+        lastUpdated = Date()
     }
 
     func stageEdit(key: String, value: String) {
@@ -1088,14 +1160,21 @@ final class AppState {
         scheduleAutoLock()
     }
 
+    private var toastDismissTask: Task<Void, Never>?
+
     func showToast(_ message: String, isError: Bool = false) {
         toastMessage = message
         toastIsError = isError
-        Task {
+
+        // Matching on the message text meant two identical toasts in a row shared
+        // a dismissal — the second vanished on the first one's timer, after as
+        // little as a moment on screen. Cancelling the previous timer gives every
+        // toast its own full three seconds.
+        toastDismissTask?.cancel()
+        toastDismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
-            if toastMessage == message {
-                toastMessage = nil
-            }
+            guard !Task.isCancelled else { return }
+            self?.toastMessage = nil
         }
     }
 }

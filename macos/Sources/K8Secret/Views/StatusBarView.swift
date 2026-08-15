@@ -157,6 +157,44 @@ struct StatusBarView: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+
+            // Whether what is on screen is actually current.
+            //
+            // "Connected" only describes the last request that succeeded, so a
+            // window could sit on minutes-old rows behind a green dot with no way
+            // to tell. This says when data last arrived, and calls out a stream
+            // that has stopped delivering.
+            if case .connected = state.connectionState {
+                if state.liveUpdatesInterrupted {
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 8))
+                        Text("reconnecting")
+                            .font(.system(.caption2, design: .monospaced))
+                    }
+                    .foregroundStyle(.orange)
+                    .help("Live updates were interrupted and are being retried. Values may be out of date.")
+                    .accessibilityLabel("Live updates interrupted, reconnecting")
+                } else if let stamp = state.lastUpdated {
+                    Text(freshness(since: stamp))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .help("How long ago this view last received data")
+                        .accessibilityLabel("Last updated \(freshness(since: stamp))")
+                }
+            }
+        }
+    }
+
+    /// Re-rendered by the same updates that move `lastUpdated`, so it stays roughly
+    /// honest without a timer of its own.
+    private func freshness(since stamp: Date) -> String {
+        let seconds = Int(Date().timeIntervalSince(stamp))
+        switch seconds {
+        case ..<5:   return "live"
+        case ..<60:  return "\(seconds)s ago"
+        case ..<3600: return "\(seconds / 60)m ago"
+        default:     return "\(seconds / 3600)h ago"
         }
     }
 

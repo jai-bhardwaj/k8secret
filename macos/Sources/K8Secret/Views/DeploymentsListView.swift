@@ -13,7 +13,11 @@ struct DeploymentsListView: View {
                 } description: {
                     Text("Choose a namespace to view its deployments.")
                 }
-            } else if state.loadingDeployments {
+            } else if state.loadingDeployments && state.deployments.isEmpty {
+                // Only take over the view when there is nothing to show yet.
+                // Refreshing content that is already on screen stays in place; the
+                // spinner used to replace the list on every refresh, losing scroll
+                // position and flashing the rows.
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("Loading deployments...")
@@ -25,6 +29,18 @@ struct DeploymentsListView: View {
                 deploymentsList
             }
         }
+        // A refresh over existing content shows here instead of replacing the
+        // list, so the rows stay put and the work is still visible.
+        .overlay(alignment: .topTrailing) {
+            if state.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .transition(.opacity)
+                    .accessibilityLabel("Refreshing")
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: state.isRefreshing)
         .navigationTitle(state.selectedNamespace?.name ?? "Deployments")
     }
 
@@ -47,10 +63,14 @@ struct DeploymentsListView: View {
                 ContentUnavailableView.search(text: state.deploymentSearch)
             }
         }
-        .onChange(of: state.selectedDeployment) { _, newValue in
-            if let dep = newValue {
-                Task { await state.selectDeployment(dep) }
-            }
+        .onChange(of: state.selectedDeployment?.id) { _, _ in
+            // Keyed on id, not the whole value. Polling and the watch stream
+            // rewrite the selected object in place as its status changes, and
+            // reacting to that as if the user had clicked a different row reran
+            // selection — which clears the log pane and refetches events out from
+            // under someone who is reading them.
+            guard let dep = state.selectedDeployment else { return }
+            Task { await state.selectDeployment(dep) }
         }
     }
 }

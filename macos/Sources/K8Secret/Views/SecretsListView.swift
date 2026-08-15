@@ -13,7 +13,11 @@ struct SecretsListView: View {
                 } description: {
                     Text("Choose a namespace from the sidebar to view its secrets.")
                 }
-            } else if state.loadingSecrets {
+            } else if state.loadingSecrets && state.secrets.isEmpty {
+                // Only take over the view when there is nothing to show yet.
+                // Refreshing content that is already on screen stays in place; the
+                // spinner used to replace the list on every refresh, losing scroll
+                // position and flashing the rows.
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("Loading secrets...")
@@ -25,6 +29,18 @@ struct SecretsListView: View {
                 secretsList
             }
         }
+        // A refresh over existing content shows here instead of replacing the
+        // list, so the rows stay put and the work is still visible.
+        .overlay(alignment: .topTrailing) {
+            if state.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .transition(.opacity)
+                    .accessibilityLabel("Refreshing")
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: state.isRefreshing)
         .navigationTitle(state.selectedNamespace?.name ?? "Secrets")
     }
 
@@ -47,10 +63,14 @@ struct SecretsListView: View {
                 ContentUnavailableView.search(text: state.secretSearch)
             }
         }
-        .onChange(of: state.selectedSecret) { _, newValue in
-            if let secret = newValue {
-                Task { await state.selectSecret(secret) }
-            }
+        .onChange(of: state.selectedSecret?.id) { _, _ in
+            // Keyed on id, not the whole value. Polling and the watch stream
+            // rewrite the selected object in place as its status changes, and
+            // reacting to that as if the user had clicked a different row reran
+            // selection — which clears the log pane and refetches events out from
+            // under someone who is reading them.
+            guard let secret = state.selectedSecret else { return }
+            Task { await state.selectSecret(secret) }
         }
     }
 }
