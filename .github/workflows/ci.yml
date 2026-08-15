@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & test (macOS)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: macos/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('macos/Package.swift', 'macos/Sources/**/*.swift') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      # Warnings in this codebase have twice hidden real concurrency bugs, so they
+      # are treated as failures rather than noise.
+      - name: Build (warnings are errors)
+        run: swift build -c debug -Xswiftc -warnings-as-errors
+
+      - name: Test
+        run: swift test
+
+      - name: Build release binary
+        run: swift build -c release
+
+  release-integrity:
+    name: Release manifest integrity
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The installer and the in-app updater both refuse a release whose manifest
+      # has no sha256, so a manifest that drifts from its DMG would break updates
+      # for every user. Catch it here instead of after publishing.
+      - name: Verify latest.json checksum matches the published DMG
+        run: |
+          set -euo pipefail
+          MANIFEST=release/latest.json
+
+          URL="$(/usr/bin/sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" | head -n1)"
+          EXPECTED="$(/usr/bin/sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" | head -n1)"
+
+          if [[ ! "$EXPECTED" =~ ^[a-fA-F0-9]{64}$ ]]; then
+            echo "::error file=$MANIFEST::missing or malformed sha256"
+            exit 1
+          fi
+
+          case "$URL" in
+            https://github.com/jai-bhardwaj/k8secret/releases/download/*) ;;
+            *) echo "::error file=$MANIFEST::download URL is not a trusted release URL: $URL"; exit 1 ;;
+          esac
+
+          curl -fsSL "$URL" -o /tmp/release.dmg
+          ACTUAL="$(shasum -a 256 /tmp/release.dmg | awk '{print $1}')"
+
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error file=$MANIFEST::checksum mismatch — manifest says $EXPECTED, asset is $ACTUAL"
+            exit 1
+          fi
+          echo "✓ $URL matches the manifest checksum"
+
+  lint-scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y shellcheck
+          shellcheck release/install.sh macos/release/publish.sh
