@@ -1194,6 +1194,18 @@ actor K8sClient {
         do {
             let (data, response) = try await session.data(for: req)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                // A 401 right after we failed to build a client identity is not a
+                // credentials problem the user can fix by re-reading their token —
+                // say what actually happened.
+                if http.statusCode == 401, K8sTLSDelegate.clientCertificateUnavailable {
+                    throw K8sError.authFailed(
+                        "This cluster uses client-certificate authentication, which K8Secret "
+                        + "doesn't support — presenting a client certificate on macOS requires "
+                        + "storing your private key in a keychain, and K8Secret doesn't touch the "
+                        + "keychain. Use a token instead: "
+                        + "kubectl create token <serviceaccount>"
+                    )
+                }
                 let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
                 throw K8sError.requestFailed(http.statusCode, msg)
             }
@@ -1600,6 +1612,10 @@ actor K8sClient {
 // MARK: - TLS Delegate
 
 final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    /// Set when a client certificate was configured but no usable identity could be
+    /// built, so a 401 can say why instead of just "Unauthorized".
+    nonisolated(unsafe) static var clientCertificateUnavailable = false
+
     let caData: Data?
     let clientCertData: Data?
     let clientKeyData: Data?
@@ -1651,7 +1667,10 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             return
         }
 
-        guard let caCert = createCertificate(from: caData) else {
+        // A CA bundle may legitimately carry several certificates; all of them are
+        // anchors the user asked us to trust.
+        let caCerts = createCertificates(from: caData)
+        guard !caCerts.isEmpty else {
             // A CA was configured but we couldn't parse it. Refusing is the only
             // safe option: falling back to system roots would silently accept a
             // certificate the user never intended to trust.
@@ -1663,7 +1682,7 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         // hostname verification on by binding an SSL policy for the requested host.
         let policy = SecPolicyCreateSSL(true, challenge.protectionSpace.host as CFString)
         SecTrustSetPolicies(trust, policy)
-        SecTrustSetAnchorCertificates(trust, [caCert] as CFArray)
+        SecTrustSetAnchorCertificates(trust, caCerts as CFArray)
         SecTrustSetAnchorCertificatesOnly(trust, true)
 
         if SecTrustEvaluateWithError(trust, nil) {
@@ -1673,18 +1692,27 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         }
     }
 
-    /// Try to create a SecCertificate from base64-decoded PEM data
+    /// Every certificate in a PEM bundle, in order.
+    ///
+    /// `certificate-authority-data` and `client-certificate-data` routinely hold a
+    /// *chain* rather than a single certificate — k3s, colima and kubeadm all emit
+    /// leaf + issuing CA. Concatenating the base64 of every block into one blob (as
+    /// this used to) produces bytes that are not a valid certificate at all, so
+    /// parsing failed and the client silently presented nothing.
+    private func createCertificates(from data: Data) -> [SecCertificate] {
+        let blocks = pemBlocks(data)
+        if !blocks.isEmpty {
+            let certs = blocks.compactMap { SecCertificateCreateWithData(nil, $0 as CFData) }
+            if !certs.isEmpty { return certs }
+        }
+        // Not PEM — may already be raw DER.
+        if let cert = SecCertificateCreateWithData(nil, data as CFData) { return [cert] }
+        return []
+    }
+
+    /// The leaf certificate of a bundle.
     private func createCertificate(from data: Data) -> SecCertificate? {
-        // First try: data is PEM, convert to DER
-        let der = pemToDER(data)
-        if let cert = SecCertificateCreateWithData(nil, der as CFData) {
-            return cert
-        }
-        // Second try: data might already be DER
-        if let cert = SecCertificateCreateWithData(nil, data as CFData) {
-            return cert
-        }
-        return nil
+        createCertificates(from: data).first
     }
 
     private func handleClientCert(
@@ -1708,61 +1736,139 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         }
     }
 
+    /// Build a client-certificate identity without ever prompting the user.
+    ///
+    /// macOS forms a `SecIdentity` only from a keychain-resident key, so a keychain
+    /// is unavoidable — but it is a throwaway created for this process, never the
+    /// login keychain, and it is deleted on quit (see `TransientKeychain`).
+    ///
+    /// The route matters. `SecItemAdd` of a `SecKeyCreateWithData` key into a
+    /// file-based keychain now fails with `errSecParam` — the approach v0.3.4 used,
+    /// which stopped working on a later macOS — and `SecIdentityCreateWithCertificate`
+    /// wanders into the login keychain and prompts when it finds nothing. What does
+    /// work is importing a PKCS#12 with the destination keychain named explicitly:
+    /// it returns the identity directly, with no prompt and nothing left behind.
     private func createIdentity(certPEM: Data, keyPEM: Data) -> SecIdentity? {
-        let certDER = pemToDER(certPEM)
-        let keyDER = pemToDER(keyPEM)
+        if let cached = Self.cachedIdentity { return cached }
 
-        guard let cert = SecCertificateCreateWithData(nil, certDER as CFData) else { return nil }
-
-        // Build the private key in memory — try RSA, then EC. Keeping the key
-        // in-memory and out of the login keychain is the path that never
-        // prompted before v0.5.2 introduced the openssl/PKCS12 import.
-        var privateKey: SecKey?
-        for keyType in [kSecAttrKeyTypeRSA, kSecAttrKeyTypeECSECPrimeRandom] {
-            let attrs: [String: Any] = [
-                kSecAttrKeyType as String: keyType,
-                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-            ]
-            if let key = SecKeyCreateWithData(keyDER as CFData, attrs as CFDictionary, nil) {
-                privateKey = key
-                break
-            }
-        }
-        guard let privateKey else { return nil }
-
-        // A SecIdentity can only be formed from a keychain-resident key, so add
-        // the cert + key to the per-process temp keychain — never the login
-        // keychain (see TempKeychain). Pairing is by public-key match, so no
-        // labels are needed and concurrent clusters can't collide.
-        guard let tempKC = TempKeychain.shared.get() else { return nil }
-
-        // errSecDuplicateItem here is fine — a prior handshake already added it.
-        SecItemAdd([
-            kSecClass as String: kSecClassCertificate,
-            kSecValueRef as String: cert,
-            kSecUseKeychain as String: tempKC,
-        ] as CFDictionary, nil)
-        SecItemAdd([
-            kSecClass as String: kSecClassKey,
-            kSecValueRef as String: privateKey,
-            kSecUseKeychain as String: tempKC,
-        ] as CFDictionary, nil)
-
-        var identity: SecIdentity?
-        guard SecIdentityCreateWithCertificate([tempKC] as CFArray, cert, &identity) == errSecSuccess else {
+        guard let keychain = TransientKeychain.shared.get(),
+              let bundle = Self.buildPKCS12(certPEM: certPEM, keyPEM: keyPEM) else {
+            Self.clientCertificateUnavailable = true
             return nil
         }
+
+        var options: [String: Any] = [
+            kSecImportExportPassphrase as String: bundle.passphrase,
+            kSecImportExportKeychain as String: keychain,
+        ]
+        // Grant "any application" so macOS never challenges for the keychain
+        // password. Safe because this keychain is process-private, randomly named
+        // and keyed, absent from the search list, and deleted on quit.
+        if let access = TransientKeychain.shared.promptlessAccess(label: "K8Secret client certificate") {
+            options[kSecImportExportAccess as String] = access
+        }
+
+        var items: CFArray?
+        guard SecPKCS12Import(bundle.data as CFData, options as CFDictionary, &items) == errSecSuccess,
+              let entries = items as? [[String: Any]],
+              let identityRef = entries.first?[kSecImportItemIdentity as String] else {
+            Self.clientCertificateUnavailable = true
+            return nil
+        }
+
+        let identity = identityRef as! SecIdentity
+        Self.cachedIdentity = identity
         return identity
     }
 
-    /// Convert PEM-encoded data to raw DER bytes.
+    /// Built once per process — the conversion forks a subprocess, and the
+    /// credentials do not change while the app is running.
+    nonisolated(unsafe) private static var cachedIdentity: SecIdentity?
+
+    /// Convert a PEM certificate + key into a PKCS#12 blob.
+    ///
+    /// Security has no API to assemble one, so this uses the `openssl` that ships
+    /// with macOS. The key is the credential for the whole cluster, so it is staged
+    /// in a private `0700` directory with `0600` files, the passphrase is random and
+    /// single-use, and it is passed through the environment rather than argv —
+    /// argv is world-readable via `ps`.
+    private static func buildPKCS12(certPEM: Data, keyPEM: Data) -> (data: Data, passphrase: String)? {
+        let staging = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("k8secret-identity-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+
+        guard (try? FileManager.default.createDirectory(
+            at: staging,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )) != nil else { return nil }
+
+        let certPath = staging.appendingPathComponent("client.pem").path
+        let keyPath = staging.appendingPathComponent("client-key.pem").path
+        let p12Path = staging.appendingPathComponent("identity.p12").path
+
+        var randomBytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes) == errSecSuccess else {
+            return nil
+        }
+        let passphrase = Data(randomBytes).base64EncodedString()
+
+        let ownerOnly: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
+        guard FileManager.default.createFile(atPath: certPath, contents: certPEM, attributes: ownerOnly),
+              FileManager.default.createFile(atPath: keyPath, contents: keyPEM, attributes: ownerOnly) else {
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        process.arguments = ["pkcs12", "-export", "-out", p12Path,
+                             "-inkey", keyPath, "-in", certPath,
+                             "-passout", "env:K8SECRET_P12_PASS"]
+        process.environment = ["K8SECRET_P12_PASS": passphrase]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: p12Path)) else { return nil }
+        return (data, passphrase)
+    }
+
+    /// Each PEM block decoded to its own DER blob, preserving order.
+    ///
+    /// Splitting on the BEGIN/END markers is the whole point: a bundle's blocks are
+    /// separate DER documents and must not be run together.
+    private func pemBlocks(_ data: Data) -> [Data] {
+        guard let pem = String(data: data, encoding: .utf8), pem.contains("-----BEGIN") else {
+            return []
+        }
+
+        var blocks: [Data] = []
+        var current: [String] = []
+        var inBlock = false
+
+        for rawLine in pem.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("-----BEGIN") {
+                inBlock = true
+                current = []
+            } else if line.hasPrefix("-----END") {
+                if inBlock, let der = Data(base64Encoded: current.joined()) {
+                    blocks.append(der)
+                }
+                inBlock = false
+                current = []
+            } else if inBlock, !line.isEmpty {
+                current.append(line)
+            }
+        }
+        return blocks
+    }
+
+    /// Convert PEM-encoded data to raw DER bytes, taking the *first* block.
     /// If the data is already raw DER (no PEM headers), returns it unchanged.
     private func pemToDER(_ data: Data) -> Data {
-        guard let pem = String(data: data, encoding: .utf8) else { return data }
-        let lines = pem.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("-----") }
-        let base64 = lines.joined()
-        return Data(base64Encoded: base64) ?? data
+        pemBlocks(data).first ?? data
     }
 }

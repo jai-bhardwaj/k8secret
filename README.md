@@ -83,7 +83,9 @@ K8Secret currently ships **ad-hoc signed and not notarized** — the installer s
 - A working `~/.kube/config` with at least one context
 - `kubectl` in your `PATH` if you want port-forwarding (K8Secret looks at `/usr/local/bin/kubectl`, `/opt/homebrew/bin/kubectl`, then falls back to `kubectl` on `PATH`)
 
-K8Secret reads kubeconfig directly — token auth, client certs, and `exec` credential plugins (e.g. AWS IAM Authenticator, `gke-gcloud-auth-plugin`) all work.
+K8Secret reads kubeconfig directly — token auth, client certificates, and `exec` credential plugins (e.g. AWS IAM Authenticator, `gke-gcloud-auth-plugin`) all work. `KUBECONFIG` is honoured, including a colon-separated list, which is merged the way kubectl merges it. Certificates and keys are read whether they're inline (`-data`) or file paths, and EC keys are supported as well as RSA — which covers what k3s, colima, kind and kubeadm write.
+
+Client-certificate clusters need a keychain, because macOS will only present a certificate from a keychain-resident key. K8Secret never touches your login keychain: it creates a throwaway keychain in the temp directory, with a random name and password, that is never added to your keychain search list and is deleted when the app quits. **You are never asked for a keychain password.**
 
 ---
 
