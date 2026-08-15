@@ -254,7 +254,7 @@ struct DeploymentDetailView: View {
                     .accessibilityLabel("Scale down one replica")
                     .disabled(dep.replicas <= 0 || state.scaling)
 
-                    Text("\(dep.replicas)")
+                    Text(verbatim: "\(dep.replicas)")
                         .font(.system(.title2, design: .monospaced, weight: .bold))
                         .frame(minWidth: 40)
 
@@ -275,7 +275,7 @@ struct DeploymentDetailView: View {
 
     private func replicaStat(_ label: String, value: Int, color: Color) -> some View {
         VStack(spacing: 2) {
-            Text("\(value)")
+            Text(verbatim: "\(value)")
                 .font(.system(.title3, design: .monospaced, weight: .bold))
                 .foregroundStyle(color)
             Text(label)
@@ -427,7 +427,7 @@ struct EventsSectionView: View {
                     Text(event.reason)
                         .font(.system(.callout, design: .monospaced, weight: .medium))
                     if event.count > 1 {
-                        Text("×\(event.count)")
+                        Text(verbatim: "×\(event.count)")
                             .font(.system(.caption, design: .monospaced, weight: .bold))
                             .foregroundStyle(.orange)
                     }

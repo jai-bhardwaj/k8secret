@@ -219,7 +219,7 @@ struct PodDetailView: View {
             VStack(alignment: .trailing, spacing: 3) {
                 containerStateBadge(container)
                 if container.restarts > 0 {
-                    Text("\(container.restarts) restarts")
+                    Text(verbatim: "\(container.restarts) restarts")
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(container.restarts > 3 ? .red : .orange)
                 }
@@ -531,7 +531,7 @@ struct PodDetailView: View {
                 HStack(spacing: 8) {
                     if let r = pctR {
                         HStack(spacing: 2) {
-                            Text("\(r)%")
+                            Text(verbatim: "\(r)%")
                                 .foregroundStyle(r > 90 ? .red : r > 70 ? .orange : .green)
                             Text("req")
                                 .foregroundStyle(.tertiary)
@@ -539,7 +539,7 @@ struct PodDetailView: View {
                     }
                     if let l = pctL {
                         HStack(spacing: 2) {
-                            Text("\(l)%")
+                            Text(verbatim: "\(l)%")
                                 .foregroundStyle(l > 90 ? .red : l > 70 ? .orange : .green)
                             Text("lim")
                                 .foregroundStyle(.tertiary)

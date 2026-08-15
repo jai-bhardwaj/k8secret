@@ -152,7 +152,7 @@ struct PodRow: View {
 
             if pod.restarts > 0 {
                 HStack(spacing: 3) {
-                    Text("\(pod.restarts)")
+                    Text(verbatim: "\(pod.restarts)")
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 9))
                 }
@@ -161,7 +161,7 @@ struct PodRow: View {
 
             if pod.containers.count > 1 {
                 HStack(spacing: 3) {
-                    Text("\(pod.containers.count)")
+                    Text(verbatim: "\(pod.containers.count)")
                     Image(systemName: "shippingbox")
                         .font(.system(size: 9))
                 }
@@ -247,8 +247,12 @@ struct PodRow: View {
     }
 
     private var phaseBadge: some View {
+        // Short words like "Running"/"Succeeded" were free to hyphenate in a
+        // narrow column, same as the service type badge did.
         Text(pod.phase)
             .font(.system(.caption2, design: .monospaced, weight: .medium))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(phaseColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)

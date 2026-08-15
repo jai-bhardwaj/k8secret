@@ -64,7 +64,7 @@ struct BulkImportSheet: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     if !input.isEmpty {
-                        Text("\(input.components(separatedBy: "\n").count) lines")
+                        Text(verbatim: "\(input.components(separatedBy: "\n").count) lines")
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
@@ -89,7 +89,7 @@ struct BulkImportSheet: View {
             // Preview
             if !parsedPairs.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("PREVIEW (\(parsedPairs.count) keys)")
+                    Text(verbatim: "PREVIEW (\(parsedPairs.count) keys)")
                         .font(.system(.caption, design: .monospaced, weight: .bold))
                         .foregroundStyle(.secondary)
 

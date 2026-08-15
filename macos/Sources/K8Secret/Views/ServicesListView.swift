@@ -97,13 +97,19 @@ struct ServiceRow: View {
                 Text(service.name)
                     .font(.system(.body, design: .monospaced, weight: .medium))
                     .lineLimit(1)
+                    .truncationMode(.middle)
 
+                // Both of these lacked a line limit, so in a narrow column an IP
+                // wrapped character by character — 10.43.166.49 rendered as three
+                // stacked fragments with the port interleaved between them.
                 HStack(spacing: 8) {
                     // Cluster IP
                     if service.clusterIP != "None" {
                         Text(service.clusterIP)
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
 
                     // Ports summary
@@ -114,6 +120,7 @@ struct ServiceRow: View {
                             .lineLimit(1)
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
@@ -124,7 +131,9 @@ struct ServiceRow: View {
                 Text(service.age)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
+            .fixedSize()
         }
         .padding(.vertical, 4)
     }
@@ -140,8 +149,11 @@ struct ServiceRow: View {
     }
 
     private var typeBadge: some View {
+        // "ClusterIP" was being hyphenated across two lines as "Clus-terIP".
         Text(service.type)
             .font(.system(.caption2, design: .monospaced, weight: .medium))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(typeColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)

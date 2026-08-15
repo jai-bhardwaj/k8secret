@@ -99,7 +99,7 @@ struct SecretDetailView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear search")
 
-                    Text("\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
+                    Text(verbatim: "\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -200,7 +200,7 @@ struct SecretDetailView: View {
             Image(systemName: "pencil.circle.fill")
                 .foregroundStyle(.orange)
 
-            Text("\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
+            Text(verbatim: "\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
                 .font(.system(.callout, design: .default, weight: .medium))
 
             if !state.modifications.isEmpty {
@@ -492,7 +492,7 @@ struct EditSheet: View {
                         .font(.system(.caption, design: .monospaced, weight: .bold))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text("\(value.count) chars")
+                    Text(verbatim: "\(value.count) chars")
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
@@ -588,7 +588,7 @@ struct AddKeySheet: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     if !value.isEmpty {
-                        Text("\(value.count) chars")
+                        Text(verbatim: "\(value.count) chars")
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }

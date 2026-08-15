@@ -111,7 +111,7 @@ struct DeploymentRow: View {
                     HStack(spacing: 3) {
                         Image(systemName: "square.stack.3d.up.fill")
                             .font(.system(size: 9))
-                        Text("\(deployment.readyReplicas)/\(deployment.replicas)")
+                        Text(verbatim: "\(deployment.readyReplicas)/\(deployment.replicas)")
                     }
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(deployment.readyReplicas == deployment.replicas ? .green : .orange)
@@ -130,8 +130,11 @@ struct DeploymentRow: View {
 
             // Strategy + Age
             VStack(alignment: .trailing, spacing: 4) {
+                // "RollingUpdate" is long enough to hyphenate in a narrow column.
                 Text(deployment.strategy)
                     .font(.system(.caption2, design: .monospaced))
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)

@@ -177,7 +177,7 @@ struct LogStreamWindow: View {
                         Text(level.rawValue)
                             .font(.system(.caption2, design: .monospaced, weight: .medium))
                         if count > 0 {
-                            Text("\(count)")
+                            Text(verbatim: "\(count)")
                                 .font(.system(.caption2, design: .monospaced, weight: .bold))
                                 .foregroundStyle(level.color)
                         }
@@ -236,12 +236,12 @@ struct LogStreamWindow: View {
             Rectangle().fill(.quaternary).frame(width: 1, height: 12)
 
             // Line count
-            Text("\(state.filteredLines.count) lines")
+            Text(verbatim: "\(state.filteredLines.count) lines")
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
 
             if state.filteredLines.count != state.lines.count {
-                Text("(\(state.lines.count) total)")
+                Text(verbatim: "(\(state.lines.count) total)")
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }

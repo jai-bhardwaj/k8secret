@@ -292,7 +292,7 @@ struct StatusBarView: View {
                     Image(systemName: "bolt.horizontal.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.green)
-                    Text("\(activeCount)")
+                    Text(verbatim: "\(activeCount)")
                         .font(.system(.caption2, design: .monospaced, weight: .bold))
                         .foregroundStyle(.green)
                 }
@@ -319,7 +319,7 @@ struct StatusBarView: View {
                     .frame(width: 40 * CGFloat(min(percent, 100)) / 100, height: 4)
             }
 
-            Text("\(percent)%")
+            Text(verbatim: "\(percent)%")
                 .font(.system(.caption2, design: .monospaced, weight: .semibold))
                 .foregroundStyle(gaugeColor(percent))
                 .frame(width: 28, alignment: .trailing)

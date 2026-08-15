@@ -28,7 +28,7 @@ struct UpdateBannerView: View {
                     if checker.downloading {
                         ProgressView(value: checker.downloadProgress)
                             .frame(width: 100)
-                        Text("\(Int(checker.downloadProgress * 100))%")
+                        Text(verbatim: "\(Int(checker.downloadProgress * 100))%")
                             .font(.system(.caption2, design: .monospaced, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 32, alignment: .trailing)

@@ -139,7 +139,7 @@ struct ServiceDetailView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Circle().fill(.green).frame(width: 6, height: 6)
-                            Text("localhost:\(fwd.localPort)")
+                            Text(verbatim: "localhost:\(fwd.localPort)")
                                 .font(.system(.caption, design: .monospaced, weight: .semibold))
                         }
                         .padding(.horizontal, 10)
@@ -366,7 +366,7 @@ struct ServiceDetailView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Circle().fill(.green).frame(width: 5, height: 5)
-                        Text(":\(existing?.localPort ?? 0)")
+                        Text(verbatim: ":\(existing?.localPort ?? 0)")
                             .font(.system(.caption2, design: .monospaced, weight: .semibold))
                     }
                 }
