@@ -1,8 +1,8 @@
 {
-  "version": "0.5.7",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.7/K8Secret-0.5.7.dmg",
-  "notes": "Security and reliability release.\n\nTLS verification now fails closed — a server certificate that doesn't chain to the CA in your kubeconfig is refused instead of trusted. Updates are verified against a published SHA-256 before anything is mounted or installed. Secret values are masked by default, copied to a concealed clipboard that self-clears, and saved as a single atomic merge-patch conditional on resourceVersion. Client-certificate auth works again (cert chains and EC keys) with no keychain prompts. Pods stay live via a watch stream instead of polling. Universal binary for Intel and Apple Silicon. 137 tests and CI, from zero.",
+  "version": "0.5.8",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.5.8/K8Secret-0.5.8.dmg",
+  "notes": "An interface release. 0.5.7 hardened how K8Secret talks to your cluster; this one fixes how it behaves while you use it.\n\nLive updates no longer fight you: pod logs stay put instead of clearing themselves mid-read, and a status change no longer reads as you clicking a different row. Replica counts can be typed instead of clicked one at a time, with a Stop button for scaling to zero, and the steppers now count from the number on screen rather than the cluster's last report. A confirmation dialog can no longer be replaced before you answer it, so nothing acts on a request you never read.\n\nText renders in full: namespace names, cluster IPs and ports no longer truncate or wrap character by character, and ports are identifiers again rather than quantities with thousands separators. First launch gives you a readable sidebar and a content column that fits its own text.\n\nSpurious keychain password prompts are gone. Keychains left behind by a crash or force-quit are now cleaned up properly, and a second window can no longer pull the keychain out from under a running one. Saves show a spinner while they reach your cluster, and animations honour Reduce Motion.",
   "minOS": "14.0",
   "date": "2026-08-15",
-  "sha256": "8352e596cea96d3643d03796239aa9de5b61f6fb0750c146d68132cfeb803697"
+  "sha256": "d6e96ec51b615b41f380b4d8283ad221c0f77cc82dbd497b4bd1ddcde5fea1d8"
 }
