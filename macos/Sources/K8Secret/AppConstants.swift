@@ -1,7 +1,7 @@
 import Foundation
 
 enum AppConstants {
-    static let version = "0.5.6"
+    static let version = "0.5.7"
     static let appName = "K8Secret"
 
     // Auto-update: release manifest served from the repo via GitHub raw.
