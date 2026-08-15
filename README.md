@@ -32,7 +32,11 @@ ClusterIP, ports, selectors. Click **Port Forward** and K8Secret picks a free lo
 
 ### Secrets — view, edit, bulk import/export
 
-The killer feature. Stop copy-pasting `kubectl get secret -o yaml | base64 -d`. K8Secret decodes and displays Opaque secrets as plain key/value pairs, with edit-in-place, search, and reveal-on-click.
+The killer feature. Stop copy-pasting `kubectl get secret -o yaml | base64 -d`. K8Secret decodes Opaque secrets into plain key/value pairs, with edit-in-place and search.
+
+Values are **masked by default** and revealed one at a time, so opening a namespace on a shared screen doesn't expose everything in it. Copying a value marks the clipboard item as concealed — clipboard managers skip it and it isn't synced by Universal Clipboard — and clears it after 45 seconds.
+
+Edits are staged locally and applied as a **single atomic merge-patch**: either every change lands or none does. The write is conditional on the `resourceVersion` the secret was read at, so if someone else edited it in the meantime you get a conflict instead of silently clobbering their change.
 
 ![Secret detail](docs/screenshots/09-secret-detail.png)
 
@@ -62,7 +66,14 @@ curl -fsSL https://raw.githubusercontent.com/jai-bhardwaj/k8secret/main/release/
 
 Or grab the `.dmg` manually from the [latest GitHub release](https://github.com/jai-bhardwaj/k8secret/releases/latest), or look up the version + URL via the [release manifest](https://raw.githubusercontent.com/jai-bhardwaj/k8secret/main/release/latest.json).
 
-K8Secret ships **ad-hoc signed**, not notarized — the installer strips the quarantine bit so it launches without a Gatekeeper prompt. If you build from source, you'll need to do the same (see [Building](#building-from-source)).
+The installer verifies the DMG's **SHA-256 against the signed release manifest** before mounting it, and refuses to install on a mismatch. If you download manually, check it yourself:
+
+```bash
+shasum -a 256 K8Secret-*.dmg
+# compare against the "sha256" field in release/latest.json
+```
+
+K8Secret currently ships **ad-hoc signed and not notarized** — the installer strips the quarantine bit so it launches without a Gatekeeper prompt. That means you are trusting the checksum chain above rather than Apple's notarization. Notarization with a Developer ID is the intended fix; until then, if that tradeoff isn't acceptable for your environment, build from source (see [Building](#building-from-source)).
 
 ---
 
@@ -82,12 +93,13 @@ K8Secret reads kubeconfig directly — token auth, client certs, and `exec` cred
 git clone https://github.com/jai-bhardwaj/k8secret.git
 cd k8secret/macos
 swift build -c release
+swift test          # unit tests
 ```
 
 The binary lands at `.build/arm64-apple-macosx/release/K8Secret`. To produce a runnable `.app` bundle, copy the binary into `build/K8Secret.app/Contents/MacOS/k8secret` and ad-hoc sign:
 
 ```bash
-codesign --force --deep --sign - build/K8Secret.app
+codesign --force --sign - build/K8Secret.app
 ```
 
 A complete release pipeline (DMG creation, version bump, GitHub release upload via `gh` CLI) is in [`macos/release/publish.sh`](macos/release/publish.sh). The public installer + manifest live at the repo root in [`release/`](release/) so they're shared across future platforms.
@@ -96,7 +108,13 @@ A complete release pipeline (DMG creation, version bump, GitHub release upload v
 
 ## Auto-updates
 
-K8Secret checks `latest.json` on launch and shows an in-app banner when a new version is available. Updates apply with a single click — the app downloads the DMG, mounts it, swaps `K8Secret.app` in `/Applications`, and relaunches.
+K8Secret checks `latest.json` on launch and shows an in-app banner when a new version is available. Updates apply with a single click — the app downloads the DMG, verifies it, swaps `K8Secret.app` in `/Applications`, and relaunches.
+
+Before anything is mounted or installed, the updater:
+
+1. requires the download URL to be **HTTPS on a known GitHub release host** (the manifest is remote data, so its `url` is treated as untrusted input),
+2. requires the manifest to publish a **SHA-256**, and refuses the update if it's missing,
+3. **verifies the downloaded DMG against that digest** and aborts on any mismatch.
 
 You can disable update checks by removing `AppConstants.updateManifestURL` in source — there's no setting toggle yet.
 
@@ -107,6 +125,7 @@ You can disable update checks by removing `AppConstants.updateManifestURL` in so
 ```
 macos/                          # the macOS app (the current product)
 ├── Package.swift               # SwiftPM manifest
+├── Tests/K8SecretTests/        # unit tests (swift test)
 ├── Sources/K8Secret/
 │   ├── K8SecretApp.swift       # @main entry, scene config
 │   ├── Models/
@@ -141,6 +160,15 @@ K8Secret runs entirely on your machine. The only outbound network calls are:
 3. **`github.com`** — to download new versions when one is available
 
 No telemetry, no analytics, no crash reporting. Secrets never leave your laptop.
+
+## Security
+
+- **TLS is verified, and fails closed.** The API server's certificate is evaluated against the CA in your kubeconfig, with hostname verification on. If the chain doesn't validate, the connection is refused rather than downgraded. The only way to skip verification is to set `insecure-skip-tls-verify: true` on that cluster yourself.
+- **App Transport Security is on.** Plaintext HTTP is permitted only for local networking, so `kubectl proxy` and local clusters still work.
+- **Client keys stay private.** When a kubeconfig uses client-certificate auth, the key is staged in a `0700` directory with `0600` files and a single-use passphrase passed via the environment, never via `argv`.
+- **Credential plugins are cached.** `exec` credentials (EKS, GKE, AKS) are reused until just before they expire instead of being re-fetched on every request.
+
+Known gaps, tracked and not yet closed: the app is **not notarized**, and secret values are held in memory as ordinary Swift strings (so they can reach swap). See the audit notes in the repo for the full list.
 
 ---
 
