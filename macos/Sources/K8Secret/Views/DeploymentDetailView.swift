@@ -39,7 +39,7 @@ struct DeploymentDetailView: View {
                 headerSection(dep)
 
                 // Rollout progress bar
-                if state.rollingOut {
+                if state.showsRolloutBanner {
                     rolloutBanner
                 }
 

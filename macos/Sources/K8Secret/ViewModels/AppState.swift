@@ -86,6 +86,17 @@ final class AppState {
     var scaling = false
     var rollingOut = false
     var rolloutProgress: String = ""
+    /// Which deployment the rollout poll is watching. A rollout outlives the
+    /// user's attention — they can scale one deployment and go look at another —
+    /// so progress has to say who it belongs to rather than being read as
+    /// belonging to whatever happens to be selected.
+    var rolloutDeploymentId: String?
+
+    /// Whether the rollout banner belongs on screen right now: something is
+    /// rolling out *and* it is the deployment being looked at.
+    var showsRolloutBanner: Bool {
+        rollingOut && rolloutDeploymentId != nil && rolloutDeploymentId == selectedDeployment?.id
+    }
 
     // Polling
     private var pollTask: Task<Void, Never>?
@@ -635,6 +646,13 @@ final class AppState {
                 // an identical value still invalidates every view reading it, so
                 // the detail pane rebuilt itself every 5 seconds while idle.
                 if let updated = try? await self.client.getDeployment(namespace: ns.name, name: dep.name) {
+                    // The fetch above is a suspension point: the user can select
+                    // a different deployment while it is in flight, and this task
+                    // is cancelled but not stopped mid-await. Without this check
+                    // the reply for the old deployment lands on the new one's
+                    // selection — the same theft the rollout poll used to commit,
+                    // just one tick wide instead of three minutes.
+                    if Task.isCancelled || self.selectedDeployment?.id != dep.id { break }
                     if updated != self.selectedDeployment {
                         self.selectedDeployment = updated
                     }
@@ -906,6 +924,7 @@ final class AppState {
     func startRolloutPolling(deploymentId: String) {
         stopRolloutPolling()
         rollingOut = true
+        rolloutDeploymentId = deploymentId
         rolloutProgress = "Waiting for rollout to begin..."
 
         // Extract namespace and name from the id (format: "ns/name")
@@ -933,14 +952,26 @@ final class AppState {
                     continue
                 }
 
-                // Update the selected deployment and its entry in the list
-                self.selectedDeployment = updated
+                // The list row is this deployment's own, so it always updates.
                 if let idx = self.deployments.firstIndex(where: { $0.id == deploymentId }) {
                     self.deployments[idx] = updated
                 }
 
-                // Silently refresh events (no loading state)
-                await self.loadEvents(for: "Deployment", name: depName)
+                // Selection and the events pane belong to whoever is being looked
+                // at, which may no longer be this deployment: a rollout runs for
+                // up to three minutes and the user is free to click away during
+                // it. Writing them unconditionally dragged the selection back to
+                // the scaling deployment every tick, and since the list observes
+                // selection by id, that re-ran selection and reloaded its events
+                // — the user could not stay on another deployment at all.
+                let stillSelected = self.selectedDeployment?.id == deploymentId
+                if stillSelected {
+                    if updated != self.selectedDeployment {
+                        self.selectedDeployment = updated
+                    }
+                    // Silently refresh events (no loading state)
+                    await self.loadEvents(for: "Deployment", name: depName)
+                }
 
                 // Build progress text
                 self.rolloutProgress = "\(updated.readyReplicas)/\(updated.replicas) ready · \(updated.updatedReplicas)/\(updated.replicas) updated · \(updated.availableReplicas)/\(updated.replicas) available"
@@ -962,7 +993,10 @@ final class AppState {
 
                 if isComplete && (sawProgressing || tick >= 3) {
                     self.rolloutProgress = "Rollout complete"
-                    self.showToast("Rollout complete — all \(updated.replicas) replicas ready")
+                    // Names the deployment: the toast can land while the user is
+                    // looking at a different one, where "all 10 replicas ready"
+                    // alone reads as being about whatever is on screen.
+                    self.showToast("\(depName): rollout complete — all \(updated.replicas) replicas ready")
                     // Keep the banner visible briefly so user sees "complete"
                     try? await Task.sleep(for: .seconds(3))
                     break
@@ -993,6 +1027,7 @@ final class AppState {
         pollTask = nil
         rollingOut = false
         rolloutProgress = ""
+        rolloutDeploymentId = nil
     }
 
     // MARK: - Pod actions
