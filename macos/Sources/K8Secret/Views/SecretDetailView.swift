@@ -2,6 +2,26 @@ import SwiftUI
 
 struct SecretDetailView: View {
     @Environment(AppState.self) private var state
+    @State private var showEnvExport = false
+
+    /// What the user is looking at: cluster values with staged edits applied,
+    /// staged additions included, staged deletions excluded — the export must
+    /// match the screen, and say so when it differs from the cluster.
+    private var exportPairs: [(String, String)] {
+        var pairs: [(String, String)] = state.secretData
+            .filter { !state.deletions.contains($0.key) }
+            .map { ($0.key, state.modifications[$0.key] ?? $0.value) }
+        for (key, value) in state.additions.sorted(by: { $0.key < $1.key }) {
+            pairs.append((key, value))
+        }
+        return pairs
+    }
+
+    private var stagedNote: String? {
+        let staged = state.modifications.count + state.additions.count + state.deletions.count
+        guard staged > 0 else { return nil }
+        return "includes \(staged) staged \(staged == 1 ? "change" : "changes") not yet saved to the cluster"
+    }
 
     var body: some View {
         @Bindable var state = state
@@ -150,8 +170,23 @@ struct SecretDetailView: View {
             }
         }
         .navigationTitle(state.selectedSecret?.name ?? "")
+        .sheet(isPresented: $showEnvExport) {
+            EnvExportSheet(
+                title: state.selectedSecret?.name ?? "secret",
+                pairs: exportPairs,
+                stagedNote: stagedNote
+            )
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showEnvExport = true
+                } label: {
+                    Label("Export .env", systemImage: "square.and.arrow.up")
+                }
+                .disabled(state.secretData.isEmpty && state.additions.isEmpty)
+                .help("Export every key as a .env file")
+
                 Button {
                     state.discardChanges()
                 } label: {
@@ -279,8 +314,14 @@ struct KVRow: View {
     @State private var isRevealed = false
 
     /// Fixed-width mask so the dots don't leak the length of the secret.
-    private static func mask(_ value: String) -> String {
-        value.isEmpty ? "(empty)" : String(repeating: "•", count: 12)
+    /// Start and end visible, a *fixed* six dots between — enough to recognise
+    /// which credential this is ("sk_l…dK2m") without revealing it, and the
+    /// constant dot count still doesn't leak the value's length. Short values
+    /// stay fully masked: showing 8 of 10 characters wouldn't be masking.
+    static func mask(_ value: String) -> String {
+        if value.isEmpty { return "(empty)" }
+        guard value.count >= 12 else { return String(repeating: "•", count: 12) }
+        return value.prefix(4) + "••••••" + value.suffix(4)
     }
 
     var body: some View {

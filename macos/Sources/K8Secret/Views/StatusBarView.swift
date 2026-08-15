@@ -72,7 +72,12 @@ struct StatusBarView: View {
         .background(theme.barTint)
         .background(.bar)
         .overlay(alignment: .top) {
-            Divider()
+            // The cluster tint's second anchor (the context dot is the first):
+            // a 2px edge in the color chosen for this context in Settings, so
+            // "am I in prod?" is answerable from the bottom of the window too.
+            Rectangle()
+                .fill(state.clusterTint == .mint ? AnyShapeStyle(.separator) : AnyShapeStyle(state.clusterTint.color))
+                .frame(height: state.clusterTint == .mint ? 1 : 2)
         }
         .onAppear { loadTheme() }
         .onChange(of: state.context) { _, _ in loadTheme() }

@@ -6,6 +6,8 @@ struct K8SecretApp: App {
     @State private var showUpdateSheet = false
 
     init() {
+        SettingsView.apply(
+            appearanceOverride: UserDefaults.standard.string(forKey: "appearanceOverride") ?? "system")
         // Clean up port forwards when the app terminates
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,

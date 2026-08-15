@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
+    @State private var showSettings = false
 
     var body: some View {
         @Bindable var state = state
@@ -50,10 +51,17 @@ struct ContentView: View {
             StatusBarView()
         }
         .background {
-            // Invisible ⌘K hook, per-window so multi-window stays independent.
+            // Invisible per-window shortcuts: ⌘K palette, ⌘, settings.
             Button("") { state.paletteOpen.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
                 .hidden()
+            Button("") { showSettings = true }
+                .keyboardShortcut(",", modifiers: .command)
+                .hidden()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environment(state)
         }
         .motion(Motion.panel, value: state.paletteOpen)
         .task {
@@ -130,6 +138,14 @@ struct ContentView: View {
     /// per row; selecting any row scopes back into its own namespace.
     @ToolbarContentBuilder
     private var scopeToolbar: some ToolbarContent {
+        ToolbarItem(placement: .automatic) {
+            Button {
+                showSettings = true
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Settings (⌘,)")
+        }
         ToolbarItem(placement: .navigation) {
             Menu {
                 Button {
