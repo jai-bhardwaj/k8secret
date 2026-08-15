@@ -75,13 +75,79 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
     private var mainView: some View {
-        NavigationSplitView {
-            SidebarView()
-        } content: {
-            contentColumn
-        } detail: {
-            detailColumn
+        // Overview and Events are single-pane destinations; resources keep the
+        // three-column list + detail. Two split views, one sidebar — the
+        // sidebar's state lives in AppState so nothing is lost switching.
+        switch state.selectedDestination {
+        case .overview:
+            NavigationSplitView {
+                SidebarView()
+            } detail: {
+                OverviewView()
+            }
+            .toolbar { scopeToolbar }
+        case .events:
+            NavigationSplitView {
+                SidebarView()
+            } detail: {
+                EventsFeedView()
+            }
+            .toolbar { scopeToolbar }
+        case .resource:
+            NavigationSplitView {
+                SidebarView()
+            } content: {
+                contentColumn
+            } detail: {
+                detailColumn
+            }
+            .toolbar { scopeToolbar }
+        }
+    }
+
+    /// The namespace scope control: a filter in the toolbar, not a place in
+    /// the sidebar. "All Namespaces" aggregates lists with a namespace badge
+    /// per row; selecting any row scopes back into its own namespace.
+    @ToolbarContentBuilder
+    private var scopeToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Menu {
+                Button {
+                    Task { await state.selectNamespaceScope(all: true) }
+                } label: {
+                    HStack {
+                        Text("All Namespaces")
+                        if state.allNamespaces { Spacer(); Image(systemName: "checkmark") }
+                    }
+                }
+                Divider()
+                ForEach(state.filteredNamespaces) { ns in
+                    Button {
+                        Task {
+                            state.selectedNamespace = ns
+                            await state.selectNamespace(ns)
+                        }
+                    } label: {
+                        HStack {
+                            Text(ns.name)
+                            if !state.allNamespaces && state.selectedNamespace?.id == ns.id {
+                                Spacer(); Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text("namespace")
+                        .foregroundStyle(.secondary)
+                    Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—"))
+                        .fontWeight(.semibold)
+                }
+                .font(.callout)
+            }
+            .help("Scope every list to one namespace, or all of them")
         }
     }
 
@@ -96,6 +162,12 @@ struct ContentView: View {
             PodsListView()
         case .services:
             ServicesListView()
+        case .configmaps:
+            ConfigMapsListView()
+        case .cronjobs:
+            CronJobsListView()
+        case .ingresses:
+            IngressesListView()
         }
     }
 
@@ -110,6 +182,12 @@ struct ContentView: View {
             PodDetailView()
         case .services:
             ServiceDetailView()
+        case .configmaps:
+            ConfigMapDetailView()
+        case .cronjobs:
+            CronJobDetailView()
+        case .ingresses:
+            IngressDetailView()
         }
     }
 }

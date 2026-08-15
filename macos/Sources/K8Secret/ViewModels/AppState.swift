@@ -20,6 +20,16 @@ final class AppState {
 
     // Resource type
     var selectedResourceType: ResourceType = .deployments
+    /// Where the window is looking. Overview and Events are destinations that
+    /// aren't resource lists; when a resource is selected the two stay in sync.
+    var selectedDestination: AppDestination = .resource(.deployments)
+    /// "All namespaces" scope: lists aggregate across every namespace and rows
+    /// carry a namespace badge. Selecting an item scopes back into its own
+    /// namespace so detail panes are always unambiguous.
+    var allNamespaces = false
+    /// Per-context cluster color — the "am I in prod?" glance. Persisted per
+    /// context name; loaded on connect and on context switch.
+    var clusterTint: Theme.ClusterTint = .mint
 
     // Data
     var namespaces: [K8sNamespace] = []
@@ -31,6 +41,12 @@ final class AppState {
     var pods: [K8sPod] = []
     var podMetrics: [String: PodMetrics] = [:]  // keyed by pod name
     var services: [K8sService] = []
+    var configMaps: [K8sConfigMap] = []
+    var cronJobs: [K8sCronJob] = []
+    var ingresses: [K8sIngress] = []
+    var clusterEvents: [K8sEvent] = []
+    var configMapData: [K8sKeyValue] = []
+    var loadingConfigMapData = false
     var events: [K8sEvent] = []
     var podLogs: String = ""
     var rawYAML: String = ""
@@ -41,6 +57,9 @@ final class AppState {
     var selectedDeployment: K8sDeployment?
     var selectedPod: K8sPod?
     var selectedService: K8sService?
+    var selectedConfigMap: K8sConfigMap?
+    var selectedCronJob: K8sCronJob?
+    var selectedIngress: K8sIngress?
 
     // Search
     var namespaceSearch: String = ""
@@ -49,6 +68,9 @@ final class AppState {
     var deploymentSearch: String = ""
     var podSearch: String = ""
     var serviceSearch: String = ""
+    var configMapSearch: String = ""
+    var cronJobSearch: String = ""
+    var ingressSearch: String = ""
 
     // Edit state
     var editingKey: K8sKeyValue?
@@ -80,6 +102,10 @@ final class AppState {
     var loadingDeployments = false
     var loadingPods = false
     var loadingServices = false
+    var loadingConfigMaps = false
+    var loadingCronJobs = false
+    var loadingIngresses = false
+    var loadingClusterEvents = false
     var loadingLogs = false
     var loadingYAML = false
     var saving = false
@@ -228,6 +254,27 @@ final class AppState {
         }
     }
 
+    var filteredConfigMaps: [K8sConfigMap] {
+        if configMapSearch.isEmpty { return configMaps }
+        return configMaps.filter { $0.name.localizedCaseInsensitiveContains(configMapSearch) }
+    }
+
+    var filteredCronJobs: [K8sCronJob] {
+        if cronJobSearch.isEmpty { return cronJobs }
+        return cronJobs.filter {
+            $0.name.localizedCaseInsensitiveContains(cronJobSearch) ||
+            $0.schedule.localizedCaseInsensitiveContains(cronJobSearch)
+        }
+    }
+
+    var filteredIngresses: [K8sIngress] {
+        if ingressSearch.isEmpty { return ingresses }
+        return ingresses.filter {
+            $0.name.localizedCaseInsensitiveContains(ingressSearch) ||
+            $0.rules.contains { r in r.host.localizedCaseInsensitiveContains(ingressSearch) }
+        }
+    }
+
     /// Get metrics for a specific pod
     func metrics(for podName: String) -> PodMetrics? {
         podMetrics[podName]
@@ -283,6 +330,7 @@ final class AppState {
             let ctx = try await client.connect(context: targetContext)
             context = ctx
             UserDefaults.standard.set(ctx, forKey: Self.lastContextKey)
+            loadClusterTint()
             connectionState = .connected
 
             // Fetch cluster info
@@ -319,6 +367,12 @@ final class AppState {
         deployments = []
         pods = []
         services = []
+        configMaps = []
+        cronJobs = []
+        ingresses = []
+        clusterEvents = []
+        overviewDeployments = []
+        overviewPods = []
 
         await connect(toContext: newContext)
     }
@@ -363,7 +417,18 @@ final class AppState {
         }
     }
 
+    func loadClusterTint() {
+        let raw = UserDefaults.standard.string(forKey: "clusterTint.\(context)") ?? ""
+        clusterTint = Theme.ClusterTint(rawValue: raw) ?? .mint
+    }
+
+    func setClusterTint(_ tint: Theme.ClusterTint) {
+        clusterTint = tint
+        UserDefaults.standard.set(tint.rawValue, forKey: "clusterTint.\(context)")
+    }
+
     func selectNamespace(_ ns: K8sNamespace) async {
+        if allNamespaces { allNamespaces = false }
         selectedNamespace = ns
         clearSelections()
         await loadResourcesForCurrentType()
@@ -377,6 +442,9 @@ final class AppState {
         selectedDeployment = nil
         selectedPod = nil
         selectedService = nil
+        selectedConfigMap = nil
+        selectedCronJob = nil
+        selectedIngress = nil
         clearChanges()
         autoLockTask?.cancel()
         autoLockTask = nil
@@ -397,8 +465,58 @@ final class AppState {
     func selectResourceType(_ type: ResourceType) async {
         clearSelections()
         selectedResourceType = type
-        if selectedNamespace != nil {
+        selectedDestination = .resource(type)
+        if selectedNamespace != nil || allNamespaces {
             await loadResourcesForCurrentType()
+        }
+    }
+
+    func selectDestination(_ destination: AppDestination) async {
+        switch destination {
+        case .resource(let t):
+            await selectResourceType(t)
+        case .overview:
+            clearSelections()
+            selectedDestination = .overview
+            await loadOverview()
+        case .events:
+            clearSelections()
+            selectedDestination = .events
+            await loadClusterEvents()
+        }
+    }
+
+    /// Scope the window to one namespace, or to all of them.
+    func selectNamespaceScope(all: Bool) async {
+        guard allNamespaces != all else { return }
+        allNamespaces = all
+        clearSelections()
+        await loadResourcesForCurrentType()
+    }
+
+    /// The namespaces the current scope spans.
+    var scopedNamespaceNames: [String] {
+        if allNamespaces { return namespaces.map(\.name) }
+        return selectedNamespace.map { [$0.name] } ?? []
+    }
+
+    /// List a resource across every namespace in scope, concurrently, keeping a
+    /// deterministic order (namespace order, then API order within each).
+    private func listScoped<T: Sendable>(
+        _ fetch: @escaping @Sendable (String) async throws -> [T]
+    ) async throws -> [T] {
+        let names = scopedNamespaceNames
+        guard names.count > 1 else {
+            guard let only = names.first else { return [] }
+            return try await fetch(only)
+        }
+        return try await withThrowingTaskGroup(of: (Int, [T]).self) { group in
+            for (i, ns) in names.enumerated() {
+                group.addTask { (i, try await fetch(ns)) }
+            }
+            var slots = [[T]](repeating: [], count: names.count)
+            for try await (i, items) in group { slots[i] = items }
+            return slots.flatMap { $0 }
         }
     }
 
@@ -414,6 +532,9 @@ final class AppState {
         case .deployments: return loadingDeployments && deployments.isEmpty
         case .pods:        return loadingPods && pods.isEmpty
         case .services:    return loadingServices && services.isEmpty
+        case .configmaps:  return loadingConfigMaps && configMaps.isEmpty
+        case .cronjobs:    return loadingCronJobs && cronJobs.isEmpty
+        case .ingresses:   return loadingIngresses && ingresses.isEmpty
         }
     }
 
@@ -424,26 +545,33 @@ final class AppState {
         case .deployments: loadingDeployments
         case .pods:        loadingPods
         case .services:    loadingServices
+        case .configmaps:  loadingConfigMaps
+        case .cronjobs:    loadingCronJobs
+        case .ingresses:   loadingIngresses
         }
         return loading && !isInitialLoad
     }
 
     func loadResourcesForCurrentType(restartWatch: Bool = true) async {
-        guard let ns = selectedNamespace else { return }
+        guard selectedNamespace != nil || allNamespaces else { return }
+        let ns = selectedNamespace ?? K8sNamespace(id: "*", name: "*", status: "Active")
+        let wasAll = allNamespaces
         // Switching namespaces twice in quick succession leaves two loads racing,
         // and the slower one wins by arriving last — the list then shows a
         // namespace the sidebar says you left.
-        func stillCurrent() -> Bool { selectedNamespace?.name == ns.name }
+        func stillCurrent() -> Bool {
+            wasAll ? allNamespaces : (!allNamespaces && selectedNamespace?.name == ns.name)
+        }
         switch selectedResourceType {
         case .secrets:
             loadingSecrets = true
-            do { let listed = try await client.listSecrets(namespace: ns.name)
+            do { let listed = try await listScoped { [client] in try await client.listSecrets(namespace: $0) }
                  if stillCurrent() { secrets = listed } }
             catch { showToast("Failed to load secrets: \(error.localizedDescription)", isError: true) }
             loadingSecrets = false
         case .deployments:
             loadingDeployments = true
-            do { let listed = try await client.listDeployments(namespace: ns.name)
+            do { let listed = try await listScoped { [client] in try await client.listDeployments(namespace: $0) }
                  if stillCurrent() { deployments = listed } }
             catch { showToast("Failed to load deployments: \(error.localizedDescription)", isError: true) }
             loadingDeployments = false
@@ -467,11 +595,142 @@ final class AppState {
         case .services:
             stopMetricsPolling()
             loadingServices = true
-            do { let listed = try await client.listServices(namespace: ns.name)
+            do { let listed = try await listScoped { [client] in try await client.listServices(namespace: $0) }
                  if stillCurrent() { services = listed } }
             catch { showToast("Failed to load services: \(error.localizedDescription)", isError: true) }
             loadingServices = false
+        case .configmaps:
+            loadingConfigMaps = true
+            do { let listed = try await listScoped { [client] in try await client.listConfigMaps(namespace: $0) }
+                 if stillCurrent() { configMaps = listed } }
+            catch { showToast("Failed to load configmaps: \(error.localizedDescription)", isError: true) }
+            loadingConfigMaps = false
+        case .cronjobs:
+            loadingCronJobs = true
+            do { let listed = try await listScoped { [client] in try await client.listCronJobs(namespace: $0) }
+                 if stillCurrent() { cronJobs = listed } }
+            catch { showToast("Failed to load cronjobs: \(error.localizedDescription)", isError: true) }
+            loadingCronJobs = false
+        case .ingresses:
+            loadingIngresses = true
+            do { let listed = try await listScoped { [client] in try await client.listIngresses(namespace: $0) }
+                 if stillCurrent() { ingresses = listed } }
+            catch { showToast("Failed to load ingresses: \(error.localizedDescription)", isError: true) }
+            loadingIngresses = false
         }
+    }
+
+    // MARK: - ConfigMap selection
+
+    func selectConfigMap(_ cm: K8sConfigMap) async {
+        selectedConfigMap = cm
+        configMapData = []
+        await loadConfigMapData()
+    }
+
+    func loadConfigMapData() async {
+        guard let cm = selectedConfigMap else { return }
+        loadingConfigMapData = true
+        do {
+            let result = try await client.getConfigMapData(namespace: cm.namespace, name: cm.name)
+            // Same late-reply guard as secrets: values must never land under a
+            // different name than they belong to.
+            guard isStillSelected(kind: "ConfigMap", name: cm.name, namespace: cm.namespace)
+                    || allNamespaces && selectedConfigMap?.name == cm.name else {
+                loadingConfigMapData = false
+                return
+            }
+            configMapData = result.sorted { $0.key < $1.key }
+        } catch {
+            showToast("Failed to load configmap: \(error.localizedDescription)", isError: true)
+        }
+        loadingConfigMapData = false
+    }
+
+    func saveConfigMapKey(namespace: String, name: String, key: String, value: String) async {
+        do {
+            try await client.patchConfigMapKey(namespace: namespace, name: name, key: key, value: value)
+            showToast("\(key) saved")
+            await loadConfigMapData()
+            await refreshCurrentResource()
+        } catch {
+            showToast("Save failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    func removeConfigMapKey(namespace: String, name: String, key: String) async {
+        do {
+            try await client.deleteConfigMapKey(namespace: namespace, name: name, key: key)
+            showToast("\(key) deleted")
+            await loadConfigMapData()
+            await refreshCurrentResource()
+        } catch {
+            showToast("Delete failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    // MARK: - CronJob operations
+
+    func setCronJobSuspended(_ cj: K8sCronJob, suspended: Bool) async {
+        do {
+            try await client.setCronJobSuspended(namespace: cj.namespace, name: cj.name, suspended: suspended)
+            showToast(suspended ? "\(cj.name) suspended" : "\(cj.name) resumed")
+            await refreshCurrentResource()
+        } catch {
+            showToast("Failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    func runCronJobNow(_ cj: K8sCronJob) async {
+        do {
+            let job = try await client.triggerCronJob(namespace: cj.namespace, name: cj.name)
+            showToast("\(cj.name) started — job \(job)")
+            await refreshCurrentResource()
+        } catch {
+            showToast("Run failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    // MARK: - Overview + cluster events
+
+    func loadOverview() async {
+        // Overview spans every namespace regardless of scope: "is anything
+        // wrong?" has to mean anywhere, or a red deployment hides behind the
+        // namespace filter and the answer lies.
+        async let deps: [K8sDeployment] = (try? listAcrossAll { [client] in
+            try await client.listDeployments(namespace: $0) }) ?? []
+        async let pds: [K8sPod] = (try? listAcrossAll { [client] in
+            try await client.listPods(namespace: $0) }) ?? []
+        let (d, p) = await (deps, pds)
+        guard selectedDestination == .overview else { return }
+        overviewDeployments = d
+        overviewPods = p
+        lastUpdated = Date()
+    }
+
+    var overviewDeployments: [K8sDeployment] = []
+    var overviewPods: [K8sPod] = []
+
+    private func listAcrossAll<T: Sendable>(
+        _ fetch: @escaping @Sendable (String) async throws -> [T]
+    ) async throws -> [T] {
+        let names = namespaces.map(\.name)
+        return try await withThrowingTaskGroup(of: (Int, [T]).self) { group in
+            for (i, ns) in names.enumerated() { group.addTask { (i, try await fetch(ns)) } }
+            var slots = [[T]](repeating: [], count: names.count)
+            for try await (i, items) in group { slots[i] = items }
+            return slots.flatMap { $0 }
+        }
+    }
+
+    func loadClusterEvents() async {
+        loadingClusterEvents = true
+        let fetched = (try? await listAcrossAll { [client] in
+            try await client.getEvents(namespace: $0, fieldSelector: nil) }) ?? []
+        guard selectedDestination == .events else { loadingClusterEvents = false; return }
+        // Newest first; the feed answers "what just happened".
+        clusterEvents = fetched.sorted { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }
+        loadingClusterEvents = false
     }
 
     // MARK: - Secret selection
@@ -1130,6 +1389,9 @@ final class AppState {
         case "Deployment": return selectedDeployment?.name == name
         case "Service":    return selectedService?.name == name
         case "Secret":     return selectedSecret?.name == name
+        case "ConfigMap":  return selectedConfigMap?.name == name
+        case "CronJob":    return selectedCronJob?.name == name
+        case "Ingress":    return selectedIngress?.name == name
         default:           return true   // cluster-scoped: nothing to race against
         }
     }
@@ -1173,6 +1435,15 @@ final class AppState {
         }
         if let svc = selectedService, let updated = services.first(where: { $0.id == svc.id }) {
             selectedService = updated
+        }
+        if let cm = selectedConfigMap, let updated = configMaps.first(where: { $0.id == cm.id }) {
+            selectedConfigMap = updated
+        }
+        if let cj = selectedCronJob, let updated = cronJobs.first(where: { $0.id == cj.id }) {
+            selectedCronJob = updated
+        }
+        if let ing = selectedIngress, let updated = ingresses.first(where: { $0.id == ing.id }) {
+            selectedIngress = updated
         }
         lastUpdated = Date()
     }
