@@ -135,17 +135,31 @@ final class RolloutSelectionTests: PromptFreeTestCase {
         s.selectedResourceType = .deployments
         s.deployments = []
 
-        // Start the load and let it reach its network await with payments
-        // captured — switching before that just makes it list `default` and
-        // proves nothing. Then move away while the reply is in flight.
-        let load = Task { await s.loadResourcesForCurrentType(restartWatch: false) }
-        try await Task.sleep(for: .milliseconds(5))
-        s.selectedNamespace = K8sNamespace(id: "default", name: "default", status: "Active")
-        await load.value
-
-        XCTAssertTrue(
-            s.deployments.isEmpty,
-            "payments deployments were written after the user moved to default"
-        )
+        // The race has three orderings and only one proves anything:
+        //   (a) switch before the load captures its namespace — it lists
+        //       `default`, returns nothing, proves nothing;
+        //   (b) switch while the reply is in flight — the guard must drop it;
+        //   (c) reply lands before the switch — a legitimate write,
+        //       indistinguishable from the bug after the fact.
+        // (c) is why this test flaked: on a fast local cluster the reply can
+        // beat a fixed sleep. Detect it — deployments already populated at the
+        // moment of the switch — and retry until an attempt is conclusive.
+        var conclusive = false
+        for _ in 0..<8 where !conclusive {
+            s.selectedNamespace = K8sNamespace(id: "p", name: "payments", status: "Active")
+            s.deployments = []
+            let load = Task { await s.loadResourcesForCurrentType(restartWatch: false) }
+            try await Task.sleep(for: .milliseconds(2))
+            let repliedEarly = !s.deployments.isEmpty
+            s.selectedNamespace = K8sNamespace(id: "default", name: "default", status: "Active")
+            await load.value
+            if repliedEarly { continue }        // case (c): inconclusive, go again
+            conclusive = true
+            XCTAssertTrue(
+                s.deployments.isEmpty,
+                "payments deployments were written after the user moved to default"
+            )
+        }
+        XCTAssertTrue(conclusive, "8 attempts and the reply always beat the switch — raise the sleep")
     }
 }
