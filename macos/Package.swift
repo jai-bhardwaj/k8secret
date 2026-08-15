@@ -9,5 +9,10 @@ let package = Package(
             name: "K8Secret",
             path: "Sources/K8Secret"
         ),
+        .testTarget(
+            name: "K8SecretTests",
+            dependencies: ["K8Secret"],
+            path: "Tests/K8SecretTests"
+        ),
     ]
 )
