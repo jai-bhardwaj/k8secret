@@ -1068,8 +1068,10 @@ actor K8sClient {
             schedule: schedule,
             suspended: spec["suspend"] as? Bool ?? false,
             active: active,
-            lastScheduleTime: parseDateStatic(status["lastScheduleTime"] as? String),
-            lastSuccessfulTime: parseDateStatic(status["lastSuccessfulTime"] as? String),
+            // map, not a bare call: parseDateStatic coerces absence to a real
+            // date, and "never ran" must stay distinguishable from "just ran".
+            lastScheduleTime: (status["lastScheduleTime"] as? String).map { parseDateStatic($0) },
+            lastSuccessfulTime: (status["lastSuccessfulTime"] as? String).map { parseDateStatic($0) },
             createdAt: parseDateStatic(meta["creationTimestamp"] as? String)
         )
     }
@@ -1268,6 +1270,18 @@ actor K8sClient {
         let _ = try await request(
             path: path, method: "PUT", body: jsonData, contentType: "application/json"
         )
+    }
+
+    /// POST a manifest to a collection path (create), and delete by path.
+    /// Exists for the live test suite's create→operate→delete cycles, and is
+    /// generally useful for anything the typed API doesn't cover yet.
+    func createRawResource(collectionPath: String, jsonData: Data) async throws {
+        _ = try await request(
+            path: collectionPath, method: "POST", body: jsonData, contentType: "application/json")
+    }
+
+    func deleteRawResource(path: String) async throws {
+        _ = try await request(path: path, method: "DELETE")
     }
 
     // MARK: - Events

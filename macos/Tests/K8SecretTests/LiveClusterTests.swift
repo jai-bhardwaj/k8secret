@@ -234,3 +234,103 @@ final class LiveClusterTests: PromptFreeTestCase {
         func record(_ event: K8sClient.PodWatchEvent) { events.append(event) }
     }
 }
+
+// MARK: - vNext live coverage
+
+/// CronJob and Ingress clients against the real API server: create, list,
+/// operate, delete — each test owns its object's full lifecycle so the
+/// cluster is left as found even on failure (tearDown sweeps).
+extension LiveClusterTests {
+
+    private static let liveCronJob = "k8stest-cron"
+    private static let liveIngress = "k8stest-ingress"
+
+    func testCronJobLifecycleListSuspendTrigger() async throws {
+        let client = try await connected()
+        let cronPath = "/apis/batch/v1/namespaces/\(namespace)/cronjobs"
+        let manifest: [String: Any] = [
+            "apiVersion": "batch/v1", "kind": "CronJob",
+            "metadata": ["name": Self.liveCronJob],
+            "spec": [
+                "schedule": "0 2 * * *",
+                "jobTemplate": ["spec": ["template": ["spec": [
+                    "restartPolicy": "Never",
+                    "containers": [["name": "noop", "image": "busybox:1.36",
+                                    "command": ["true"]]],
+                ]]]],
+            ],
+        ]
+        try await client.createRawResource(
+            collectionPath: cronPath,
+            jsonData: JSONSerialization.data(withJSONObject: manifest))
+        defer { Task { try? await client.deleteRawResource(path: "\(cronPath)/\(Self.liveCronJob)") } }
+
+        // List sees it, unsuspended.
+        var listed = try await client.listCronJobs(namespace: namespace)
+        let cj = try XCTUnwrap(listed.first { $0.name == Self.liveCronJob })
+        XCTAssertEqual(cj.schedule, "0 2 * * *")
+        XCTAssertFalse(cj.suspended)
+
+        // Suspend is a real patch the server round-trips.
+        try await client.setCronJobSuspended(namespace: namespace, name: Self.liveCronJob, suspended: true)
+        listed = try await client.listCronJobs(namespace: namespace)
+        XCTAssertTrue(try XCTUnwrap(listed.first { $0.name == Self.liveCronJob }).suspended)
+
+        // Run-now instantiates the jobTemplate under a manual name.
+        let job = try await client.triggerCronJob(namespace: namespace, name: Self.liveCronJob)
+        XCTAssertTrue(job.hasPrefix("\(Self.liveCronJob)-manual-"),
+                      "manual runs must be attributable to their cronjob: \(job)")
+        try? await client.deleteRawResource(
+            path: "/apis/batch/v1/namespaces/\(namespace)/jobs/\(job)?propagationPolicy=Background")
+    }
+
+    func testIngressLifecycle() async throws {
+        let client = try await connected()
+        let ingPath = "/apis/networking.k8s.io/v1/namespaces/\(namespace)/ingresses"
+        let manifest: [String: Any] = [
+            "apiVersion": "networking.k8s.io/v1", "kind": "Ingress",
+            "metadata": ["name": Self.liveIngress],
+            "spec": ["rules": [[
+                "host": "api.test.internal",
+                "http": ["paths": [["path": "/", "pathType": "Prefix",
+                    "backend": ["service": ["name": "api", "port": ["number": 8080]]]]]],
+            ]]],
+        ]
+        try await client.createRawResource(
+            collectionPath: ingPath,
+            jsonData: JSONSerialization.data(withJSONObject: manifest))
+        defer { Task { try? await client.deleteRawResource(path: "\(ingPath)/\(Self.liveIngress)") } }
+
+        let listed = try await client.listIngresses(namespace: namespace)
+        let ing = try XCTUnwrap(listed.first { $0.name == Self.liveIngress })
+        XCTAssertEqual(ing.primaryHost, "api.test.internal")
+        XCTAssertEqual(ing.rules.first?.serviceName, "api")
+        XCTAssertEqual(ing.rules.first?.servicePort, 8080)
+    }
+
+    func testConfigMapListAndDataRoundTrip() async throws {
+        let client = try await connected()
+        let name = "k8stest-cm"
+        let cmPath = "/api/v1/namespaces/\(namespace)/configmaps"
+        let manifest: [String: Any] = [
+            "apiVersion": "v1", "kind": "ConfigMap",
+            "metadata": ["name": name],
+            "data": ["LOG_LEVEL": "info", "REGION": "ap-south-1"],
+        ]
+        try await client.createRawResource(
+            collectionPath: cmPath,
+            jsonData: JSONSerialization.data(withJSONObject: manifest))
+        defer { Task { try? await client.deleteRawResource(path: "\(cmPath)/\(name)") } }
+
+        let listed = try await client.listConfigMaps(namespace: namespace)
+        XCTAssertTrue(listed.contains { $0.name == name })
+
+        try await client.patchConfigMapKey(namespace: namespace, name: name, key: "LOG_LEVEL", value: "debug")
+        let data = try await client.getConfigMapData(namespace: namespace, name: name)
+        XCTAssertEqual(data.first { $0.key == "LOG_LEVEL" }?.value, "debug")
+
+        try await client.deleteConfigMapKey(namespace: namespace, name: name, key: "REGION")
+        let after = try await client.getConfigMapData(namespace: namespace, name: name)
+        XCTAssertFalse(after.contains { $0.key == "REGION" })
+    }
+}
