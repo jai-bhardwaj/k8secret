@@ -25,6 +25,15 @@ struct PortForward: Identifiable {
     var localURL: String {
         "http://localhost:\(localPort)"
     }
+
+    /// Two forwards are the same only if they point at the same target in the same
+    /// namespace of the same cluster.
+    func matches(_ other: PortForward) -> Bool {
+        context == other.context
+            && namespace == other.namespace
+            && target == other.target
+            && remotePort == other.remotePort
+    }
 }
 
 @MainActor
@@ -38,7 +47,7 @@ final class PortForwardManager {
     /// Start a port forward to a service
     func forwardService(context: String, namespace: String, serviceName: String, remotePort: Int) {
         let localPort = findFreePort()
-        var pf = PortForward(
+        let pf = PortForward(
             context: context,
             namespace: namespace,
             target: "svc/\(serviceName)",
@@ -47,16 +56,17 @@ final class PortForwardManager {
             localPort: localPort
         )
 
-        // Check if already forwarding this target+port
-        if let existing = forwards.first(where: {
-            $0.target == pf.target && $0.remotePort == remotePort && ($0.status == .active || $0.status == .starting)
-        }) {
+        // Check if already forwarding this target+port. Context and namespace are
+        // part of the identity: `svc/api` in staging and `svc/api` in production
+        // are different targets, and matching on name alone silently handed the
+        // user the wrong cluster's forward.
+        if let existing = forwards.first(where: { $0.matches(pf) && ($0.status == .active || $0.status == .starting) }) {
             if existing.status == .active { openInBrowser(existing.localURL) }
             return
         }
 
         // Remove any failed forwards for the same target
-        forwards.removeAll { $0.target == pf.target && $0.remotePort == remotePort && $0.status == .failed }
+        forwards.removeAll { $0.matches(pf) && $0.status == .failed }
 
         forwards.append(pf)
         startProcess(for: pf.id, context: context, namespace: namespace,
@@ -75,14 +85,12 @@ final class PortForwardManager {
             localPort: localPort
         )
 
-        if let existing = forwards.first(where: {
-            $0.target == pf.target && $0.remotePort == remotePort && ($0.status == .active || $0.status == .starting)
-        }) {
+        if let existing = forwards.first(where: { $0.matches(pf) && ($0.status == .active || $0.status == .starting) }) {
             if existing.status == .active { openInBrowser(existing.localURL) }
             return
         }
 
-        forwards.removeAll { $0.target == pf.target && $0.remotePort == remotePort && $0.status == .failed }
+        forwards.removeAll { $0.matches(pf) && $0.status == .failed }
 
         forwards.append(pf)
         startProcess(for: pf.id, context: context, namespace: namespace,
@@ -182,7 +190,16 @@ final class PortForwardManager {
         }
 
         // Handle process termination — auto-retry if it was active
-        process.terminationHandler = { [weak self] proc in
+        process.terminationHandler = { [weak self] _ in
+            // Detach the readability handlers and close the descriptors. Without
+            // this each restart leaks two file descriptors plus the closures that
+            // retain them, so a long-lived flapping forward eventually exhausts the
+            // process's fd limit.
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
+            try? outPipe.fileHandleForReading.close()
+            try? errPipe.fileHandleForReading.close()
+
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.processes.removeValue(forKey: id)
@@ -203,8 +220,14 @@ final class PortForwardManager {
                     // Re-check it wasn't manually stopped during the delay
                     if let idx2 = self.forwards.firstIndex(where: { $0.id == id }),
                        self.forwards[idx2].status == .reconnecting {
+                        // Claim a fresh local port: something else may well have
+                        // taken the old one while we were backing off, and reusing
+                        // it makes the retry fail for a reason unrelated to the
+                        // original disconnect.
+                        let retryPort = self.findFreePort()
+                        self.forwards[idx2].localPort = retryPort
                         self.startProcess(for: id, context: fwd.context, namespace: fwd.namespace,
-                                         target: fwd.target, localPort: fwd.localPort, remotePort: fwd.remotePort)
+                                         target: fwd.target, localPort: retryPort, remotePort: fwd.remotePort)
                     }
                 } else if fwd.status == .starting {
                     self.forwards[idx].status = .failed
