@@ -13,10 +13,17 @@ import Security
 /// Three things here exist specifically to stop password prompts, each of which
 /// caused one:
 ///
-/// - **No `SecKeychainSetSettings`.** Changing lock settings requires the
-///   keychain password, so macOS asks the user for it mid-connection.
-/// - **No `SecKeychainUnlock`.** Unnecessary: a keychain created with a known
-///   password is already unlocked for the process that created it.
+/// - **No `SecKeychainSetSettings`.** Verified: it prompts even on a keychain
+///   this process just created and still holds unlocked, returning
+///   `errSecUserCanceled` when the prompt is refused. So auto-lock cannot be
+///   turned off, and the lock below has to be handled rather than prevented.
+/// - **`SecKeychainUnlock` before every use.** A new keychain is unlocked, but
+///   `SecKeychainCreate` sets `lockOnSleep`, so the first time the machine
+///   sleeps it locks — and the next TLS handshake needs the private key, finds
+///   it locked, and asks the *user* for a random password that only ever
+///   existed in this process's memory. We hold that password, so we unlock with
+///   it. This was previously omitted as "unnecessary because a new keychain is
+///   already unlocked", which is true only until the machine sleeps.
 /// - **Orphans are unregistered, not just deleted.** `SecKeychainCreate` registers
 ///   the keychain with the security subsystem. A process that dies without
 ///   `SecKeychainDelete` — killed, crashed, force-quit — leaves that registration
@@ -69,6 +76,31 @@ final class TransientKeychain: @unchecked Sendable {
 
         keychain = created
         return created
+    }
+
+    /// Unlock the keychain with the password this process generated for it.
+    ///
+    /// Called before every use of the identity rather than once at creation:
+    /// `lockOnSleep` is on and cannot be turned off (see the note on
+    /// `SecKeychainSetSettings` above), so the keychain locks itself behind our
+    /// back whenever the machine sleeps. Unlocking with a password we already
+    /// hold is silent; leaving it locked is what makes macOS ask the user.
+    ///
+    /// Cheap enough for the handshake path: the status check is a local call and
+    /// the unlock only runs when the keychain has actually locked.
+    @discardableResult
+    func ensureUnlocked() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let keychain else { return false }
+
+        var status = SecKeychainStatus()
+        guard SecKeychainGetStatus(keychain, &status) == errSecSuccess else { return false }
+        if status & UInt32(kSecUnlockStateStatus) != 0 { return true }
+
+        return password.withUnsafeBufferPointer { buffer in
+            SecKeychainUnlock(keychain, UInt32(buffer.count), buffer.baseAddress, true) == errSecSuccess
+        }
     }
 
     /// An access policy that lets any application use the item without prompting.

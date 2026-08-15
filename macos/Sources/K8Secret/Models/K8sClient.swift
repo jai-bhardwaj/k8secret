@@ -1761,6 +1761,12 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     /// work is importing a PKCS#12 with the destination keychain named explicitly:
     /// it returns the identity directly, with no prompt and nothing left behind.
     private func createIdentity(certPEM: Data, keyPEM: Data) -> SecIdentity? {
+        // Before the cache check, not after: the identity is cached for the life of
+        // the process but its keychain locks itself on sleep, and using the private
+        // key from a locked keychain is what makes macOS prompt. This runs on every
+        // handshake because that is where the key is about to be used.
+        TransientKeychain.shared.ensureUnlocked()
+
         if let cached = Self.cachedIdentity { return cached }
 
         guard let keychain = TransientKeychain.shared.get(),

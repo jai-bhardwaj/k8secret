@@ -91,6 +91,41 @@ final class TransientKeychainTests: XCTestCase {
         XCTAssertFalse((acls as? [SecACL] ?? []).isEmpty, "policy should carry ACL entries")
     }
 
+    // MARK: - Locking
+
+    /// `SecKeychainCreate` sets `lockOnSleep`, and it cannot be turned off —
+    /// `SecKeychainSetSettings` prompts even on a keychain we created and hold
+    /// unlocked. So the keychain *will* lock behind our back, and the only thing
+    /// standing between that and a password prompt is unlocking it ourselves.
+    func testAKeychainThatHasLockedIsReopenedWithoutPrompting() throws {
+        let keychain = try XCTUnwrap(TransientKeychain.shared.get())
+
+        // What sleep does to us, done deterministically.
+        XCTAssertEqual(SecKeychainLock(keychain), errSecSuccess)
+
+        var locked = SecKeychainStatus()
+        XCTAssertEqual(SecKeychainGetStatus(keychain, &locked), errSecSuccess)
+        XCTAssertEqual(locked & UInt32(kSecUnlockStateStatus), 0,
+                       "precondition: the keychain should now be locked")
+
+        XCTAssertTrue(TransientKeychain.shared.ensureUnlocked(),
+                      "we hold this keychain's password; failing to use it is what makes macOS ask the user")
+
+        var after = SecKeychainStatus()
+        XCTAssertEqual(SecKeychainGetStatus(keychain, &after), errSecSuccess)
+        XCTAssertNotEqual(after & UInt32(kSecUnlockStateStatus), 0,
+                          "a locked keychain at handshake time is exactly the prompt users reported")
+    }
+
+    /// The guard has to be cheap, because it runs on every TLS handshake.
+    func testUnlockingAnAlreadyUnlockedKeychainIsANoOp() throws {
+        _ = try XCTUnwrap(TransientKeychain.shared.get())
+
+        XCTAssertTrue(TransientKeychain.shared.ensureUnlocked())
+        XCTAssertTrue(TransientKeychain.shared.ensureUnlocked(),
+                      "repeated calls must stay silent and succeed")
+    }
+
     // MARK: - Naming
 
     func testKeychainIsNamedWithTheOwningProcess() {
