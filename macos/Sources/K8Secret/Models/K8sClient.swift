@@ -340,6 +340,30 @@ actor K8sClient {
     private var session: URLSession?
     private var serverURL: String = ""
 
+    /// Cached exec-plugin credential, reused until shortly before it expires.
+    private var cachedExecToken: (token: String, expiry: Date)?
+    private var execRefreshTask: Task<(token: String, expiry: Date?), Error>?
+
+    /// Refresh this long before the stated expiry, so a token can't lapse mid-request.
+    private static let execTokenRefreshMargin: TimeInterval = 60
+    /// TTL applied when a plugin omits `expirationTimestamp`.
+    private static let execTokenDefaultTTL: TimeInterval = 300
+
+    /// Retry policy for transient failures (429, 5xx, network blips).
+    private static let maxRetries = 3
+    private static let baseRetryDelay: Double = 0.5
+    private static let maxRetryDelay: Double = 8
+
+    /// Page size for list calls, and a ceiling on how many pages we'll follow so a
+    /// pathological cluster can't spin this forever.
+    private static let pageSize = 500
+    private static let maxPages = 40
+
+    deinit {
+        // URLSession retains its delegate until explicitly invalidated.
+        session?.invalidateAndCancel()
+    }
+
     func connect(context: String? = nil) async throws -> String {
         var cfg = try KubeConfig.load()
 
@@ -352,6 +376,14 @@ actor K8sClient {
         guard !cfg.currentContext.isEmpty else { throw K8sError.noContext }
         guard let cluster = cfg.activeCluster() else { throw K8sError.noCluster }
         guard cfg.activeUser() != nil else { throw K8sError.noUser }
+
+        // Credentials are per-user; never carry one context's token into another.
+        cachedExecToken = nil
+        execRefreshTask = nil
+
+        // Tear down the previous session — otherwise every context switch leaks a
+        // session, its delegate, and its pooled connections.
+        session?.invalidateAndCancel()
 
         self.serverURL = cluster.server
         self.session = try buildSession(config: cfg)
@@ -374,9 +406,7 @@ actor K8sClient {
     }
 
     func listNamespaces() async throws -> [K8sNamespace] {
-        let data = try await request(path: "/api/v1/namespaces")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/api/v1/namespaces")
 
         return items.compactMap { item in
             guard let meta = item["metadata"] as? [String: Any],
@@ -387,9 +417,7 @@ actor K8sClient {
     }
 
     func listSecrets(namespace: String) async throws -> [K8sSecret] {
-        let data = try await request(path: "/api/v1/namespaces/\(namespace)/secrets")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/secrets")
 
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -406,15 +434,29 @@ actor K8sClient {
         }
     }
 
-    func getSecretData(namespace: String, name: String) async throws -> [K8sKeyValue] {
-        let data = try await request(path: "/api/v1/namespaces/\(namespace)/secrets/\(name)")
+    /// Decoded key/value pairs plus the `resourceVersion` they were read at, so a
+    /// subsequent write can detect that someone else edited the secret in between.
+    func getSecretData(
+        namespace: String,
+        name: String
+    ) async throws -> (items: [K8sKeyValue], resourceVersion: String?) {
+        let data = try await request(path: "/api/v1/namespaces/\(Self.encodePath(namespace))/secrets/\(Self.encodePath(name))")
         let json = try parseJSON(data)
-        guard let dataMap = json["data"] as? [String: String] else { return [] }
+        let resourceVersion = (json["metadata"] as? [String: Any])?["resourceVersion"] as? String
 
-        return dataMap.map { (key, val) in
-            let decoded = Data(base64Encoded: val).flatMap { String(data: $0, encoding: .utf8) } ?? val
+        guard let dataMap = json["data"] as? [String: String] else {
+            return ([], resourceVersion)
+        }
+
+        let items = dataMap.map { (key, val) in
+            // Binary secrets (TLS keys, keystores) aren't valid UTF-8. Surface that
+            // rather than showing the raw base64 as if it were the value.
+            let decoded = Data(base64Encoded: val).flatMap { String(data: $0, encoding: .utf8) }
+                ?? "<binary — \(Data(base64Encoded: val)?.count ?? 0) bytes>"
             return K8sKeyValue(id: key, key: key, value: decoded)
         }.sorted { $0.key < $1.key }
+
+        return (items, resourceVersion)
     }
 
     func patchSecretKey(namespace: String, name: String, key: String, value: String) async throws {
@@ -422,7 +464,7 @@ actor K8sClient {
         let body: [String: Any] = ["data": [key: encoded]]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         let _ = try await request(
-            path: "/api/v1/namespaces/\(namespace)/secrets/\(name)",
+            path: "/api/v1/namespaces/\(Self.encodePath(namespace))/secrets/\(Self.encodePath(name))",
             method: "PATCH",
             body: bodyData,
             contentType: "application/merge-patch+json"
@@ -430,27 +472,67 @@ actor K8sClient {
     }
 
     func deleteSecretKey(namespace: String, name: String, key: String) async throws {
-        let patch: [[String: String]] = [["op": "remove", "path": "/data/\(key)"]]
-        let bodyData = try JSONSerialization.data(withJSONObject: patch)
+        try await applySecretChanges(namespace: namespace, name: name, upserts: [:], removals: [key])
+    }
+
+    /// Apply every staged edit to a secret in a single request.
+    ///
+    /// Writing key-by-key meant a failure partway through left the secret in a
+    /// half-updated state that matched neither the old nor the new intent. A JSON
+    /// merge-patch is atomic at the API server: either all keys land or none do.
+    /// Merge-patch also defines `null` as "delete this key", so additions,
+    /// modifications and removals travel together.
+    ///
+    /// `resourceVersion` makes the write conditional: if someone else changed the
+    /// secret since it was read, the server rejects with 409 instead of silently
+    /// overwriting their change.
+    func applySecretChanges(
+        namespace: String,
+        name: String,
+        upserts: [String: String],
+        removals: [String],
+        resourceVersion: String? = nil
+    ) async throws {
+        guard !upserts.isEmpty || !removals.isEmpty else { return }
+
+        var data: [String: Any] = [:]
+        for (key, value) in upserts {
+            data[key] = Data(value.utf8).base64EncodedString()
+        }
+        for key in removals {
+            data[key] = NSNull()
+        }
+
+        var body: [String: Any] = ["data": data]
+        if let resourceVersion {
+            body["metadata"] = ["resourceVersion": resourceVersion]
+        }
+
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
         let _ = try await request(
-            path: "/api/v1/namespaces/\(namespace)/secrets/\(name)",
+            path: "/api/v1/namespaces/\(Self.encodePath(namespace))/secrets/\(Self.encodePath(name))",
             method: "PATCH",
             body: bodyData,
-            contentType: "application/json-patch+json"
+            contentType: "application/merge-patch+json"
         )
+    }
+
+    /// Current `resourceVersion` of a secret, for optimistic-concurrency writes.
+    func getSecretResourceVersion(namespace: String, name: String) async throws -> String? {
+        let data = try await request(path: "/api/v1/namespaces/\(Self.encodePath(namespace))/secrets/\(Self.encodePath(name))")
+        let json = try parseJSON(data)
+        return (json["metadata"] as? [String: Any])?["resourceVersion"] as? String
     }
 
     // MARK: - Deployments
 
     func listDeployments(namespace: String) async throws -> [K8sDeployment] {
-        let data = try await request(path: "/apis/apps/v1/namespaces/\(namespace)/deployments")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/apis/apps/v1/namespaces/\(Self.encodePath(namespace))/deployments")
         return items.compactMap { parseDeployment($0) }
     }
 
     func getDeployment(namespace: String, name: String) async throws -> K8sDeployment? {
-        let data = try await request(path: "/apis/apps/v1/namespaces/\(namespace)/deployments/\(name)")
+        let data = try await request(path: "/apis/apps/v1/namespaces/\(Self.encodePath(namespace))/deployments/\(Self.encodePath(name))")
         let json = try parseJSON(data)
         return parseDeployment(json)
     }
@@ -459,7 +541,7 @@ actor K8sClient {
         let body: [String: Any] = ["spec": ["replicas": replicas]]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         let _ = try await request(
-            path: "/apis/apps/v1/namespaces/\(namespace)/deployments/\(name)",
+            path: "/apis/apps/v1/namespaces/\(Self.encodePath(namespace))/deployments/\(Self.encodePath(name))",
             method: "PATCH",
             body: bodyData,
             contentType: "application/merge-patch+json"
@@ -479,7 +561,7 @@ actor K8sClient {
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         let _ = try await request(
-            path: "/apis/apps/v1/namespaces/\(namespace)/deployments/\(name)",
+            path: "/apis/apps/v1/namespaces/\(Self.encodePath(namespace))/deployments/\(Self.encodePath(name))",
             method: "PATCH",
             body: bodyData,
             contentType: "application/merge-patch+json"
@@ -539,29 +621,29 @@ actor K8sClient {
     // MARK: - Pods
 
     func listPods(namespace: String) async throws -> [K8sPod] {
-        let data = try await request(path: "/api/v1/namespaces/\(namespace)/pods")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/pods")
         return items.compactMap { parsePod($0) }
     }
 
     func deletePod(namespace: String, name: String) async throws {
         let _ = try await request(
-            path: "/api/v1/namespaces/\(namespace)/pods/\(name)",
+            path: "/api/v1/namespaces/\(Self.encodePath(namespace))/pods/\(Self.encodePath(name))",
             method: "DELETE"
         )
     }
 
     func getPodLogs(namespace: String, name: String, container: String?, tailLines: Int = 200) async throws -> String {
-        var path = "/api/v1/namespaces/\(namespace)/pods/\(name)/log?tailLines=\(tailLines)"
+        var path = "/api/v1/namespaces/\(Self.encodePath(namespace))/pods/\(Self.encodePath(name))/log?tailLines=\(tailLines)"
         if let c = container {
-            path += "&container=\(c)"
+            path += "&container=\(Self.encodeQuery(c))"
         }
         let data = try await request(path: path)
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private func parsePod(_ item: [String: Any]) -> K8sPod? {
+    private func parsePod(_ item: [String: Any]) -> K8sPod? { Self.parsePodStatic(item) }
+
+    nonisolated static func parsePodStatic(_ item: [String: Any]) -> K8sPod? {
         guard let meta = item["metadata"] as? [String: Any],
               let name = meta["name"] as? String,
               let ns = meta["namespace"] as? String else { return nil }
@@ -658,7 +740,7 @@ actor K8sClient {
             readyCount: readyCount, totalCount: max(containerSpecs.count, containers.count),
             restarts: totalRestarts, nodeName: nodeName,
             podIP: podIP, hostIP: hostIP,
-            createdAt: parseDate(meta["creationTimestamp"] as? String),
+            createdAt: parseDateStatic(meta["creationTimestamp"] as? String),
             labels: labels, containers: containers,
             ownerKind: ownerKind, ownerName: ownerName
         )
@@ -667,9 +749,7 @@ actor K8sClient {
     // MARK: - Pod Metrics
 
     func getPodMetrics(namespace: String) async throws -> [PodMetrics] {
-        let data = try await request(path: "/apis/metrics.k8s.io/v1beta1/namespaces/\(namespace)/pods")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/apis/metrics.k8s.io/v1beta1/namespaces/\(Self.encodePath(namespace))/pods")
 
         return items.compactMap { item in
             guard let meta = item["metadata"] as? [String: Any],
@@ -758,9 +838,7 @@ actor K8sClient {
     // MARK: - Services
 
     func listServices(namespace: String) async throws -> [K8sService] {
-        let data = try await request(path: "/api/v1/namespaces/\(namespace)/services")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/services")
         return items.compactMap { parseService($0) }
     }
 
@@ -816,9 +894,7 @@ actor K8sClient {
     // MARK: - ConfigMaps
 
     func listConfigMaps(namespace: String) async throws -> [K8sConfigMap] {
-        let data = try await request(path: "/api/v1/namespaces/\(namespace)/configmaps")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/configmaps")
 
         return items.compactMap { item in
             guard let meta = item["metadata"] as? [String: Any],
@@ -834,7 +910,7 @@ actor K8sClient {
     }
 
     func getConfigMapData(namespace: String, name: String) async throws -> [K8sKeyValue] {
-        let data = try await request(path: "/api/v1/namespaces/\(namespace)/configmaps/\(name)")
+        let data = try await request(path: "/api/v1/namespaces/\(Self.encodePath(namespace))/configmaps/\(Self.encodePath(name))")
         let json = try parseJSON(data)
         let dataMap = json["data"] as? [String: String] ?? [:]
         return dataMap.map { K8sKeyValue(id: $0.key, key: $0.key, value: $0.value) }
@@ -845,7 +921,7 @@ actor K8sClient {
         let body: [String: Any] = ["data": [key: value]]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         let _ = try await request(
-            path: "/api/v1/namespaces/\(namespace)/configmaps/\(name)",
+            path: "/api/v1/namespaces/\(Self.encodePath(namespace))/configmaps/\(Self.encodePath(name))",
             method: "PATCH", body: bodyData, contentType: "application/merge-patch+json"
         )
     }
@@ -854,7 +930,7 @@ actor K8sClient {
         let patch: [[String: String]] = [["op": "remove", "path": "/data/\(key)"]]
         let bodyData = try JSONSerialization.data(withJSONObject: patch)
         let _ = try await request(
-            path: "/api/v1/namespaces/\(namespace)/configmaps/\(name)",
+            path: "/api/v1/namespaces/\(Self.encodePath(namespace))/configmaps/\(Self.encodePath(name))",
             method: "PATCH", body: bodyData, contentType: "application/json-patch+json"
         )
     }
@@ -862,9 +938,7 @@ actor K8sClient {
     // MARK: - Nodes
 
     func listNodes() async throws -> [K8sNode] {
-        let data = try await request(path: "/api/v1/nodes")
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+        let items = try await listItems(basePath: "/api/v1/nodes")
         return items.compactMap { parseNode($0) }
     }
 
@@ -872,7 +946,7 @@ actor K8sClient {
         let body: [String: Any] = ["spec": ["unschedulable": true]]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         let _ = try await request(
-            path: "/api/v1/nodes/\(name)",
+            path: "/api/v1/nodes/\(Self.encodePath(name))",
             method: "PATCH", body: bodyData, contentType: "application/merge-patch+json"
         )
     }
@@ -881,7 +955,7 @@ actor K8sClient {
         let body: [String: Any] = ["spec": ["unschedulable": false]]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         let _ = try await request(
-            path: "/api/v1/nodes/\(name)",
+            path: "/api/v1/nodes/\(Self.encodePath(name))",
             method: "PATCH", body: bodyData, contentType: "application/merge-patch+json"
         )
     }
@@ -975,13 +1049,20 @@ actor K8sClient {
     // MARK: - Events
 
     func getEvents(namespace: String, fieldSelector: String? = nil) async throws -> [K8sEvent] {
-        var path = "/api/v1/namespaces/\(namespace)/events"
-        if let fs = fieldSelector {
-            path += "?fieldSelector=\(fs.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fs)"
+        let basePath = "/api/v1/namespaces/\(Self.encodePath(namespace))/events"
+        // A field selector is `k=v,k=v`, so its separators must survive encoding
+        // while the values inside it must not — encode each value on its own.
+        let query = fieldSelector.map { selector -> String in
+            let encoded = selector.split(separator: ",").map { clause -> String in
+                guard let eq = clause.firstIndex(of: "=") else { return String(clause) }
+                let key = String(clause[clause.startIndex..<eq])
+                let value = String(clause[clause.index(after: eq)...])
+                return "\(key)=\(Self.encodeQuery(value))"
+            }.joined(separator: ",")
+            return "fieldSelector=\(encoded)"
         }
-        let data = try await request(path: path)
-        let json = try parseJSON(data)
-        guard let items = json["items"] as? [[String: Any]] else { return [] }
+
+        let items = try await listItems(basePath: basePath, query: query)
 
         let df = ISO8601DateFormatter()
         return items.compactMap { e in
@@ -1003,7 +1084,9 @@ actor K8sClient {
 
     // MARK: - Helpers
 
-    private func parseDate(_ str: String?) -> Date {
+    private func parseDate(_ str: String?) -> Date { Self.parseDateStatic(str) }
+
+    nonisolated static func parseDateStatic(_ str: String?) -> Date {
         guard let str else { return Date() }
         let df = ISO8601DateFormatter()
         df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1018,6 +1101,70 @@ actor K8sClient {
         method: String = "GET",
         body: Data? = nil,
         contentType: String? = nil
+    ) async throws -> Data {
+        var attempt = 0
+
+        while true {
+            do {
+                return try await performRequest(path: path, method: method, body: body, contentType: contentType)
+            } catch let error as K8sError {
+                guard attempt < Self.maxRetries,
+                      let delay = Self.retryDelay(for: error, attempt: attempt) else {
+                    throw error
+                }
+                attempt += 1
+                try? await Task.sleep(for: .seconds(delay))
+                if Task.isCancelled { throw error }
+            }
+        }
+    }
+
+    /// How long to wait before retrying, or nil if the failure isn't worth retrying.
+    ///
+    /// Poll loops used to hammer a throttling or struggling API server at full rate,
+    /// which makes an overloaded cluster worse rather than better.
+    /// Non-private so the retry policy can be unit tested without a live cluster.
+    static func retryDelay(for error: K8sError, attempt: Int) -> Double? {
+        let retryable: Bool
+        var serverHint: Double?
+
+        switch error {
+        case .requestFailed(let code, let message):
+            // 429 and 5xx are transient. 4xx (other than 429) means the request is
+            // wrong and will stay wrong, so retrying just delays the error.
+            retryable = code == 429 || (500...599).contains(code)
+            if code == 429 {
+                serverHint = Self.retryAfterSeconds(in: message)
+            }
+        case .networkError:
+            retryable = true
+        case .noConfig, .noContext, .noCluster, .noUser, .configParse, .authFailed:
+            retryable = false
+        }
+
+        guard retryable else { return nil }
+
+        // Exponential backoff with jitter, so a burst of parallel pollers doesn't
+        // retry in lockstep and re-create the spike that caused the throttling.
+        let backoff = min(Self.maxRetryDelay, Self.baseRetryDelay * pow(2, Double(attempt)))
+        let jitter = Double.random(in: 0...(backoff / 2))
+        return max(serverHint ?? 0, backoff + jitter)
+    }
+
+    /// Kubernetes reports throttling in the response body ("retry after 3s").
+    static func retryAfterSeconds(in message: String) -> Double? {
+        guard let range = message.range(of: #"retry after (\d+)"#, options: [.regularExpression, .caseInsensitive]) else {
+            return nil
+        }
+        let digits = message[range].filter(\.isNumber)
+        return Double(digits).map { min($0, Self.maxRetryDelay) }
+    }
+
+    private func performRequest(
+        path: String,
+        method: String,
+        body: Data?,
+        contentType: String?
     ) async throws -> Data {
         guard let session else { throw K8sError.noConfig }
 
@@ -1040,6 +1187,8 @@ actor K8sClient {
         // Auth header
         if let token = try await resolveToken() {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else if let basic = basicAuthHeader() {
+            req.setValue(basic, forHTTPHeaderField: "Authorization")
         }
 
         do {
@@ -1056,6 +1205,205 @@ actor K8sClient {
         }
     }
 
+    // MARK: - Paged list
+
+    /// Fetch every page of a collection, following `metadata.continue`.
+    ///
+    /// List calls used to request the whole collection in one unbounded response.
+    /// On a namespace with thousands of pods that's a multi-megabyte payload, a
+    /// memory spike, and a long stall — and it failed hardest on exactly the large
+    /// clusters that matter most. Paging keeps each response bounded.
+    private func listItems(basePath: String, query: String? = nil) async throws -> [[String: Any]] {
+        var items: [[String: Any]] = []
+        var continueToken: String?
+        var pagesFetched = 0
+
+        repeat {
+            var components = ["limit=\(Self.pageSize)"]
+            if let query, !query.isEmpty { components.append(query) }
+            if let token = continueToken {
+                components.append("continue=\(Self.encodeQuery(token))")
+            }
+
+            let separator = basePath.contains("?") ? "&" : "?"
+            let data = try await request(path: basePath + separator + components.joined(separator: "&"))
+            let json = try parseJSON(data)
+
+            items.append(contentsOf: json["items"] as? [[String: Any]] ?? [])
+
+            let metadata = json["metadata"] as? [String: Any]
+            let next = metadata?["continue"] as? String
+            continueToken = (next?.isEmpty == false) ? next : nil
+
+            pagesFetched += 1
+        } while continueToken != nil && pagesFetched < Self.maxPages
+
+        return items
+    }
+
+    // MARK: - Watch
+
+    /// One incremental change from a watch stream.
+    enum PodWatchEvent: Sendable {
+        case added(K8sPod)
+        case modified(K8sPod)
+        case deleted(K8sPod)
+        /// The server's periodic "you're up to date as of here" marker.
+        case bookmark(String)
+    }
+
+    /// Raised when the server can no longer serve changes from our `resourceVersion`
+    /// (HTTP 410). The caller has to re-list and start a fresh watch.
+    struct WatchExpired: Error {}
+
+    struct PodListPage: Sendable {
+        let pods: [K8sPod]
+        let resourceVersion: String?
+    }
+
+    /// List pods along with the `resourceVersion` to start watching from.
+    func listPodsWithVersion(namespace: String) async throws -> PodListPage {
+        let basePath = "/api/v1/namespaces/\(Self.encodePath(namespace))/pods"
+        var pods: [K8sPod] = []
+        var continueToken: String?
+        var resourceVersion: String?
+        var pagesFetched = 0
+
+        repeat {
+            var components = ["limit=\(Self.pageSize)"]
+            if let token = continueToken { components.append("continue=\(Self.encodeQuery(token))") }
+
+            let data = try await request(path: basePath + "?" + components.joined(separator: "&"))
+            let json = try parseJSON(data)
+
+            pods.append(contentsOf: (json["items"] as? [[String: Any]] ?? []).compactMap { parsePod($0) })
+
+            let metadata = json["metadata"] as? [String: Any]
+            // The version to watch from is the one on the *first* page: it covers the
+            // whole collection as of that read.
+            if resourceVersion == nil { resourceVersion = metadata?["resourceVersion"] as? String }
+
+            let next = metadata?["continue"] as? String
+            continueToken = (next?.isEmpty == false) ? next : nil
+            pagesFetched += 1
+        } while continueToken != nil && pagesFetched < Self.maxPages
+
+        return PodListPage(pods: pods, resourceVersion: resourceVersion)
+    }
+
+    /// Stream pod changes instead of re-listing the namespace on a timer.
+    ///
+    /// Polling re-downloaded every pod in the namespace every five seconds, which is
+    /// wasteful on a small cluster and untenable on a large one. A watch sends only
+    /// what actually changed, and it arrives immediately rather than up to a poll
+    /// interval late.
+    func watchPods(
+        namespace: String,
+        resourceVersion: String,
+        onEvent: @Sendable @escaping (PodWatchEvent) -> Void
+    ) async throws {
+        let path = "/api/v1/namespaces/\(Self.encodePath(namespace))/pods"
+            + "?watch=true&allowWatchBookmarks=true"
+            + "&resourceVersion=\(Self.encodeQuery(resourceVersion))"
+            + "&timeoutSeconds=\(Self.watchTimeoutSeconds)"
+
+        try await streamLines(path: path) { [weak self] line in
+            guard let self else { return }
+            guard let data = line.data(using: .utf8),
+                  let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = envelope["type"] as? String,
+                  let object = envelope["object"] as? [String: Any] else { return }
+
+            if type == "BOOKMARK" {
+                if let version = (object["metadata"] as? [String: Any])?["resourceVersion"] as? String {
+                    onEvent(.bookmark(version))
+                }
+                return
+            }
+
+            guard let pod = self.parsePodSendable(object) else { return }
+            switch type {
+            case "ADDED":    onEvent(.added(pod))
+            case "MODIFIED": onEvent(.modified(pod))
+            case "DELETED":  onEvent(.deleted(pod))
+            default: break   // ERROR frames fall through to the stream ending
+            }
+        }
+    }
+
+    /// `parsePod` is actor-isolated; the watch callback needs it without hopping.
+    private nonisolated func parsePodSendable(_ object: [String: Any]) -> K8sPod? {
+        Self.parsePodStatic(object)
+    }
+
+    /// Shared line-oriented streaming used by both log follow and watch.
+    private func streamLines(path: String, onLine: @Sendable @escaping (String) -> Void) async throws {
+        guard let session else { throw K8sError.noConfig }
+
+        var url = serverURL
+        if !path.hasPrefix("/") { url += "/" }
+        url += path
+
+        guard let requestURL = URL(string: url) else {
+            throw K8sError.networkError("Invalid URL: \(url)")
+        }
+
+        var req = URLRequest(url: requestURL)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = try await resolveToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else if let basic = basicAuthHeader() {
+            req.setValue(basic, forHTTPHeaderField: "Authorization")
+        }
+
+        let (bytes, response) = try await session.bytes(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            // 410 Gone means our resourceVersion aged out of the server's history
+            // window — expected on a busy cluster, and recoverable by re-listing.
+            if http.statusCode == 410 { throw WatchExpired() }
+            throw K8sError.requestFailed(http.statusCode, "Watch failed")
+        }
+
+        try await withTaskCancellationHandler {
+            for try await line in bytes.lines {
+                if Task.isCancelled { break }
+                onLine(line)
+            }
+        } onCancel: {
+            bytes.task.cancel()
+        }
+    }
+
+    private static let watchTimeoutSeconds = 300
+
+    // MARK: - URL escaping
+
+    /// Percent-encode a single path segment.
+    ///
+    /// Kubernetes names are RFC 1123 labels and therefore already URL-safe, so this
+    /// is defense in depth — it keeps a future CRD, a projected name, or an API
+    /// change from being able to alter the request path.
+    private static func encodePath(_ segment: String) -> String {
+        segment.addingPercentEncoding(withAllowedCharacters: Self.pathSegmentAllowed) ?? segment
+    }
+
+    private static func encodeQuery(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? value
+    }
+
+    private static let pathSegmentAllowed: CharacterSet = {
+        var set = CharacterSet.urlPathAllowed
+        set.remove(charactersIn: "/;")
+        return set
+    }()
+
+    private static let queryValueAllowed: CharacterSet = {
+        var set = CharacterSet.urlQueryAllowed
+        set.remove(charactersIn: "&=+?#")
+        return set
+    }()
+
     /// Stream pod logs line-by-line using `follow=true`. Calls `onLine` for each new line.
     /// Returns when the stream ends or the task is cancelled.
     func streamPodLogs(
@@ -1067,9 +1415,9 @@ actor K8sClient {
     ) async throws {
         guard let session else { throw K8sError.noConfig }
 
-        var path = "/api/v1/namespaces/\(namespace)/pods/\(name)/log?follow=true&tailLines=\(tailLines)"
+        var path = "/api/v1/namespaces/\(Self.encodePath(namespace))/pods/\(Self.encodePath(name))/log?follow=true&tailLines=\(tailLines)"
         if let c = container {
-            path += "&container=\(c)"
+            path += "&container=\(Self.encodeQuery(c))"
         }
 
         var url = serverURL
@@ -1084,6 +1432,8 @@ actor K8sClient {
         req.httpMethod = "GET"
         if let token = try await resolveToken() {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else if let basic = basicAuthHeader() {
+            req.setValue(basic, forHTTPHeaderField: "Authorization")
         }
 
         let (bytes, response) = try await session.bytes(for: req)
@@ -1091,10 +1441,26 @@ actor K8sClient {
             throw K8sError.requestFailed(http.statusCode, "Log stream failed")
         }
 
-        for try await line in bytes.lines {
-            if Task.isCancelled { break }
-            onLine(line)
+        // The cancellation check below only runs when a line arrives, so a quiet pod
+        // would keep the connection open indefinitely after the window closed.
+        // withTaskCancellationHandler tears the stream down the moment we're
+        // cancelled, regardless of whether the pod is saying anything.
+        try await withTaskCancellationHandler {
+            for try await line in bytes.lines {
+                if Task.isCancelled { break }
+                onLine(line)
+            }
+        } onCancel: {
+            bytes.task.cancel()
         }
+    }
+
+    /// HTTP basic auth, for the older `username`/`password` kubeconfig form.
+    private func basicAuthHeader() -> String? {
+        guard let user = config?.activeUser(),
+              let username = user.username, let password = user.password else { return nil }
+        let encoded = Data("\(username):\(password)".utf8).base64EncodedString()
+        return "Basic \(encoded)"
     }
 
     private func resolveToken() async throws -> String? {
@@ -1102,9 +1468,27 @@ actor K8sClient {
 
         if let token = user.token { return token }
 
-        // Exec-based auth (e.g., az, gcloud, aws)
+        // Exec-based auth (e.g. aws-iam-authenticator, gke-gcloud-auth-plugin, az).
+        // Each invocation forks a process that can take hundreds of milliseconds,
+        // so reuse the credential until it is close to expiring.
         if let exec = user.exec {
-            return try runExecPlugin(exec)
+            if let cached = cachedExecToken, cached.expiry > Date().addingTimeInterval(Self.execTokenRefreshMargin) {
+                return cached.token
+            }
+            // Coalesce concurrent refreshes: without this, a burst of parallel
+            // requests would each fork their own credential process.
+            if let inFlight = execRefreshTask {
+                return try await inFlight.value.token
+            }
+            let task = Task { try await Self.runExecPlugin(exec) }
+            execRefreshTask = task
+            defer { execRefreshTask = nil }
+
+            let result = try await task.value
+            // Plugins may omit expirationTimestamp; fall back to a short TTL rather
+            // than caching forever, so rotated credentials are picked up.
+            cachedExecToken = (result.token, result.expiry ?? Date().addingTimeInterval(Self.execTokenDefaultTTL))
+            return result.token
         }
 
         // Client cert auth doesn't use bearer tokens
@@ -1113,41 +1497,61 @@ actor K8sClient {
         return nil
     }
 
-    private func runExecPlugin(_ exec: KubeConfig.ExecConfig) throws -> String {
-        let process = Process()
-        let pipe = Pipe()
-        let errPipe = Pipe()
+    /// Runs the credential plugin off the actor's executor — `waitUntilExit()` blocks
+    /// its thread, which would otherwise stall every other request on this client.
+    private static func runExecPlugin(
+        _ exec: KubeConfig.ExecConfig
+    ) async throws -> (token: String, expiry: Date?) {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                let pipe = Pipe()
+                let errPipe = Pipe()
 
-        // Resolve full path for common commands
-        process.executableURL = URL(fileURLWithPath: resolveCommand(exec.command))
-        process.arguments = exec.args
-        process.standardOutput = pipe
-        process.standardError = errPipe
+                // Resolve full path for common commands
+                process.executableURL = URL(fileURLWithPath: resolveCommand(exec.command))
+                process.arguments = exec.args
+                process.standardOutput = pipe
+                process.standardError = errPipe
 
-        // Inherit PATH
-        var env = ProcessInfo.processInfo.environment
-        if let extra = exec.env {
-            for (k, v) in extra { env[k] = v }
+                // Inherit PATH
+                var env = ProcessInfo.processInfo.environment
+                if let extra = exec.env {
+                    for (k, v) in extra { env[k] = v }
+                }
+                process.environment = env
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: K8sError.authFailed("\(exec.command): \(error.localizedDescription)"))
+                    return
+                }
+
+                // Drain stdout before waiting: a plugin whose output exceeds the pipe
+                // buffer would otherwise block forever writing into a full pipe.
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let status = json["status"] as? [String: Any],
+                      let token = status["token"] as? String else {
+                    let errMsg = String(data: errData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let detail = errMsg.isEmpty ? "did not return a valid token" : errMsg
+                    continuation.resume(throwing: K8sError.authFailed("\(exec.command): \(detail)"))
+                    return
+                }
+
+                let formatter = ISO8601DateFormatter()
+                let expiry = (status["expirationTimestamp"] as? String).flatMap { formatter.date(from: $0) }
+                continuation.resume(returning: (token, expiry))
+            }
         }
-        process.environment = env
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let status = json["status"] as? [String: Any],
-              let token = status["token"] as? String else {
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            let errMsg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let detail = errMsg.isEmpty ? "did not return a valid token" : errMsg
-            throw K8sError.authFailed("\(exec.command): \(detail)")
-        }
-
-        return token
     }
 
-    private func resolveCommand(_ cmd: String) -> String {
+    private static func resolveCommand(_ cmd: String) -> String {
         if cmd.hasPrefix("/") { return cmd }
         // Search common paths
         let paths = [
@@ -1174,8 +1578,13 @@ actor K8sClient {
         )
 
         let sessionConfig = URLSessionConfiguration.default
-        sessionConfig.timeoutIntervalForRequest = 300
-        sessionConfig.timeoutIntervalForResource = 0  // no limit — needed for log streaming
+        // timeoutIntervalForRequest is the gap allowed *between* packets, not the
+        // total call duration — at 300s a pod that simply didn't log for five
+        // minutes had its follow stream dropped with no reconnect.
+        sessionConfig.timeoutIntervalForRequest = 3600
+        // Total-transfer ceiling. 0 is not "unlimited" here (that's an unspecified
+        // value); a large explicit interval is.
+        sessionConfig.timeoutIntervalForResource = 86_400
 
         return URLSession(configuration: sessionConfig, delegate: delegate, delegateQueue: nil)
     }
@@ -1228,41 +1637,35 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             return
         }
 
+        // Honour `insecure-skip-tls-verify: true` from kubeconfig — an explicit,
+        // per-cluster opt-in by the user. Everything else fails closed.
         if insecure {
             completionHandler(.useCredential, URLCredential(trust: trust))
             return
         }
 
-        // If we have a custom CA, try to create a certificate and set it as anchor
-        if let caData = caData {
-            if let caCert = createCertificate(from: caData) {
-                SecTrustSetAnchorCertificates(trust, [caCert] as CFArray)
-                SecTrustSetAnchorCertificatesOnly(trust, true)
-
-                if SecTrustEvaluateWithError(trust, nil) {
-                    completionHandler(.useCredential, URLCredential(trust: trust))
-                    return
-                }
-
-                // Try again allowing system roots alongside custom CA
-                if let trust2 = challenge.protectionSpace.serverTrust {
-                    SecTrustSetAnchorCertificates(trust2, [caCert] as CFArray)
-                    SecTrustSetAnchorCertificatesOnly(trust2, false)
-
-                    if SecTrustEvaluateWithError(trust2, nil) {
-                        completionHandler(.useCredential, URLCredential(trust: trust2))
-                        return
-                    }
-                }
-
-                // Custom CA provided but eval failed — trust it anyway
-                // (K8s clusters use self-signed CAs that may not chain cleanly)
-                completionHandler(.useCredential, URLCredential(trust: trust))
-                return
-            }
+        guard let caData else {
+            // No custom CA — let the system evaluate against its trust store,
+            // including hostname verification and revocation policy.
+            completionHandler(.performDefaultHandling, nil)
+            return
         }
 
-        // No custom CA — use default system evaluation
+        guard let caCert = createCertificate(from: caData) else {
+            // A CA was configured but we couldn't parse it. Refusing is the only
+            // safe option: falling back to system roots would silently accept a
+            // certificate the user never intended to trust.
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+
+        // Evaluate the server chain against the kubeconfig CA *only*, and keep
+        // hostname verification on by binding an SSL policy for the requested host.
+        let policy = SecPolicyCreateSSL(true, challenge.protectionSpace.host as CFString)
+        SecTrustSetPolicies(trust, policy)
+        SecTrustSetAnchorCertificates(trust, [caCert] as CFArray)
+        SecTrustSetAnchorCertificatesOnly(trust, true)
+
         if SecTrustEvaluateWithError(trust, nil) {
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {

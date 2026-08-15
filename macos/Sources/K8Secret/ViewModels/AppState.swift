@@ -25,6 +25,8 @@ final class AppState {
     var namespaces: [K8sNamespace] = []
     var secrets: [K8sSecret] = []
     var secretData: [K8sKeyValue] = []
+    /// `resourceVersion` the open secret was read at, used to make saves conditional.
+    var secretResourceVersion: String?
     var deployments: [K8sDeployment] = []
     var pods: [K8sPod] = []
     var podMetrics: [String: PodMetrics] = [:]  // keyed by pod name
@@ -80,6 +82,7 @@ final class AppState {
     private var pollTask: Task<Void, Never>?
     private var detailPollTask: Task<Void, Never>?
     private var metricsPollTask: Task<Void, Never>?
+    private var podWatchTask: Task<Void, Never>?
     private var clusterMetricsPollTask: Task<Void, Never>?
 
     // Confirmation
@@ -103,8 +106,42 @@ final class AppState {
         let id = UUID()
         let title: String
         let message: String
+        let confirmLabel: String
         let destructive: Bool
         let action: () async -> Void
+    }
+
+    /// Ask before doing something irreversible. Presented centrally by `ContentView`.
+    func confirm(
+        title: String,
+        message: String,
+        confirmLabel: String,
+        destructive: Bool = true,
+        action: @escaping () async -> Void
+    ) {
+        confirmAction = ConfirmAction(
+            title: title,
+            message: message,
+            confirmLabel: confirmLabel,
+            destructive: destructive,
+            action: action
+        )
+    }
+
+    /// Best-effort guess that the current context is production, used only to *add*
+    /// friction — never to remove it. A false positive costs one extra click; a
+    /// false negative leaves behaviour exactly as it would be otherwise.
+    var looksLikeProduction: Bool {
+        let name = context.lowercased()
+        return ["prod", "production", "prd", "live"].contains { token in
+            name == token
+                || name.hasPrefix("\(token)-") || name.hasSuffix("-\(token)")
+                || name.contains("-\(token)-") || name.contains("/\(token)")
+        }
+    }
+
+    private var productionWarning: String {
+        looksLikeProduction ? "\n\nThis context (\(context)) looks like production." : ""
     }
 
     enum ConnectionState: Equatable {
@@ -236,16 +273,20 @@ final class AppState {
     func switchContext(_ newContext: String) async {
         guard newContext != context else { return }
         UserDefaults.standard.set(newContext, forKey: Self.lastContextKey)
-        // Reset all state
+
+        // Drop *everything* from the previous cluster before connecting to the new
+        // one. Leaving deployments/pods/services behind meant that after switching
+        // staging → production the window still listed the old cluster's workloads,
+        // which is both wrong and a genuinely dangerous thing to act on.
         selectedNamespace = nil
-        selectedSecret = nil
         namespaces = []
-        secrets = []
-        secretData = []
-        clearChanges()
         namespaceSearch = ""
-        secretSearch = ""
-        kvSearch = ""
+        clearSelections()
+        secrets = []
+        deployments = []
+        pods = []
+        services = []
+
         await connect(toContext: newContext)
     }
 
@@ -272,7 +313,11 @@ final class AppState {
         selectedPod = nil
         selectedService = nil
         clearChanges()
+        autoLockTask?.cancel()
+        autoLockTask = nil
+        isLocked = false
         secretData = []
+        secretResourceVersion = nil
         podMetrics = [:]
         secretSearch = ""
         deploymentSearch = ""
@@ -308,8 +353,11 @@ final class AppState {
         case .pods:
             loadingPods = true
             do {
-                pods = try await client.listPods(namespace: ns.name)
-                // Fetch metrics in parallel
+                // The watch does its own initial list, so take the version-bearing
+                // one here and hand it straight to the watcher rather than listing
+                // the namespace twice on every selection.
+                let page = try await client.listPodsWithVersion(namespace: ns.name)
+                pods = page.pods
                 if let metrics = try? await client.getPodMetrics(namespace: ns.name) {
                     podMetrics = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
                 }
@@ -332,14 +380,18 @@ final class AppState {
         selectedSecret = secret
         clearChanges()
         kvSearch = ""
+        isLocked = false
         await loadSecretData()
+        scheduleAutoLock()
     }
 
     func loadSecretData() async {
         guard let ns = selectedNamespace, let secret = selectedSecret else { return }
         loadingData = true
         do {
-            secretData = try await client.getSecretData(namespace: ns.name, name: secret.name)
+            let result = try await client.getSecretData(namespace: ns.name, name: secret.name)
+            secretData = result.items
+            secretResourceVersion = result.resourceVersion
         } catch {
             showToast("Failed to load secret data: \(error.localizedDescription)", isError: true)
         }
@@ -357,18 +409,49 @@ final class AppState {
                 }
             }
         }
+        var staged = 0
         for (key, value) in pairs {
             if secretData.contains(where: { $0.key == key }) {
                 modifications[key] = value
             } else {
                 additions[key] = value
             }
+            staged += 1
         }
-        showToast("Imported \(pairs.count) key-value pairs")
+
+        // Replace mode stages a deletion for every key not in the import. Say so —
+        // nothing is written until Apply, but the user should see the scope now
+        // rather than discovering it in the confirmation dialog.
+        if replace && !deletions.isEmpty {
+            showToast("Staged \(staged) key\(staged == 1 ? "" : "s") · \(deletions.count) existing key\(deletions.count == 1 ? "" : "s") marked for deletion")
+        } else {
+            showToast("Staged \(staged) key\(staged == 1 ? "" : "s") — review, then Apply")
+        }
     }
 
     func exportAsEnv() -> String {
-        secretData.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
+        secretData.map { "\($0.key)=\(Self.envQuoted($0.value))" }.joined(separator: "\n")
+    }
+
+    /// Quote a value so the export round-trips. Multi-line values (certificates,
+    /// private keys, JSON blobs) are extremely common in secrets, and emitting them
+    /// raw produced a `.env` file that silently parsed back as garbage.
+    nonisolated static func envQuoted(_ value: String) -> String {
+        let needsQuoting = value.contains(where: { " \t\n\r\"'\\$#=".contains($0) })
+        guard needsQuoting || value.isEmpty else { return value }
+
+        var escaped = ""
+        for ch in value {
+            switch ch {
+            case "\\": escaped += "\\\\"
+            case "\"": escaped += "\\\""
+            case "\n": escaped += "\\n"
+            case "\r": escaped += "\\r"
+            case "$":  escaped += "\\$"
+            default:   escaped.append(ch)
+            }
+        }
+        return "\"\(escaped)\""
     }
 
     func exportAsJSON() -> String {
@@ -394,30 +477,53 @@ final class AppState {
         loadingYAML = false
     }
 
+    /// Entry point for the YAML editor's Apply button. A raw `PUT` replaces the
+    /// whole object, so this always confirms.
+    func requestApplyRawYAML() {
+        guard !yamlResourcePath.isEmpty else { return }
+        confirm(
+            title: "Replace this resource?",
+            message: "The edited YAML will replace the live object in full. Fields you removed will be removed from the cluster."
+                + productionWarning,
+            confirmLabel: "Apply",
+            destructive: true
+        ) { [weak self] in
+            await self?.applyRawYAML()
+        }
+    }
+
     func applyRawYAML() async {
         guard !yamlResourcePath.isEmpty else { return }
+
+        // The parser handles a subset of YAML. Anything outside it would be applied
+        // to a live resource in a shape the user didn't write, so refuse instead.
+        let problems = YAMLParser.validate(rawYAML)
+        guard problems.isEmpty else {
+            showToast(problems.joined(separator: " "), isError: true)
+            return
+        }
+
+        let parsed = YAMLParser.parse(rawYAML)
+        guard let root = parsed.mapValue, !root.isEmpty else {
+            showToast("Couldn't parse this as a Kubernetes resource.", isError: true)
+            return
+        }
+        // A PUT that drops apiVersion/kind replaces the resource with something the
+        // API server may accept but the user didn't intend.
+        guard root["apiVersion"] != nil, root["kind"] != nil else {
+            showToast("Resource is missing apiVersion or kind — refusing to apply.", isError: true)
+            return
+        }
+
         saving = true
+        defer { saving = false }
+
         do {
-            let parsed = YAMLParser.parse(rawYAML)
-            let dict = yamlValueToDict(parsed)
-            let jsonData = try JSONSerialization.data(withJSONObject: dict)
+            let jsonData = try JSONSerialization.data(withJSONObject: parsed.jsonObject)
             try await client.applyRawResource(path: yamlResourcePath, jsonData: jsonData)
             showToast("YAML applied successfully")
         } catch {
             showToast("Failed to apply YAML: \(error.localizedDescription)", isError: true)
-        }
-        saving = false
-    }
-
-    private func yamlValueToDict(_ value: YAMLValue) -> Any {
-        switch value {
-        case .string(let s): return s
-        case .map(let m):
-            var dict: [String: Any] = [:]
-            for (k, v) in m { dict[k] = yamlValueToDict(v) }
-            return dict
-        case .sequence(let arr): return arr.map { yamlValueToDict($0) }
-        case .null: return NSNull()
         }
     }
 
@@ -465,32 +571,25 @@ final class AppState {
 
     // MARK: - Metrics Polling (real-time pod metrics)
 
+    /// Keep the pod list live via a watch stream, and poll metrics separately.
+    ///
+    /// This used to re-list every pod in the namespace every 5 seconds. A watch
+    /// sends only what changed, arrives as it happens rather than up to a poll
+    /// interval late, and doesn't grow more expensive with the size of the
+    /// namespace. Metrics still poll — the metrics API has no watch — but at 10s,
+    /// which is closer to metrics-server's own resolution than 5s was.
     func startMetricsPolling() {
         stopMetricsPolling()
+        startPodWatch()
 
         metricsPollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(10))
                 if Task.isCancelled { break }
 
                 guard let self, let ns = self.selectedNamespace,
                       self.selectedResourceType == .pods else { break }
 
-                // Refresh pod list (catches HPA scale-up/down, restarts, new pods)
-                if let updatedPods = try? await self.client.listPods(namespace: ns.name) {
-                    self.pods = updatedPods
-                    // Re-select if the selected pod was updated
-                    if let selected = self.selectedPod,
-                       let refreshed = updatedPods.first(where: { $0.id == selected.id }) {
-                        self.selectedPod = refreshed
-                    } else if let selected = self.selectedPod,
-                              !updatedPods.contains(where: { $0.id == selected.id }) {
-                        // Pod was removed (scaled down / evicted)
-                        self.selectedPod = nil
-                    }
-                }
-
-                // Refresh metrics
                 if let metrics = try? await self.client.getPodMetrics(namespace: ns.name) {
                     self.podMetrics = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
                 }
@@ -498,9 +597,83 @@ final class AppState {
         }
     }
 
+    private func startPodWatch() {
+        podWatchTask?.cancel()
+
+        podWatchTask = Task { [weak self] in
+            var backoff: Double = 1
+
+            while !Task.isCancelled {
+                guard let self, let ns = self.selectedNamespace,
+                      self.selectedResourceType == .pods else { return }
+
+                do {
+                    // Re-list to get a consistent snapshot plus the version to watch from.
+                    let page = try await self.client.listPodsWithVersion(namespace: ns.name)
+                    self.pods = page.pods
+                    self.reconcileSelectedPod()
+                    backoff = 1
+
+                    guard let version = page.resourceVersion else {
+                        // No version to watch from — fall back to a slow re-list.
+                        try? await Task.sleep(for: .seconds(10))
+                        continue
+                    }
+
+                    try await self.client.watchPods(namespace: ns.name, resourceVersion: version) { event in
+                        Task { @MainActor [weak self] in
+                            self?.apply(event)
+                        }
+                    }
+                    // A watch ends normally when the server's timeout elapses; loop
+                    // around and start a fresh one.
+                } catch is K8sClient.WatchExpired {
+                    // resourceVersion aged out — re-list immediately, no backoff.
+                    continue
+                } catch {
+                    if Task.isCancelled { return }
+                    try? await Task.sleep(for: .seconds(backoff))
+                    backoff = min(30, backoff * 2)
+                }
+            }
+        }
+    }
+
+    /// Non-private so watch-event handling can be tested without a live cluster.
+    func apply(_ event: K8sClient.PodWatchEvent) {
+        switch event {
+        case .added(let pod), .modified(let pod):
+            if let idx = pods.firstIndex(where: { $0.id == pod.id }) {
+                pods[idx] = pod
+            } else {
+                pods.append(pod)
+            }
+            if selectedPod?.id == pod.id { selectedPod = pod }
+
+        case .deleted(let pod):
+            pods.removeAll { $0.id == pod.id }
+            if selectedPod?.id == pod.id { selectedPod = nil }
+
+        case .bookmark:
+            break   // position marker only; nothing to display
+        }
+    }
+
+    /// Keep the detail pane pointing at something that still exists.
+    private func reconcileSelectedPod() {
+        guard let selected = selectedPod else { return }
+        if let refreshed = pods.first(where: { $0.id == selected.id }) {
+            selectedPod = refreshed
+        } else {
+            selectedPod = nil
+        }
+    }
+
     func stopMetricsPolling() {
         metricsPollTask?.cancel()
         metricsPollTask = nil
+        podWatchTask?.cancel()
+        podWatchTask = nil
     }
 
     // MARK: - Cluster Metrics
@@ -547,6 +720,34 @@ final class AppState {
             startRolloutPolling(deploymentId: dep.id)
         } catch {
             showToast("Restart failed: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    /// Entry point for the scale controls.
+    ///
+    /// Routine scaling stays a single click — prompting on every ±1 would train
+    /// people to dismiss the dialog. Taking a workload to zero is a different act
+    /// (it stops serving traffic), and so is any scale on a production-looking
+    /// context, so those confirm.
+    func requestScale(_ dep: K8sDeployment, to replicas: Int) {
+        let takingDown = replicas == 0 && dep.replicas > 0
+
+        guard takingDown || looksLikeProduction else {
+            Task { await scaleDeployment(dep, to: replicas) }
+            return
+        }
+
+        let what = takingDown
+            ? "Scale \(dep.name) to 0 replicas? It will stop serving traffic."
+            : "Scale \(dep.name) from \(dep.replicas) to \(replicas) replicas?"
+
+        confirm(
+            title: takingDown ? "Scale to zero" : "Scale deployment",
+            message: what + productionWarning,
+            confirmLabel: takingDown ? "Scale to 0" : "Scale",
+            destructive: takingDown
+        ) { [weak self] in
+            await self?.scaleDeployment(dep, to: replicas)
         }
     }
 
@@ -765,33 +966,66 @@ final class AppState {
         newKeyValue = ""
     }
 
+    /// Entry point for the Apply button — writing to a live secret always confirms,
+    /// with an itemised summary of what is about to change.
+    func requestSaveChanges() {
+        guard hasChanges, let secret = selectedSecret else { return }
+
+        var parts: [String] = []
+        if !additions.isEmpty { parts.append("add \(additions.count)") }
+        if !modifications.isEmpty { parts.append("change \(modifications.count)") }
+        if !deletions.isEmpty { parts.append("delete \(deletions.count)") }
+        let summary = parts.joined(separator: ", ")
+
+        var message = "This will \(summary) key\(changeCount == 1 ? "" : "s") in \(secret.name)."
+        if !deletions.isEmpty {
+            message += "\n\nDeleted keys can't be recovered: \(deletions.sorted().joined(separator: ", "))."
+        }
+
+        confirm(
+            title: "Apply changes to \(secret.name)?",
+            message: message + productionWarning,
+            confirmLabel: "Apply",
+            destructive: !deletions.isEmpty
+        ) { [weak self] in
+            await self?.saveChanges()
+        }
+    }
+
     func saveChanges() async {
         guard let ns = selectedNamespace, let secret = selectedSecret else { return }
+        guard hasChanges else { return }
         saving = true
+        defer { saving = false }
 
-        var applied = 0
+        let count = changeCount
+        var upserts = modifications
+        for (key, value) in additions { upserts[key] = value }
+
         do {
-            for key in deletions {
-                try await client.deleteSecretKey(namespace: ns.name, name: secret.name, key: key)
-                applied += 1
-            }
-            for (key, value) in modifications {
-                try await client.patchSecretKey(namespace: ns.name, name: secret.name, key: key, value: value)
-                applied += 1
-            }
-            for (key, value) in additions {
-                try await client.patchSecretKey(namespace: ns.name, name: secret.name, key: key, value: value)
-                applied += 1
-            }
-            showToast("Applied \(applied) change\(applied == 1 ? "" : "s") successfully")
+            // One atomic merge-patch: all keys land, or none do.
+            try await client.applySecretChanges(
+                namespace: ns.name,
+                name: secret.name,
+                upserts: upserts,
+                removals: Array(deletions),
+                resourceVersion: secretResourceVersion
+            )
+            showToast("Applied \(count) change\(count == 1 ? "" : "s") successfully")
             clearChanges()
             await loadSecretData()
         } catch {
-            showToast("Failed after \(applied) changes: \(error.localizedDescription)", isError: true)
-            clearChanges()
-            await loadSecretData()
+            // Keep the staged edits. The write was atomic, so nothing was applied —
+            // discarding them here would destroy work the user can still retry.
+            if case K8sError.requestFailed(409, _) = error {
+                showToast(
+                    "\(secret.name) changed in the cluster since you opened it. Reload to see the current values, then re-apply.",
+                    isError: true
+                )
+            } else {
+                showToast("Save failed — your changes are still staged: \(error.localizedDescription)", isError: true)
+            }
         }
-        saving = false
     }
 
     func discardChanges() {
@@ -803,6 +1037,55 @@ final class AppState {
         modifications = [:]
         deletions = []
         additions = [:]
+    }
+
+    // MARK: - Auto-lock
+
+    /// Drop decoded secret values after a period of inactivity.
+    ///
+    /// Decoded secrets are ordinary Swift strings held in observable state, so they
+    /// can't be zeroed and may reach swap. Not holding them any longer than needed
+    /// is the meaningful mitigation available without a locked-buffer type: an
+    /// unattended laptop stops having a namespace of plaintext credentials sitting
+    /// in a window.
+    ///
+    /// Staged edits are never discarded — locking with unsaved work would destroy
+    /// exactly the thing the user cares about, so an edited secret stays open.
+    static let autoLockInterval: TimeInterval = 5 * 60
+
+    private var autoLockTask: Task<Void, Never>?
+
+    var isLocked = false
+
+    func noteUserActivity() {
+        isLocked = false
+        scheduleAutoLock()
+    }
+
+    func scheduleAutoLock() {
+        autoLockTask?.cancel()
+        guard selectedSecret != nil else { return }
+
+        autoLockTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.autoLockInterval))
+            guard !Task.isCancelled, let self else { return }
+            self.lockSecrets()
+        }
+    }
+
+    func lockSecrets() {
+        // Unsaved work outranks the lock.
+        guard !hasChanges, selectedSecret != nil else { return }
+        secretData = []
+        secretResourceVersion = nil
+        isLocked = true
+    }
+
+    /// Re-fetch after a lock, when the user comes back to the window.
+    func unlockSecrets() async {
+        isLocked = false
+        await loadSecretData()
+        scheduleAutoLock()
     }
 
     func showToast(_ message: String, isError: Bool = false) {

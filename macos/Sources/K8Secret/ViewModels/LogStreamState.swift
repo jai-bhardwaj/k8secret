@@ -35,6 +35,13 @@ final class LogStreamState {
     private var lineCounter = 0
     private var podColorMap: [String: NSColor] = [:]
 
+    /// How many lines scrolled out of the buffer — surfaced so the window can say
+    /// the history is truncated instead of quietly pretending it's complete.
+    private(set) var droppedLines = 0
+
+    private static let maxLines = 10_000
+    private static let trimBatch = 1_000
+
     struct LogLine: Identifiable {
         let id: Int
         let timestamp: String?
@@ -66,31 +73,25 @@ final class LogStreamState {
         }
     }
 
+    /// Counts and pod names are maintained incrementally rather than recomputed.
+    ///
+    /// These were computed properties scanning the whole buffer, and every appended
+    /// line invalidated the view — so a busy pod made SwiftUI walk up to 10,000
+    /// lines three times per line received.
+    private(set) var levelCounts: [LogLevel: Int] = [:]
+    private var podNames: Set<String> = []
+    private(set) var activePods: [String] = []
+
     var filteredLines: [LogLine] {
-        var result = lines
+        // Still a scan, but only when a filter is actually engaged — and the common
+        // case (no filter, no search) now returns the buffer untouched.
+        guard levelFilter != nil || !search.isEmpty else { return lines }
 
-        if let level = levelFilter {
-            result = result.filter { $0.level == level }
+        return lines.filter { line in
+            if let level = levelFilter, line.level != level { return false }
+            if !search.isEmpty, !line.text.localizedCaseInsensitiveContains(search) { return false }
+            return true
         }
-
-        if !search.isEmpty {
-            result = result.filter { $0.text.localizedCaseInsensitiveContains(search) }
-        }
-
-        return result
-    }
-
-    var levelCounts: [LogLevel: Int] {
-        var counts: [LogLevel: Int] = [:]
-        for line in lines {
-            counts[line.level, default: 0] += 1
-        }
-        return counts
-    }
-
-    /// Unique pod names currently streaming
-    var activePods: [String] {
-        Array(Set(lines.compactMap(\.podName))).sorted()
     }
 
     init(id: LogStreamID) {
@@ -178,18 +179,38 @@ final class LogStreamState {
 
     func clear() {
         lines.removeAll()
+        levelCounts.removeAll()
+        podNames.removeAll()
+        activePods.removeAll()
         lineCounter = 0
+        droppedLines = 0
     }
 
-    private func appendLine(_ raw: String, podName: String? = nil) {
+    /// Non-private so buffer accounting can be tested without a live stream.
+    func appendLine(_ raw: String, podName: String? = nil) {
         lineCounter += 1
         let (ts, text) = parseTimestamp(raw)
         let level = detectLevel(text)
         let color = podName.flatMap { podColorMap[$0] }
-        lines.append(LogLine(id: lineCounter, timestamp: ts, text: text, level: level, podName: podName, podColor: color))
 
-        if lines.count > 10_000 {
-            lines.removeFirst(lines.count - 10_000)
+        lines.append(LogLine(id: lineCounter, timestamp: ts, text: text, level: level, podName: podName, podColor: color))
+        levelCounts[level, default: 0] += 1
+
+        if let podName, podNames.insert(podName).inserted {
+            activePods = podNames.sorted()
+        }
+
+        // Trim in batches. Dropping one line at a time made every append past the
+        // cap an O(n) memmove of the whole buffer.
+        if lines.count > Self.maxLines + Self.trimBatch {
+            let excess = lines.count - Self.maxLines
+            for dropped in lines.prefix(excess) {
+                if let count = levelCounts[dropped.level] {
+                    levelCounts[dropped.level] = count > 1 ? count - 1 : nil
+                }
+            }
+            lines.removeFirst(excess)
+            droppedLines += excess
         }
     }
 
