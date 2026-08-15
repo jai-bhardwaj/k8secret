@@ -353,7 +353,10 @@ final class AppState {
             // namespace list existed — so its first load saw an empty cluster
             // and reported 0/0 in perfect confidence. Load it again now that
             // there are namespaces to span.
-            if selectedDestination == .overview { await loadOverview() }
+            if selectedDestination == .overview {
+                await loadOverview()
+                startDestinationPolling(every: 10) { [weak self] in await self?.loadOverview() }
+            }
         } catch {
             connectionState = .disconnected(error.localizedDescription)
         }
@@ -480,6 +483,7 @@ final class AppState {
     }
 
     func selectDestination(_ destination: AppDestination) async {
+        stopDestinationPolling()
         switch destination {
         case .resource(let t):
             await selectResourceType(t)
@@ -487,11 +491,35 @@ final class AppState {
             clearSelections()
             selectedDestination = .overview
             await loadOverview()
+            startDestinationPolling(every: 10) { [weak self] in await self?.loadOverview() }
         case .events:
             clearSelections()
             selectedDestination = .events
             await loadClusterEvents()
+            startDestinationPolling(every: 15) { [weak self] in await self?.loadClusterEvents() }
         }
+    }
+
+    /// Overview and Events are dashboards: a "needs attention" panel that goes
+    /// stale is a lying dashboard, so both refresh while visible and stop the
+    /// moment the user leaves. `loadOverview`/`loadClusterEvents` already guard
+    /// on `selectedDestination`, so a late tick can't write into another pane.
+    private var destinationPollTask: Task<Void, Never>?
+
+    private func startDestinationPolling(every seconds: Double,
+                                         _ tick: @escaping @MainActor () async -> Void) {
+        destinationPollTask = Task { [weak self] in
+            while !Task.isCancelled, self != nil {
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { return }
+                await tick()
+            }
+        }
+    }
+
+    func stopDestinationPolling() {
+        destinationPollTask?.cancel()
+        destinationPollTask = nil
     }
 
     /// Scope the window to one namespace, or to all of them.
