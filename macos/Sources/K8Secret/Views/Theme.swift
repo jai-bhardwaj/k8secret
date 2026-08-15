@@ -17,6 +17,20 @@ import SwiftUI
 /// Everything adapts to light/dark through the asset-free dynamic initializer,
 /// so the palette lives in code next to its rationale.
 enum Theme {
+    // MARK: - Surfaces (the prototype's ground system)
+
+    /// Window ground — behind everything.
+    static let ground = dynamic(light: 0xF0F3F7, dark: 0x0B0E14)
+    /// Primary pane surface.
+    static let panel = dynamic(light: 0xFFFFFF, dark: 0x10141B)
+    /// Sidebar and cards sit slightly above the panel.
+    static let raised = dynamic(light: 0xF7F9FC, dark: 0x161B24)
+    /// Wells: inputs, code blocks, chips.
+    static let inset = dynamic(light: 0xE9EDF3, dark: 0x0D1117)
+    /// Hairlines.
+    static let line = dynamic(light: 0xDDE3EC, dark: 0x232B38)
+    static let lineStrong = dynamic(light: 0xC9D2DF, dark: 0x2E3847)
+
     // MARK: - Accent
 
     static let accent = dynamic(light: 0x0E9C85, dark: 0x3ECFB2)

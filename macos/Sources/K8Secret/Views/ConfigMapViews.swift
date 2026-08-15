@@ -7,6 +7,11 @@ struct ConfigMapsListView: View {
 
     var body: some View {
         @Bindable var state = state
+        VStack(spacing: 0) {
+        PaneHeader(
+            title: "ConfigMaps",
+            subtitle: "\(state.configMaps.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter configmaps…", text: $state.configMapSearch)
         List(state.filteredConfigMaps, selection: $state.selectedConfigMap) { cm in
             HStack(spacing: 8) {
                 Text(cm.name)
@@ -25,28 +30,28 @@ struct ConfigMapsListView: View {
             }
             .padding(.vertical, 3)
             .tag(cm)
+            .vnextRow(isSelected: state.selectedConfigMap?.id == cm.id)
+            .listRowBackground(Color.clear)
+            .listRowSeparatorTint(Theme.line)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.configMapSearch, prompt: "Filter configmaps")
-        .navigationTitle("ConfigMaps")
         .overlay {
             if state.isInitialLoad {
                 ProgressView()
             } else if state.configMaps.isEmpty {
-                ContentUnavailableView {
-                    Label("No ConfigMaps", systemImage: "slider.horizontal.3")
-                } description: {
-                    Text(state.allNamespaces
-                         ? "No configmaps in any namespace."
-                         : "No configmaps in this namespace.")
-                }
+                EmptyPane(icon: "slider.horizontal.3", title: "No ConfigMaps",
+                          message: state.allNamespaces ? "No configmaps in any namespace." : "No configmaps in this namespace.")
             } else if state.filteredConfigMaps.isEmpty {
-                ContentUnavailableView.search(text: state.configMapSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                          message: "No results for “\(state.configMapSearch)”.")
             }
         }
         .onChange(of: state.selectedConfigMap?.id) { _, _ in
             guard let cm = state.selectedConfigMap else { return }
             Task { await state.selectConfigMap(cm) }
         }
+        }
+        .vnextListPane()
         .motion(Motion.listChange, value: state.configMaps)
     }
 }

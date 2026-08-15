@@ -45,26 +45,31 @@ struct SecretsListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Secrets")
     }
 
     private var secretsList: some View {
         @Bindable var state = state
 
-        return List(state.filteredSecrets, selection: $state.selectedSecret) { secret in
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Secrets",
+            subtitle: "\(state.secrets.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter secrets…", text: $state.secretSearch)
+        List(state.filteredSecrets, selection: $state.selectedSecret) { secret in
             SecretRow(secret: secret)
                 .tag(secret)
+                .vnextRow(isSelected: state.selectedSecret?.id == secret.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.secretSearch, prompt: "Filter secrets")
         .overlay {
             if state.secrets.isEmpty {
-                ContentUnavailableView {
-                    Label("No Secrets", systemImage: "lock.slash")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace from the menu above, or a different resource type in the sidebar.")
-                }
+                EmptyPane(icon: "lock.slash", title: "No Secrets",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredSecrets.isEmpty {
-                ContentUnavailableView.search(text: state.secretSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.secretSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedSecret?.id) { _, _ in
@@ -76,6 +81,8 @@ struct SecretsListView: View {
             guard let secret = state.selectedSecret else { return }
             Task { await state.selectSecret(secret) }
         }
+        }
+        .vnextListPane()
     }
 }
 

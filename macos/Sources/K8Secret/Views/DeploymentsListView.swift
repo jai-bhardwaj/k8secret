@@ -45,30 +45,35 @@ struct DeploymentsListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Deployments")
     }
 
     private var deploymentsList: some View {
         @Bindable var state = state
 
-        return List(state.filteredDeployments, selection: $state.selectedDeployment) { dep in
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Deployments",
+            subtitle: "\(state.deployments.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter deployments…", text: $state.deploymentSearch)
+        List(state.filteredDeployments, selection: $state.selectedDeployment) { dep in
             DeploymentRow(deployment: dep, showNamespace: state.allNamespaces)
                 .tag(dep)
+                .vnextRow(isSelected: state.selectedDeployment?.id == dep.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.deploymentSearch, prompt: "Filter deployments")
         .overlay {
             if state.deployments.isEmpty {
                 // An empty namespace is a dead end unless it says where to go
                 // next. A fresh install lands on `default`, which on most
                 // clusters holds nothing, so this was the first screen many
                 // people saw.
-                ContentUnavailableView {
-                    Label("No Deployments", systemImage: "shippingbox")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace from the menu above, or a different resource type in the sidebar.")
-                }
+                EmptyPane(icon: "shippingbox", title: "No Deployments",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredDeployments.isEmpty {
-                ContentUnavailableView.search(text: state.deploymentSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.deploymentSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedDeployment?.id) { _, _ in
@@ -80,6 +85,8 @@ struct DeploymentsListView: View {
             guard let dep = state.selectedDeployment else { return }
             Task { await state.selectDeployment(dep) }
         }
+        }
+        .vnextListPane()
     }
 }
 

@@ -35,14 +35,11 @@ struct PodDetailView: View {
     @ViewBuilder
     private func podDetail(_ pod: K8sPod) -> some View {
         VStack(spacing: 0) {
-            Picker("Section", selection: $tab) {
-                ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+            UnderlineTabBar(
+                tabs: DetailTab.allCases.map { ($0, $0.rawValue) },
+                selection: $tab
+            )
+            .padding(.top, 6)
 
             switch tab {
             case .overview:

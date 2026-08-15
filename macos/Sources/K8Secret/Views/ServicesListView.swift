@@ -45,30 +45,35 @@ struct ServicesListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Services")
     }
 
     private var servicesList: some View {
         @Bindable var state = state
 
-        return List(state.filteredServices, selection: $state.selectedService) { svc in
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Services",
+            subtitle: "\(state.services.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter services…", text: $state.serviceSearch)
+        List(state.filteredServices, selection: $state.selectedService) { svc in
             ServiceRow(service: svc)
                 .tag(svc)
+                .vnextRow(isSelected: state.selectedService?.id == svc.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.serviceSearch, prompt: "Filter services")
         .overlay {
             if state.services.isEmpty {
                 // An empty namespace is a dead end unless it says where to go
                 // next. A fresh install lands on `default`, which on most
                 // clusters holds nothing, so this was the first screen many
                 // people saw.
-                ContentUnavailableView {
-                    Label("No Services", systemImage: "network")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace from the menu above, or a different resource type in the sidebar.")
-                }
+                EmptyPane(icon: "network", title: "No Services",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredServices.isEmpty {
-                ContentUnavailableView.search(text: state.serviceSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.serviceSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedService?.id) { _, _ in
@@ -80,6 +85,8 @@ struct ServicesListView: View {
             guard let svc = state.selectedService else { return }
             Task { await state.selectService(svc) }
         }
+        }
+        .vnextListPane()
     }
 }
 

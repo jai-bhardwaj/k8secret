@@ -1,78 +1,54 @@
 import SwiftUI
 
-/// The vNext sidebar: resource-first, grouped by what the user is doing.
-///
-/// Namespace is deliberately *not* here any more — it's a filter, not a place,
-/// and lives in the toolbar scope control. What earns a sidebar slot is a
-/// destination: Overview, the resource types, Events. Counts ride along per
-/// scope so the sidebar doubles as a cluster summary.
+/// The vNext sidebar, matching the prototype's anatomy exactly: custom rows
+/// (not a native List) so selection is accent-soft, hover is the inset well,
+/// section labels are uppercase micro-type, and the port-forwards footer is
+/// anchored at the bottom. Namespace is deliberately absent — it's a filter,
+/// and lives in the toolbar scope control.
 struct SidebarView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        @Bindable var state = state
-
         VStack(spacing: 0) {
             contextSwitcher
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
-                .padding(.bottom, 6)
+                .padding(.bottom, 8)
 
-            List(selection: Binding(
-                get: { state.selectedDestination },
-                set: { dest in
-                    guard let dest else { return }
-                    Task { await state.selectDestination(dest) }
-                }
-            )) {
-                ForEach(NavGroup.all) { group in
-                    if let label = group.label {
-                        Section(label) {
-                            ForEach(group.items, id: \.self) { item in
-                                navRow(item)
-                            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(NavGroup.all) { group in
+                        if let label = group.label {
+                            Text(label.uppercased())
+                                .font(.system(size: 10, weight: .semibold))
+                                .kerning(0.9)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 10)
+                                .padding(.top, 10)
+                                .padding(.bottom, 4)
                         }
-                    } else {
                         ForEach(group.items, id: \.self) { item in
-                            navRow(item)
+                            NavRowButton(
+                                destination: item,
+                                isSelected: state.selectedDestination == item,
+                                count: count(for: item)
+                            ) {
+                                Task { await state.selectDestination(item) }
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
-            .listStyle(.sidebar)
 
+            Spacer(minLength: 0)
             portForwardsFooter
         }
+        .background(Theme.raised)
+        .overlay(alignment: .trailing) { Theme.line.frame(width: 1) }
         .navigationSplitViewColumnWidth(min: 190, ideal: 216, max: 280)
-        .navigationTitle("K8Secret")
-    }
-
-    private func navRow(_ destination: AppDestination) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: destination.icon)
-                .font(.system(size: 13))
-                .frame(width: 18)
-                .foregroundStyle(state.selectedDestination == destination ? Theme.accent : Color.secondary)
-            // The floor is load-bearing: this List proposes near-zero width to
-            // its rows, and a flexible Text collapses to nothing — the sidebar
-            // rendered as a column of anonymous icons. Same fix, same reason,
-            // as the old namespace rows.
-            Text(destination.title)
-                .lineLimit(1)
-                .frame(minWidth: 110, maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
-            if let count = count(for: destination), count > 0 {
-                Text("\(count)")
-                    .font(.caption)
-                    .foregroundStyle(state.selectedDestination == destination ? Theme.accent : Color.secondary)
-                    .monospacedDigit()
-                    .fixedSize()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .tag(destination)
-        .accessibilityLabel(accessibilityText(for: destination))
     }
 
     /// Sidebar counts are the loaded arrays — they fill in as types are
@@ -91,56 +67,30 @@ struct SidebarView: View {
         }
     }
 
-    private func accessibilityText(for destination: AppDestination) -> String {
-        if let c = count(for: destination), c > 0 {
-            return "\(destination.title), \(c)"
-        }
-        return destination.title
-    }
-
     /// The prototype's sidebar anchor: active forwards always visible, one
     /// click to stop — a background tunnel should never be out of sight.
     @ViewBuilder
     private var portForwardsFooter: some View {
         let mine = PortForwardManager.shared.forwards.filter { $0.context == state.context }
         VStack(alignment: .leading, spacing: 4) {
-            Divider()
+            Divider().overlay(Theme.line)
             Text("PORT FORWARDS")
                 .font(.system(size: 9.5, weight: .semibold))
-                .kerning(0.7)
+                .kerning(0.8)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 12)
-                .padding(.top, 6)
+                .padding(.top, 8)
             if mine.isEmpty {
                 Text("None active")
-                    .font(.caption)
+                    .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 10)
             } else {
                 ForEach(mine) { fwd in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(fwd.status == .active ? Theme.ok : Theme.warn)
-                            .frame(width: 6, height: 6)
-                        Text(":\(String(fwd.localPort)) → \(fwd.displayName)")
-                            .font(.system(.caption, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Button {
-                            PortForwardManager.shared.stop(id: fwd.id)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 8, weight: .bold))
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Stop forwarding \(fwd.displayName)")
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 2)
+                    PortForwardChip(forward: fwd)
                 }
-                Spacer().frame(height: 6)
+                Spacer().frame(height: 8)
             }
         }
     }
@@ -177,22 +127,108 @@ struct SidebarView: View {
             HStack(spacing: 8) {
                 Circle()
                     .fill(state.clusterTint.color)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 7, height: 7)
                 Text(state.context)
-                    .font(.system(.callout, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.08), lineWidth: 0.5))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.line, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .help("Kubeconfig context — the dot color is this cluster's tint from Settings")
+    }
+}
+
+/// One sidebar destination, with the prototype's three states: rest, hover
+/// (inset well), selected (accent-soft + accent icon + semibold).
+private struct NavRowButton: View {
+    let destination: AppDestination
+    let isSelected: Bool
+    let count: Int?
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: destination.icon)
+                    .font(.system(size: 13))
+                    .frame(width: 17)
+                    .foregroundStyle(isSelected ? Theme.accent : Color.secondary)
+                Text(destination.title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .lineLimit(1)
+                    .frame(minWidth: 100, maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+                if let count, count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 11))
+                        .monospacedDigit()
+                        .foregroundStyle(isSelected ? Theme.accent : Color.secondary)
+                        .fixedSize()
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6.5)
+            .background(
+                isSelected ? Theme.soft(Theme.accent) : (hovering ? Theme.inset : Color.clear),
+                in: RoundedRectangle(cornerRadius: 7)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .motion(Motion.stateChange, value: hovering)
+        .accessibilityLabel(count.map { "\(destination.title), \($0)" } ?? destination.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private struct PortForwardChip: View {
+    let forward: PortForward
+    @State private var hovering = false
+    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(forward.status == .active ? Theme.ok : Theme.warn)
+                .frame(width: 6, height: 6)
+                .opacity(pulse ? 0.35 : 1)
+            Text(":\(String(forward.localPort)) → \(forward.displayName)")
+                .font(.system(size: 11, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                PortForwardManager.shared.stop(id: forward.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(hovering ? Theme.bad : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Stop forwarding \(forward.displayName)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(hovering ? Theme.inset : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+        .padding(.horizontal, 8)
+        .onHover { hovering = $0 }
+        .onAppear {
+            guard forward.status == .active, !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.0).repeatForever()) { pulse = true }
+        }
     }
 }

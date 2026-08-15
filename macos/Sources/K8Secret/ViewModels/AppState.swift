@@ -349,6 +349,11 @@ final class AppState {
             startClusterMetricsPolling()
             await loadNamespaces()
             await selectInitialNamespace(preferred: preferredNamespace)
+            // The window opens on Overview, whose .task fired before the
+            // namespace list existed — so its first load saw an empty cluster
+            // and reported 0/0 in perfect confidence. Load it again now that
+            // there are namespaces to span.
+            if selectedDestination == .overview { await loadOverview() }
         } catch {
             connectionState = .disconnected(error.localizedDescription)
         }

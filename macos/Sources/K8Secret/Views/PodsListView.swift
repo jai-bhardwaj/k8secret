@@ -45,31 +45,36 @@ struct PodsListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Pods")
     }
 
     private var podsList: some View {
         @Bindable var state = state
 
-        return List(state.filteredPods, selection: $state.selectedPod) { pod in
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Pods",
+            subtitle: "\(state.pods.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter pods…", text: $state.podSearch)
+        List(state.filteredPods, selection: $state.selectedPod) { pod in
             PodRow(pod: pod, metrics: state.metrics(for: pod.name),
                    showNamespace: state.allNamespaces)
                 .tag(pod)
+                .vnextRow(isSelected: state.selectedPod?.id == pod.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.podSearch, prompt: "Filter pods")
         .overlay {
             if state.pods.isEmpty {
                 // An empty namespace is a dead end unless it says where to go
                 // next. A fresh install lands on `default`, which on most
                 // clusters holds nothing, so this was the first screen many
                 // people saw.
-                ContentUnavailableView {
-                    Label("No Pods", systemImage: "circle.hexagongrid")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace from the menu above, or a different resource type in the sidebar.")
-                }
+                EmptyPane(icon: "circle.hexagongrid", title: "No Pods",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredPods.isEmpty {
-                ContentUnavailableView.search(text: state.podSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.podSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedPod?.id) { _, _ in
@@ -81,6 +86,8 @@ struct PodsListView: View {
             guard let pod = state.selectedPod else { return }
             Task { await state.selectPod(pod) }
         }
+        }
+        .vnextListPane()
     }
 }
 

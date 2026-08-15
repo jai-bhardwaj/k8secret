@@ -7,27 +7,32 @@ struct CronJobsListView: View {
 
     var body: some View {
         @Bindable var state = state
+        VStack(spacing: 0) {
+        PaneHeader(
+            title: "CronJobs",
+            subtitle: "\(state.cronJobs.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter cronjobs…", text: $state.cronJobSearch)
         List(state.filteredCronJobs, selection: $state.selectedCronJob) { cj in
             CronJobRow(cronJob: cj, showNamespace: state.allNamespaces)
                 .tag(cj)
+                .vnextRow(isSelected: state.selectedCronJob?.id == cj.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.cronJobSearch, prompt: "Filter cronjobs")
-        .navigationTitle("CronJobs")
         .overlay {
             if state.isInitialLoad {
                 ProgressView()
             } else if state.cronJobs.isEmpty {
-                ContentUnavailableView {
-                    Label("No CronJobs", systemImage: "clock")
-                } description: {
-                    Text(state.allNamespaces
-                         ? "No cronjobs in any namespace."
-                         : "No cronjobs in this namespace.")
-                }
+                EmptyPane(icon: "clock", title: "No CronJobs",
+                          message: state.allNamespaces ? "No cronjobs in any namespace." : "No cronjobs in this namespace.")
             } else if state.filteredCronJobs.isEmpty {
-                ContentUnavailableView.search(text: state.cronJobSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                          message: "No results for “\(state.cronJobSearch)”.")
             }
         }
+        }
+        .vnextListPane()
         .motion(Motion.listChange, value: state.cronJobs)
     }
 }

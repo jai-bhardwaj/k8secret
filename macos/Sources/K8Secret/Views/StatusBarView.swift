@@ -92,17 +92,36 @@ struct StatusBarView: View {
 
     private var leftSection: some View {
         HStack(spacing: 12) {
-            statusItem(icon: "app.badge", text: "\(AppConstants.appName) v\(AppConstants.version)")
+            // The prototype leads with what matters live: connection, then the
+            // watch, then freshness. App version moves to the right edge.
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(state.connectionState == .connected ? Theme.ok : Theme.bad)
+                    .frame(width: 6, height: 6)
+                Text(state.connectionState == .connected ? "Connected · \(state.context)" : "Not connected")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 11))
 
             statusDivider
 
-            if !state.k8sVersion.isEmpty {
-                statusItem(icon: "helm", sfSymbol: false, text: "K8s \(state.k8sVersion)")
+            Text(state.liveUpdatesInterrupted ? "watch: retrying" : "watch: live")
+                .font(.system(size: 11))
+                .foregroundStyle(state.liveUpdatesInterrupted ? Theme.warn : Color.secondary)
+
+            if let updated = state.lastUpdated {
+                statusDivider
+                Text("refreshed \(formatAge(updated)) ago")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
             }
 
-            if !state.clusterUser.isEmpty {
+            if !state.k8sVersion.isEmpty {
                 statusDivider
-                statusItem(icon: "person.fill", text: shortenUser(state.clusterUser))
+                Text("K8s \(state.k8sVersion)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
             }
         }
     }
@@ -138,10 +157,12 @@ struct StatusBarView: View {
             // Active port forwards
             portForwardsMenu
 
-            // Connection status — plain, no pill
-            connectionInfo
-
             statusDivider
+
+            Text("v\(AppConstants.version)")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
 
             // Theme picker
             themeMenu

@@ -68,7 +68,8 @@ struct MetricChip: View {
         .foregroundStyle(hue ?? Color.secondary)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.line, lineWidth: 1))
         .monospacedDigit()
         .accessibilityElement(children: .combine)
     }
@@ -117,9 +118,178 @@ struct StatCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 13)
         .padding(.vertical, 11)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.separator.opacity(0.5), lineWidth: 1))
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line, lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
+    }
+}
+
+// MARK: - List column chrome (the prototype's listhead / filterrow / rows)
+
+/// Pane header: bold title, muted count subtitle, optional trailing action —
+/// the prototype's `.listhead`, living inside the pane instead of the toolbar.
+struct PaneHeader<Trailing: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .bold))
+            Text(subtitle)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 4)
+            trailing
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 13)
+        .padding(.bottom, 9)
+    }
+}
+
+extension PaneHeader where Trailing == EmptyView {
+    init(title: String, subtitle: String) {
+        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+/// The in-pane filter input — an inset well, not a toolbar item.
+struct FilterField: View {
+    let prompt: String
+    @Binding var text: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField(prompt, text: $text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5.5)
+            .background(Theme.inset, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(focused ? Theme.accent : Theme.line, lineWidth: 1)
+            )
+            .focused($focused)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .motion(Motion.stateChange, value: focused)
+    }
+}
+
+/// Row chrome with the prototype's three states: rest, hover (inset), and
+/// selected (accent-soft). Applied to row *content*; the List's own selection
+/// drawing is disabled with a clear listRowBackground.
+struct VNextRow: ViewModifier {
+    let isSelected: Bool
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(
+                isSelected ? Theme.soft(Theme.accent) : (hovering ? Theme.inset : Color.clear),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .motion(Motion.stateChange, value: hovering)
+    }
+}
+
+extension View {
+    func vnextRow(isSelected: Bool) -> some View {
+        modifier(VNextRow(isSelected: isSelected))
+    }
+
+    /// The pane-level styling every vNext list column shares.
+    func vnextListPane() -> some View {
+        self
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.panel)
+    }
+}
+
+/// Compact empty state — the prototype's small-icon center, not the giant
+/// native ContentUnavailableView.
+struct EmptyPane: View {
+    let icon: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 26))
+                .foregroundStyle(.tertiary)
+            Text(title)
+                .font(.system(size: 13.5, weight: .bold))
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(20)
+        .background(Theme.panel)
+    }
+}
+
+// MARK: - Underline tabs (the prototype's detail tabs)
+
+struct UnderlineTabBar<Tab: Hashable>: View {
+    let tabs: [(Tab, String)]
+    @Binding var selection: Tab
+    @Namespace private var underline
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(tabs, id: \.0) { tab, label in
+                TabButton(
+                    label: label,
+                    isActive: selection == tab,
+                    namespace: underline
+                ) { selection = tab }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
+        .motion(Motion.stateChange, value: selection)
+    }
+
+    private struct TabButton: View {
+        let label: String
+        let isActive: Bool
+        let namespace: Namespace.ID
+        let action: () -> Void
+        @State private var hovering = false
+
+        var body: some View {
+            Button(action: action) {
+                Text(label)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(isActive ? Color.primary : (hovering ? Color.secondary : Color.secondary.opacity(0.7)))
+                    .padding(.horizontal, 13)
+                    .padding(.top, 7)
+                    .padding(.bottom, 9)
+                    .overlay(alignment: .bottom) {
+                        if isActive {
+                            Theme.accent
+                                .frame(height: 2)
+                                .matchedGeometryEffect(id: "underline", in: namespace)
+                        }
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering = $0 }
+        }
     }
 }

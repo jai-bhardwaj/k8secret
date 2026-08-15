@@ -43,7 +43,7 @@ struct ContentView: View {
                         }
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.easeOut(duration: 0.2), value: state.toastMessage)
+                    .animation(Theme.spring, value: state.toastMessage)
                 }
             }
             .frame(maxHeight: .infinity)
@@ -126,8 +126,10 @@ struct ContentView: View {
                 SidebarView()
             } content: {
                 contentColumn
+                    .background(Theme.panel)
             } detail: {
                 detailColumn
+                    .background(Theme.panel)
             }
             .toolbar { scopeToolbar }
         }
@@ -255,15 +257,23 @@ struct ToastView: View {
     let isError: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(isError ? .red : .green)
+        HStack(spacing: 0) {
+            // The prototype's left status bar: state as form before words.
+            RoundedRectangle(cornerRadius: 2)
+                .fill(isError ? Theme.bad : Theme.ok)
+                .frame(width: 3)
+                .padding(.vertical, 2)
             Text(message)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 12.5))
+                .lineLimit(3)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+        .frame(maxWidth: 340, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: true)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.lineStrong, lineWidth: 1))
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        .accessibilityLabel("\(isError ? "Error" : "Done"): \(message)")
     }
 }

@@ -7,27 +7,32 @@ struct IngressesListView: View {
 
     var body: some View {
         @Bindable var state = state
+        VStack(spacing: 0) {
+        PaneHeader(
+            title: "Ingresses",
+            subtitle: "\(state.ingresses.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter ingresses…", text: $state.ingressSearch)
         List(state.filteredIngresses, selection: $state.selectedIngress) { ing in
             IngressRow(ingress: ing, showNamespace: state.allNamespaces)
                 .tag(ing)
+                .vnextRow(isSelected: state.selectedIngress?.id == ing.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.ingressSearch, prompt: "Filter ingresses")
-        .navigationTitle("Ingresses")
         .overlay {
             if state.isInitialLoad {
                 ProgressView()
             } else if state.ingresses.isEmpty {
-                ContentUnavailableView {
-                    Label("No Ingresses", systemImage: "globe")
-                } description: {
-                    Text(state.allNamespaces
-                         ? "No ingresses in any namespace."
-                         : "No ingresses in this namespace.")
-                }
+                EmptyPane(icon: "globe", title: "No Ingresses",
+                          message: state.allNamespaces ? "No ingresses in any namespace." : "No ingresses in this namespace.")
             } else if state.filteredIngresses.isEmpty {
-                ContentUnavailableView.search(text: state.ingressSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                          message: "No results for “\(state.ingressSearch)”.")
             }
         }
+        }
+        .vnextListPane()
         .motion(Motion.listChange, value: state.ingresses)
     }
 }
