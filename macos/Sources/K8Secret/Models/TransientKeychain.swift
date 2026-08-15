@@ -6,17 +6,28 @@ import Security
 ///
 /// macOS forms a `SecIdentity` only from a keychain-resident private key, so this
 /// cannot be avoided outright — but it can be kept completely away from the user:
-/// the file is created under the temporary directory with a random name and a
-/// random password, is never added to the keychain search list, holds nothing but
-/// the credentials already sitting in the user's kubeconfig, and is deleted when
-/// the app quits.
+/// the file lives in the temporary directory under a random name with a random
+/// password, is never added to the keychain search list, holds nothing but the
+/// credentials already sitting in the user's kubeconfig, and is removed on exit.
 ///
-/// Two calls are deliberately absent, because each one produces a password prompt:
+/// Three things here exist specifically to stop password prompts, each of which
+/// caused one:
 ///
-/// - `SecKeychainSetSettings` — changing lock settings requires the password, so
-///   macOS asks the user for it mid-connection.
-/// - `SecKeychainUnlock` — unnecessary here; a keychain created with a known
+/// - **No `SecKeychainSetSettings`.** Changing lock settings requires the
+///   keychain password, so macOS asks the user for it mid-connection.
+/// - **No `SecKeychainUnlock`.** Unnecessary: a keychain created with a known
 ///   password is already unlocked for the process that created it.
+/// - **Orphans are unregistered, not just deleted.** `SecKeychainCreate` registers
+///   the keychain with the security subsystem. A process that dies without
+///   `SecKeychainDelete` — killed, crashed, force-quit — leaves that registration
+///   behind pointing at a file. Deleting only the file leaves a dangling
+///   registration, and later keychain work trips over it and prompts. Orphans are
+///   opened and properly deleted.
+///
+/// The filename carries the owning process id so a sweep can tell an orphan from a
+/// keychain another *live* instance is using. Deleting a running instance's
+/// keychain would break its TLS mid-session — and produce exactly the prompt this
+/// type is trying to avoid.
 final class TransientKeychain: @unchecked Sendable {
     static let shared = TransientKeychain()
 
@@ -25,8 +36,12 @@ final class TransientKeychain: @unchecked Sendable {
     private let path: String
     private let password: [UInt8]
 
+    private static let prefix = "k8secret-kc-"
+    private static let suffix = ".keychain"
+
     private init() {
-        path = NSTemporaryDirectory() + "k8secret-\(UUID().uuidString).keychain"
+        path = NSTemporaryDirectory()
+            + "\(Self.prefix)\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)\(Self.suffix)"
         password = Array(UUID().uuidString.utf8)
     }
 
@@ -35,53 +50,36 @@ final class TransientKeychain: @unchecked Sendable {
         defer { lock.unlock() }
         if let keychain { return keychain }
 
-        // Sweep keychains left by a previous run that exited without cleanup (a
-        // crash, or a kill). Without this they accumulate in the temp directory
-        // one per launch.
-        Self.removeStaleKeychains(excluding: path)
+        // Clear out keychains left by runs that never got to clean up. Doing this
+        // before creating ours keeps them from accumulating one per launch.
+        Self.removeOrphanedKeychains(excluding: path)
 
         var created: SecKeychain?
         // The password has to sit in a stable buffer: these APIs take it as an
         // UnsafeRawPointer, and a Swift String bridged inline is only valid for the
-        // duration of the call.
+        // duration of the call — so the keychain would be created with a password
+        // that nothing could reproduce.
         let status = password.withUnsafeBufferPointer { buffer in
             SecKeychainCreate(path, UInt32(buffer.count), buffer.baseAddress, false, nil, &created)
         }
         guard status == errSecSuccess, let created else { return nil }
 
+        // Belt and braces for the paths `applicationWillTerminate` doesn't cover.
+        Self.installExitHandler()
+
         keychain = created
         return created
     }
 
-    /// Delete leftover K8Secret keychains from earlier runs of this app.
-    private static func removeStaleKeychains(excluding current: String) {
-        let tmp = NSTemporaryDirectory()
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmp) else { return }
-        for entry in entries where entry.hasPrefix("k8secret-") && entry.contains(".keychain") {
-            let full = (tmp as NSString).appendingPathComponent(entry)
-            guard full != current else { continue }
-            try? FileManager.default.removeItem(atPath: full)
-        }
-    }
-
-    /// Remove the keychain and its file. Called on app termination.
-    func cleanup() {
-        lock.lock()
-        defer { lock.unlock() }
-        if let keychain {
-            SecKeychainDelete(keychain)
-        }
-        try? FileManager.default.removeItem(atPath: path)
-        keychain = nil
-    }
-}
-
-extension TransientKeychain {
     /// An access policy that lets any application use the item without prompting.
     ///
     /// The default ACL binds to the creating app's code signature, and this app is
     /// ad-hoc signed — the signature changes with every build, the stored ACL stops
-    /// matching, and macOS asks for a keychain password on every handshake.
+    /// matching, and macOS challenges for a password on every TLS handshake.
+    ///
+    /// Granting "any application" is safe precisely because this keychain is
+    /// process-private, randomly named and keyed, absent from the search list, and
+    /// destroyed on exit: nothing else can find it, and it does not outlive the app.
     func promptlessAccess(label: String) -> SecAccess? {
         var access: SecAccess?
         guard SecAccessCreate(label as CFString, nil, &access) == errSecSuccess,
@@ -96,5 +94,87 @@ extension TransientKeychain {
             SecACLSetContents(acl, nil, "" as CFString, SecKeychainPromptSelector(rawValue: 0))
         }
         return access
+    }
+
+    /// Unregister and remove this process's keychain.
+    func cleanup() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let keychain {
+            SecKeychainDelete(keychain)
+        }
+        try? FileManager.default.removeItem(atPath: path)
+        keychain = nil
+    }
+
+    // MARK: - Orphans
+
+    /// Remove keychains belonging to K8Secret processes that are no longer running.
+    ///
+    /// Deliberately leaves alone any keychain whose owning process is still alive:
+    /// a second window or a second launch is a normal thing to do, and pulling the
+    /// keychain out from under a running instance breaks its client-certificate
+    /// TLS and prompts the user.
+    /// Non-private so the sweep rules can be tested directly: the singleton only
+    /// sweeps once, at first use, so it can't be exercised through `get()`.
+    static func removeOrphanedKeychains(excluding current: String) {
+        let tmp = NSTemporaryDirectory()
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmp) else { return }
+
+        for entry in entries where entry.hasPrefix(prefix) && entry.hasSuffix(suffix) {
+            let full = (tmp as NSString).appendingPathComponent(entry)
+            guard full != current else { continue }
+
+            if let pid = owningProcessID(of: entry), isRunning(pid) { continue }
+            unregisterAndRemove(at: full)
+        }
+
+        // Older builds used a different naming scheme and carried no process id.
+        // Those can only be from a previous run, so they always go.
+        for entry in entries where entry.hasPrefix("k8secret-") && entry.contains(".keychain")
+            && !entry.hasPrefix(prefix) {
+            unregisterAndRemove(at: (tmp as NSString).appendingPathComponent(entry))
+        }
+    }
+
+    /// `k8secret-kc-<pid>-<uuid>.keychain`
+    private static func owningProcessID(of filename: String) -> pid_t? {
+        let body = filename.dropFirst(prefix.count)
+        guard let dash = body.firstIndex(of: "-") else { return nil }
+        return pid_t(body[body.startIndex..<dash])
+    }
+
+    private static func isRunning(_ pid: pid_t) -> Bool {
+        // Signal 0 tests for existence without delivering anything. EPERM means the
+        // process exists but isn't ours, which still counts as running.
+        kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    /// Delete through the security subsystem, then remove any remaining file.
+    ///
+    /// Removing the file alone leaves the registration `SecKeychainCreate` made,
+    /// and that dangling entry is what later produces an unexplained password
+    /// prompt.
+    private static func unregisterAndRemove(at path: String) {
+        var existing: SecKeychain?
+        if SecKeychainOpen(path, &existing) == errSecSuccess, let existing {
+            SecKeychainDelete(existing)
+        }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    // MARK: - Exit
+
+    private static var exitHandlerInstalled = false
+
+    /// `applicationWillTerminate` doesn't run for every way an app can end.
+    /// `atexit` covers normal exits that skip it; a hard kill still can't be
+    /// caught, which is what the orphan sweep above is for.
+    private static func installExitHandler() {
+        guard !exitHandlerInstalled else { return }
+        exitHandlerInstalled = true
+        atexit {
+            TransientKeychain.shared.cleanup()
+        }
     }
 }

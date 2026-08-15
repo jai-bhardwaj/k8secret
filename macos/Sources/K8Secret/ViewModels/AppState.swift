@@ -128,6 +128,16 @@ final class AppState {
         destructive: Bool = true,
         action: @escaping () async -> Void
     ) {
+        // Never replace a confirmation the user hasn't answered yet.
+        //
+        // Any path that fires twice — a control that commits on both Return and
+        // blur, a double click, a re-entrant callback — used to overwrite the
+        // pending dialog with a second one. What the user saw was a confirmation
+        // appearing twice, and answering one of them acted on an action they
+        // hadn't read. Dropping the duplicate is right in every one of those
+        // cases: the first request is the one the user initiated.
+        guard confirmAction == nil else { return }
+
         confirmAction = ConfirmAction(
             title: title,
             message: message,

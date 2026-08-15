@@ -8,6 +8,8 @@ struct DeploymentDetailView: View {
     /// typed value ("" or "1" on the way to "100") doesn't fight the stepper.
     @State private var replicaInput = ""
     @FocusState private var replicaFieldFocused: Bool
+    /// The target already asked about, so the same edit isn't submitted twice.
+    @State private var lastRequestedReplicas: Int?
 
     var body: some View {
         Group {
@@ -251,8 +253,14 @@ struct DeploymentDetailView: View {
 
                 HStack(spacing: 8) {
                     Button {
-                        if dep.replicas > 0 {
-                            state.requestScale(dep, to: dep.replicas - 1)
+                        // Step from what is on screen, not from the last count the
+                        // cluster reported. After setting 100 the field shows 100
+                        // while the cluster still says 2, and stepping off the
+                        // stale value took "minus one" from 2 to 1 — discarding
+                        // the number the user was looking at.
+                        let current = displayedReplicas(dep)
+                        if current > 0 {
+                            state.requestScale(dep, to: current - 1)
                         }
                     } label: {
                         Image(systemName: "minus")
@@ -261,7 +269,7 @@ struct DeploymentDetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("Scale down one replica")
-                    .disabled(dep.replicas <= 0 || state.scaling)
+                    .disabled(displayedReplicas(dep) <= 0 || state.scaling)
 
                     // Type the count directly. With only +/- available, going from
                     // 2 to 100 meant 98 clicks and 98 API calls, and there was no
@@ -283,8 +291,12 @@ struct DeploymentDetailView: View {
                             .opacity(state.scaling ? 0.25 : 1)
                             .onSubmit { commitReplicaInput(dep) }
                             .onChange(of: replicaFieldFocused) { _, focused in
-                                // Committing on blur too, so clicking away doesn't
-                                // silently discard what was typed.
+                                // Commit on blur as well, so clicking away doesn't
+                                // discard what was typed — but pressing Return
+                                // *also* moves focus to the confirmation dialog,
+                                // so this fired straight after onSubmit and asked
+                                // for the same scale a second time.
+                                // commitReplicaInput is idempotent per target.
                                 if !focused { commitReplicaInput(dep) }
                             }
                             .accessibilityLabel("Replica count")
@@ -299,10 +311,12 @@ struct DeploymentDetailView: View {
                     .onAppear { replicaInput = String(dep.replicas) }
                     .onChange(of: dep.replicas) { _, newValue in
                         if !replicaFieldFocused { replicaInput = String(newValue) }
+                        // Scale landed: allow this target to be requested again later.
+                        if newValue == lastRequestedReplicas { lastRequestedReplicas = nil }
                     }
 
                     Button {
-                        state.requestScale(dep, to: dep.replicas + 1)
+                        state.requestScale(dep, to: displayedReplicas(dep) + 1)
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 14, weight: .bold))
@@ -342,6 +356,12 @@ struct DeploymentDetailView: View {
     }
 
     /// Apply a typed replica count, or put the field back if it isn't usable.
+    /// The count the user is currently looking at: what's typed if it parses,
+    /// otherwise what the cluster reports.
+    private func displayedReplicas(_ dep: K8sDeployment) -> Int {
+        Int(replicaInput.trimmingCharacters(in: .whitespaces)) ?? dep.replicas
+    }
+
     private func commitReplicaInput(_ dep: K8sDeployment) {
         let trimmed = replicaInput.trimmingCharacters(in: .whitespaces)
 
@@ -352,13 +372,20 @@ struct DeploymentDetailView: View {
             state.showToast("Replicas must be a whole number, 0 or more.", isError: true)
             return
         }
-        guard target != dep.replicas else { return }
+        guard target != dep.replicas else {
+            lastRequestedReplicas = nil
+            return
+        }
+        // Return and the resulting focus change both land here for a single edit.
+        // Requesting the same target twice produced two confirmation dialogs.
+        guard target != lastRequestedReplicas else { return }
         guard target <= Self.maxReplicas else {
             replicaInput = String(dep.replicas)
             state.showToast("\(target) replicas is beyond what this control will set (max \(Self.maxReplicas)).", isError: true)
             return
         }
 
+        lastRequestedReplicas = target
         state.requestScale(dep, to: target)
     }
 
