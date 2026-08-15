@@ -11,7 +11,10 @@ struct K8SecretApp: App {
             forName: NSApplication.willTerminateNotification,
             object: nil, queue: .main
         ) { _ in
-            PortForwardManager.shared.stopAll()
+            // Delivered on the main queue, so main-actor state is safe to touch here.
+            MainActor.assumeIsolated {
+                PortForwardManager.shared.stopAll()
+            }
             TempKeychain.shared.cleanup()
         }
     }
