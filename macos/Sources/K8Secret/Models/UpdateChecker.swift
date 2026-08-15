@@ -57,24 +57,53 @@ final class UpdateChecker {
         }
     }
 
-    func downloadAndInstall() async {
-        guard let release = latestRelease, let url = URL(string: release.url) else { return }
+    /// Whether a manifest entry may be installed, and what to install if so.
+    ///
+    /// Split out and made non-private so the refusals can be tested directly.
+    /// These three checks are the whole reason an attacker who reaches the manifest
+    /// or the download cannot get code onto the machine, so they need to stay
+    /// covered rather than being implicit in a long async function.
+    enum InstallDecision: Equatable {
+        case allowed(url: URL, sha256: String)
+        case refused(String)
+    }
 
-        // The download URL comes from a remote manifest, so treat it as untrusted
-        // input: only HTTPS, and only from the host that publishes our releases.
+    nonisolated static func decide(_ release: AppRelease) -> InstallDecision {
+        guard let url = URL(string: release.url) else {
+            return .refused("Refusing update: the release URL is not a valid URL.")
+        }
+
+        // The manifest is remote data, so its URL is untrusted input: HTTPS only,
+        // and only a host that publishes our releases.
         guard url.scheme?.lowercased() == "https",
               let host = url.host?.lowercased(),
               AppConstants.releaseDownloadHosts.contains(host) else {
-            error = "Refusing update: download URL is not a trusted HTTPS release URL."
-            return
+            return .refused("Refusing update: download URL is not a trusted HTTPS release URL.")
         }
 
         // Without a published digest there is nothing to verify the payload against.
-        guard let expectedDigest = release.sha256?
+        guard let digest = release.sha256?
             .trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              expectedDigest.count == 64 else {
-            error = "Refusing update: release manifest has no sha256 checksum."
+              digest.count == 64,
+              digest.allSatisfy(\.isHexDigit) else {
+            return .refused("Refusing update: release manifest has no sha256 checksum.")
+        }
+
+        return .allowed(url: url, sha256: digest)
+    }
+
+    func downloadAndInstall() async {
+        guard let release = latestRelease else { return }
+
+        let url: URL
+        let expectedDigest: String
+        switch Self.decide(release) {
+        case .refused(let reason):
+            error = reason
             return
+        case .allowed(let allowedURL, let digest):
+            url = allowedURL
+            expectedDigest = digest
         }
 
         downloading = true
@@ -176,7 +205,7 @@ final class UpdateChecker {
     // MARK: - Integrity
 
     /// Streaming SHA-256 so a large DMG is never held in memory all at once.
-    private static func sha256Hex(ofFileAt url: URL) throws -> String {
+    nonisolated static func sha256Hex(ofFileAt url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
