@@ -93,15 +93,34 @@ ok "AppConstants.swift updated"
 # ---------------------------------------------------------------------------
 # Build release binary
 # ---------------------------------------------------------------------------
-step "Compiling release binary"
+step "Compiling universal release binary"
 
 cd "$MACOS_DIR"
-swift build -c release
-# Binary location is arch-dependent (arm64 vs x86_64)
-ARCH="$(uname -m)"
-BINARY="$MACOS_DIR/.build/${ARCH}-apple-macosx/release/K8Secret"
-[[ -x "$BINARY" ]] || fail "Built binary not found at $BINARY"
-ok "Compiled: $BINARY"
+
+# Build both slices and lipo them together. Building only the host architecture
+# shipped an arm64-only DMG that simply would not launch on an Intel Mac — and
+# nothing downstream noticed, because the release machine could always run it.
+UNIVERSAL_DIR="$MACOS_DIR/.build/universal"
+mkdir -p "$UNIVERSAL_DIR"
+BINARY="$UNIVERSAL_DIR/K8Secret"
+
+for SLICE in arm64 x86_64; do
+    printf "    building %s slice...\n" "$SLICE"
+    swift build -c release --arch "$SLICE"
+    SLICE_BIN="$MACOS_DIR/.build/${SLICE}-apple-macosx/release/K8Secret"
+    [[ -x "$SLICE_BIN" ]] || fail "Missing $SLICE build at $SLICE_BIN"
+done
+
+lipo -create \
+    "$MACOS_DIR/.build/arm64-apple-macosx/release/K8Secret" \
+    "$MACOS_DIR/.build/x86_64-apple-macosx/release/K8Secret" \
+    -output "$BINARY"
+
+# Assert both slices actually made it in, rather than trusting lipo silently.
+for SLICE in arm64 x86_64; do
+    lipo -info "$BINARY" | grep -q "$SLICE" || fail "Universal binary is missing the $SLICE slice"
+done
+ok "Universal binary: $(lipo -info "$BINARY" | sed 's/.*are: //')"
 
 # ---------------------------------------------------------------------------
 # Build .app bundle from scratch
@@ -132,9 +151,35 @@ fi
 # Strip extended attributes that would trigger Gatekeeper later
 xattr -cr "$APP_BUNDLE"
 
-# Ad-hoc code sign
-codesign --force --deep --sign - "$APP_BUNDLE"
-ok "Ad-hoc signed"
+# ---------------------------------------------------------------------------
+# Code signing
+#
+# Set these to produce a notarized, Gatekeeper-clean build:
+#
+#   export K8SECRET_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+#   export K8SECRET_NOTARY_PROFILE="k8secret"     # from: xcrun notarytool store-credentials
+#
+# Without them the build falls back to ad-hoc signing, which still works but
+# requires the installer to strip quarantine — see the Install section of the
+# README for what that costs the user.
+# ---------------------------------------------------------------------------
+SIGN_IDENTITY="${K8SECRET_SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${K8SECRET_NOTARY_PROFILE:-}"
+
+if [[ -n "$SIGN_IDENTITY" ]]; then
+    # Hardened runtime is a prerequisite for notarization. The app shells out to
+    # kubectl and to credential plugins, which the runtime permits — those are
+    # separate processes with their own signatures, not injected libraries.
+    codesign --force --timestamp --options runtime \
+        --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+    codesign --verify --strict --verbose=2 "$APP_BUNDLE" 2>&1 | sed 's/^/    /'
+    ok "Signed with Developer ID (hardened runtime)"
+else
+    codesign --force --sign - "$APP_BUNDLE"
+    printf "    ⚠ Ad-hoc signed — not notarizable.\n"
+    printf "      Set K8SECRET_SIGN_IDENTITY + K8SECRET_NOTARY_PROFILE to ship a\n"
+    printf "      Gatekeeper-clean build that doesn't need the quarantine strip.\n"
+fi
 
 # ---------------------------------------------------------------------------
 # DMG
@@ -149,6 +194,24 @@ cp -R "$APP_BUNDLE" "$STAGING/K8Secret.app"
 ln -s /Applications "$STAGING/Applications"
 hdiutil create -volname "K8Secret" -fs HFS+ -srcfolder "$STAGING" -ov -format UDZO "$DMG_PATH" >/dev/null
 ok "Created $DMG_PATH"
+
+# ---------------------------------------------------------------------------
+# Notarize + staple
+#
+# Stapling attaches the notarization ticket to the DMG so it validates offline.
+# The checksum is computed *after* this step — stapling rewrites the file.
+# ---------------------------------------------------------------------------
+if [[ -n "$SIGN_IDENTITY" && -n "$NOTARY_PROFILE" ]]; then
+    step "Notarizing"
+    codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$DMG_PATH"
+    xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait \
+        || fail "Notarization failed. Check: xcrun notarytool log --keychain-profile $NOTARY_PROFILE <submission-id>"
+    xcrun stapler staple "$DMG_PATH" || fail "Stapling failed"
+    xcrun stapler validate "$DMG_PATH" >/dev/null || fail "Stapled ticket did not validate"
+    ok "Notarized and stapled"
+elif [[ -n "$SIGN_IDENTITY" ]]; then
+    printf "    ⚠ Signed but not notarized (K8SECRET_NOTARY_PROFILE unset)\n"
+fi
 
 SHA="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
 SIZE_HUMAN="$(du -h "$DMG_PATH" | awk '{print $1}')"
@@ -210,17 +273,21 @@ step "Updating release manifest"
 mkdir -p "$RELEASE_DIR"
 TODAY="$(date +%Y-%m-%d)"
 DMG_URL="https://github.com/jai-bhardwaj/k8secret/releases/download/${TAG}/$(basename "$DMG_PATH")"
+# sha256 is what the installer and the in-app updater verify the download against;
+# without it in the manifest both refuse to install.
 jq -n \
     --arg version "$VERSION" \
     --arg url "$DMG_URL" \
     --arg notes "$NOTES" \
     --arg date "$TODAY" \
+    --arg sha256 "$SHA" \
     '{
         version: $version,
         url: $url,
         notes: $notes,
         minOS: "14.0",
-        date: $date
+        date: $date,
+        sha256: $sha256
     }' > "$RELEASE_DIR/latest.json"
 
 git add "$RELEASE_DIR/latest.json"
