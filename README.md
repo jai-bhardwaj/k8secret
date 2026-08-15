@@ -64,6 +64,12 @@ One-liner (downloads the latest signed `.dmg`, copies `K8Secret.app` to `/Applic
 curl -fsSL https://raw.githubusercontent.com/jai-bhardwaj/k8secret/main/release/install.sh | bash
 ```
 
+Homebrew:
+
+```bash
+brew install --cask jai-bhardwaj/tap/k8secret
+```
+
 Or grab the `.dmg` manually from the [latest GitHub release](https://github.com/jai-bhardwaj/k8secret/releases/latest), or look up the version + URL via the [release manifest](https://raw.githubusercontent.com/jai-bhardwaj/k8secret/main/release/latest.json).
 
 The installer verifies the DMG's **SHA-256 against the signed release manifest** before mounting it, and refuses to install on a mismatch. If you download manually, check it yourself:
@@ -73,7 +79,23 @@ shasum -a 256 K8Secret-*.dmg
 # compare against the "sha256" field in release/latest.json
 ```
 
-K8Secret currently ships **ad-hoc signed and not notarized** — the installer strips the quarantine bit so it launches without a Gatekeeper prompt. That means you are trusting the checksum chain above rather than Apple's notarization. Notarization with a Developer ID is the intended fix; until then, if that tradeoff isn't acceptable for your environment, build from source (see [Building](#building-from-source)).
+### Why does macOS warn about this app?
+
+K8Secret ships **ad-hoc signed and not notarized**, and that's a deliberate choice: this is a free, open-source personal project, and notarization requires a paid Apple Developer account. Both installers above remove the quarantine flag after verifying the download, so you won't see a Gatekeeper prompt — but it means you are trusting the checksum chain above rather than Apple's notarization.
+
+What stands in for notarization here:
+
+- every release publishes its **SHA-256** in a manifest that lives in this repo, versioned with the code that produced it,
+- the installer, the Homebrew cask, and the in-app updater **all refuse** an artifact that doesn't match it,
+- the entire source is here to read, and [building it yourself](#building-from-source) takes two commands.
+
+If you downloaded the `.dmg` by hand and macOS blocks it ("Apple cannot check it for malicious software"), verify the checksum as shown above, then clear the flag yourself:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/K8Secret.app
+```
+
+If that tradeoff isn't acceptable for your environment, build from source.
 
 ---
 

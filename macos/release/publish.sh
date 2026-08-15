@@ -301,6 +301,26 @@ step "Pushing manifest"
 git push >/dev/null
 ok "Manifest live on main"
 
+# ---------------------------------------------------------------------------
+# Homebrew tap — bump the cask (skipped if the tap repo doesn't exist)
+# ---------------------------------------------------------------------------
+TAP_REPO="jai-bhardwaj/homebrew-tap"
+if gh repo view "$TAP_REPO" >/dev/null 2>&1; then
+  step "Bumping Homebrew cask"
+  TMP_CASK="$(mktemp)"
+  # Rewrite only version + sha256 so hand-edits to the cask body survive.
+  gh api "repos/$TAP_REPO/contents/Casks/k8secret.rb" --jq .content | base64 -d \
+    | sed -e "s/^  version \".*\"/  version \"${VERSION}\"/" \
+          -e "s/^  sha256 \".*\"/  sha256 \"${SHA}\"/" > "$TMP_CASK"
+  CASK_SHA="$(gh api "repos/$TAP_REPO/contents/Casks/k8secret.rb" --jq .sha)"
+  gh api -X PUT "repos/$TAP_REPO/contents/Casks/k8secret.rb" \
+    -f message="k8secret ${VERSION}" \
+    -f content="$(base64 < "$TMP_CASK" | tr -d '\n')" \
+    -f sha="$CASK_SHA" >/dev/null
+  rm -f "$TMP_CASK"
+  ok "Cask bumped to ${VERSION}"
+fi
+
 printf "\n✓ K8Secret v${VERSION} live.\n"
 printf "  Release: https://github.com/jai-bhardwaj/k8secret/releases/tag/${TAG}\n"
 printf "  DMG:     %s\n" "$DMG_URL"
