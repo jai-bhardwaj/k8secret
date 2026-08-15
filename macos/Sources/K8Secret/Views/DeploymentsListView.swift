@@ -54,10 +54,14 @@ struct DeploymentsListView: View {
         .searchable(text: $state.deploymentSearch, prompt: "Filter deployments")
         .overlay {
             if state.deployments.isEmpty {
+                // An empty namespace is a dead end unless it says where to go
+                // next. A fresh install lands on `default`, which on most
+                // clusters holds nothing, so this was the first screen many
+                // people saw.
                 ContentUnavailableView {
                     Label("No Deployments", systemImage: "shippingbox")
                 } description: {
-                    Text("This namespace has no deployments.")
+                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
                 }
             } else if state.filteredDeployments.isEmpty {
                 ContentUnavailableView.search(text: state.deploymentSearch)

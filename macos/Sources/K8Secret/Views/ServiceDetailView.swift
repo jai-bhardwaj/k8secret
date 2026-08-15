@@ -114,9 +114,15 @@ struct ServiceDetailView: View {
 
     private func portForwardButton(_ svc: K8sService, port: ServicePort) -> some View {
         let mgr = PortForwardManager.shared
-        let activeForward = mgr.forwards.first(where: {
-            $0.target == "svc/\(svc.name)" && $0.remotePort == port.port && ($0.status == .active || $0.status == .reconnecting)
-        })
+        // Scoped by cluster and namespace, and only treated as usable once active —
+        // a reconnecting tunnel is not something to hand the user a link to.
+        let existing = mgr.forward(
+            context: state.context,
+            namespace: svc.namespace,
+            target: "svc/\(svc.name)",
+            remotePort: port.port
+        )
+        let activeForward = existing?.status == .active ? existing : nil
 
         return Group {
             if let fwd = activeForward {
@@ -145,6 +151,56 @@ struct ServiceDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                }
+            } else if existing?.status == .starting {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Starting port forward…")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Port forward starting")
+            } else if existing?.status == .reconnecting {
+                HStack(spacing: 6) {
+                    Circle().fill(.orange).frame(width: 6, height: 6)
+                    Text("Reconnecting…")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.orange)
+                }
+                .help(existing?.error ?? "The tunnel dropped and is being re-established.")
+                .accessibilityLabel("Port forward reconnecting")
+            } else if let failed = existing, failed.status == .failed {
+                HStack(spacing: 8) {
+                    Button {
+                        mgr.stop(id: failed.id)
+                        mgr.forwardService(
+                            context: state.context,
+                            namespace: svc.namespace,
+                            serviceName: svc.name,
+                            remotePort: port.port
+                        )
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .bold))
+                            Text("Retry port forward")
+                                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.red.opacity(0.25), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                    .accessibilityLabel("Retry port forward")
+
+                    if let reason = failed.error {
+                        Text(reason)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .textSelection(.enabled)
+                    }
                 }
             } else {
                 Button {
@@ -284,25 +340,76 @@ struct ServiceDetailView: View {
 
     private func portForwardMiniButton(_ svc: K8sService, port: ServicePort) -> some View {
         let mgr = PortForwardManager.shared
-        let active = mgr.forwards.first(where: {
-            $0.target == "svc/\(svc.name)" && $0.remotePort == port.port && ($0.status == .active || $0.status == .reconnecting)
-        })
+        // Scoped to this cluster and namespace — see PortForwardManager.forward.
+        let existing = mgr.forward(
+            context: state.context,
+            namespace: svc.namespace,
+            target: "svc/\(svc.name)",
+            remotePort: port.port
+        )
 
+        // Every state the forward can be in is rendered. Previously only "active"
+        // was, so clicking sat silently for a second or two with no sign anything
+        // had happened, and a failure looked identical to never having tried.
         return Group {
-            if let fwd = active {
+            switch existing?.status {
+            case .active:
                 Button {
-                    mgr.openInBrowser(fwd.localURL)
+                    if let fwd = existing { mgr.openInBrowser(fwd.localURL) }
                 } label: {
                     HStack(spacing: 4) {
                         Circle().fill(.green).frame(width: 5, height: 5)
-                        Text(":\(fwd.localPort)")
+                        Text(":\(existing?.localPort ?? 0)")
                             .font(.system(.caption2, design: .monospaced, weight: .semibold))
                     }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .tint(.green)
-            } else {
+                .help("Open http://localhost:\(existing?.localPort ?? 0)")
+                .accessibilityLabel("Open forwarded port \(existing?.localPort ?? 0) in browser")
+
+            case .starting:
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini).scaleEffect(0.6)
+                    Text("starting")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Port forward starting")
+
+            case .reconnecting:
+                HStack(spacing: 4) {
+                    Circle().fill(.orange).frame(width: 5, height: 5)
+                    Text("reconnecting")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.orange)
+                }
+                .help(existing?.error ?? "The tunnel dropped and is being re-established.")
+                .accessibilityLabel("Port forward reconnecting")
+
+            case .failed:
+                Button {
+                    if let fwd = existing { mgr.stop(id: fwd.id) }
+                    mgr.forwardService(
+                        context: state.context,
+                        namespace: svc.namespace,
+                        serviceName: svc.name,
+                        remotePort: port.port
+                    )
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9))
+                        Text("retry").font(.system(.caption2, design: .monospaced))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .tint(.red)
+                .help(existing?.error ?? "Port forward failed. Click to try again.")
+                .accessibilityLabel("Port forward failed, retry")
+
+            case .none:
                 Button {
                     mgr.forwardService(
                         context: state.context,
@@ -316,7 +423,8 @@ struct ServiceDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
-                .help("Port forward \(port.port)")
+                .help("Forward port \(port.port) to a local port and open it")
+                .accessibilityLabel("Port forward port \(port.port)")
             }
         }
     }

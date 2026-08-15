@@ -57,7 +57,7 @@ struct SecretsListView: View {
                 ContentUnavailableView {
                     Label("No Secrets", systemImage: "lock.slash")
                 } description: {
-                    Text("This namespace has no secrets.")
+                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
                 }
             } else if state.filteredSecrets.isEmpty {
                 ContentUnavailableView.search(text: state.secretSearch)

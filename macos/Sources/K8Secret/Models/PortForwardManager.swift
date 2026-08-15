@@ -12,6 +12,16 @@ struct PortForward: Identifiable {
     var status: Status = .starting
     var error: String?
     var retryCount: Int = 0
+    /// Whether the browser has already been opened for this forward.
+    ///
+    /// kubectl announces readiness twice — once for IPv4 and once for IPv6:
+    ///
+    ///     Forwarding from 127.0.0.1:18080 -> 80
+    ///     Forwarding from [::1]:18080 -> 80
+    ///
+    /// The readability handler fires per chunk of output, so both lines were
+    /// treated as "ready" and each opened a tab. That is the two-tabs bug.
+    var hasOpenedBrowser = false
 
     enum Status {
         case starting
@@ -115,6 +125,21 @@ final class PortForwardManager {
         forwards.removeAll()
     }
 
+    /// The forward for a specific service port in a specific place.
+    ///
+    /// Context and namespace are part of the lookup. Matching on service name and
+    /// port alone meant `svc/api` in staging and `svc/api` in production resolved
+    /// to whichever forward happened to exist, so a second window could show — and
+    /// open — the other cluster's tunnel.
+    func forward(context: String, namespace: String, target: String, remotePort: Int) -> PortForward? {
+        forwards.first {
+            $0.context == context
+                && $0.namespace == namespace
+                && $0.target == target
+                && $0.remotePort == remotePort
+        }
+    }
+
     /// Open URL in default browser
     func openInBrowser(_ url: String) {
         if let url = URL(string: url) {
@@ -164,8 +189,12 @@ final class PortForwardManager {
                         self.forwards[idx].status = .active
                         self.forwards[idx].retryCount = 0
                         self.forwards[idx].error = nil
-                        // Only auto-open on first connect, not on reconnect
-                        if !wasReconnecting {
+
+                        // Open exactly once per forward: not again for kubectl's
+                        // second (IPv6) readiness line, and not on a reconnect,
+                        // which would steal focus while the user is working.
+                        if !wasReconnecting && !self.forwards[idx].hasOpenedBrowser {
+                            self.forwards[idx].hasOpenedBrowser = true
                             self.openInBrowser(self.forwards[idx].localURL)
                         }
                     }

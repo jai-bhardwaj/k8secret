@@ -54,10 +54,14 @@ struct ServicesListView: View {
         .searchable(text: $state.serviceSearch, prompt: "Filter services")
         .overlay {
             if state.services.isEmpty {
+                // An empty namespace is a dead end unless it says where to go
+                // next. A fresh install lands on `default`, which on most
+                // clusters holds nothing, so this was the first screen many
+                // people saw.
                 ContentUnavailableView {
                     Label("No Services", systemImage: "network")
                 } description: {
-                    Text("This namespace has no services.")
+                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
                 }
             } else if state.filteredServices.isEmpty {
                 ContentUnavailableView.search(text: state.serviceSearch)

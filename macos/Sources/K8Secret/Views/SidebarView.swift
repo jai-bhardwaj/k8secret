@@ -71,6 +71,12 @@ struct SidebarView: View {
                                 .font(.system(size: 14))
                             Text(type.rawValue)
                                 .font(.system(.caption2, design: .monospaced, weight: .medium))
+                                // Four tabs in a narrow sidebar were breaking
+                                // words across lines — "De-ploy s", "Se-cret s".
+                                // Shrink slightly rather than hyphenate.
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
@@ -97,6 +103,7 @@ struct SidebarView: View {
             }
             .searchable(text: $state.namespaceSearch, placement: .sidebar, prompt: "Filter namespaces")
         }
+        .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 340)
         .navigationTitle("Namespaces")
         .overlay {
             if state.namespaces.isEmpty && state.connectionState != .connecting {
@@ -109,10 +116,12 @@ struct SidebarView: View {
                 ContentUnavailableView.search(text: state.namespaceSearch)
             }
         }
-        .onChange(of: state.selectedNamespace) { _, newValue in
-            if let ns = newValue {
-                Task { await state.selectNamespace(ns) }
-            }
+        .onChange(of: state.selectedNamespace?.id) { _, _ in
+            // Keyed on id: a namespace list refresh rewrites these values, and
+            // reacting to that as a new selection reloads everything underneath
+            // the user.
+            guard let ns = state.selectedNamespace else { return }
+            Task { await state.selectNamespace(ns) }
         }
     }
 
@@ -122,28 +131,50 @@ struct NamespaceRow: View {
     let namespace: K8sNamespace
 
     var body: some View {
-        HStack {
+        HStack(spacing: 6) {
             Image(systemName: "folder.fill")
                 .foregroundStyle(.tint)
-                .font(.system(size: 14))
+                .font(.system(size: 13))
 
+            // The name is why the row exists, so it wins the available width.
+            // Without the priority it was compressed to nothing by the status
+            // pill, leaving a sidebar of anonymous folder icons.
+            // The Text takes the remaining width directly. Leaving it to compete
+            // with a Spacer let SwiftUI compress it to a single character, so the
+            // sidebar rendered as a column of anonymous folder icons.
+            // minWidth, not just maxWidth. This List sits inside a VStack in the
+            // split-view sidebar and proposes a near-zero width to its rows, so a
+            // flexible Text collapsed to "…" and the sidebar showed a column of
+            // anonymous folder icons. A floor makes the name survive the proposal;
+            // maxWidth then lets it use whatever real width exists.
             Text(namespace.name)
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 90, maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
-
-            Text(namespace.status)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(namespace.status == "Active" ? .green : .secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    (namespace.status == "Active" ? Color.green : Color.secondary)
-                        .opacity(0.1),
-                    in: Capsule()
-                )
+            // "Active" is the state of virtually every namespace, so showing it
+            // spent the row's width saying nothing. Only the exception is worth
+            // the space.
+            if namespace.status != "Active" {
+                Text(namespace.status)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.12), in: Capsule())
+                    .fixedSize()
+                    .help("This namespace is \(namespace.status.lowercased())")
+            }
         }
+        // Claim the row's full width. Without this the HStack sizes to its
+        // content's *ideal* width inside the sidebar List and the name gets
+        // squeezed down to a single character.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(namespace.status == "Active"
+            ? namespace.name
+            : "\(namespace.name), \(namespace.status)")
     }
 }

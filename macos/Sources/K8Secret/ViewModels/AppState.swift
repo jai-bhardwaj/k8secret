@@ -266,14 +266,17 @@ final class AppState {
 
             // Fetch cluster info
             if let ver = try? await client.getServerVersion() { k8sVersion = ver }
-            // Get user from kubeconfig context
+            // Get user and preferred namespace from the kubeconfig context
+            var preferredNamespace: String?
             if let cfg = try? KubeConfig.load() {
                 clusterUser = cfg.activeUser()?.name ?? ""
+                preferredNamespace = cfg.activeNamespace()
             }
 
             await loadClusterMetrics()
             startClusterMetricsPolling()
             await loadNamespaces()
+            await selectInitialNamespace(preferred: preferredNamespace)
         } catch {
             connectionState = .disconnected(error.localizedDescription)
         }
@@ -297,6 +300,38 @@ final class AppState {
         services = []
 
         await connect(toContext: newContext)
+    }
+
+    /// Land the user on something useful instead of an empty pane.
+    ///
+    /// Opening the app used to show two side-by-side placeholders — "Select a
+    /// Namespace" next to "Select a Deployment" — even when the kubeconfig said
+    /// exactly which namespace this context works in. That field
+    /// (`activeNamespace()`) was parsed and then never read. First impression of a
+    /// fresh install was an app that looked empty and asked the user to go find
+    /// their own data.
+    ///
+    /// Preference order: the namespace named by the current context, then
+    /// `default`, then the first one that exists. Only ever runs when nothing is
+    /// selected, so it can't override a choice the user already made.
+    private func selectInitialNamespace(preferred: String?) async {
+        guard shouldSelectInitialNamespace,
+              let namespace = initialNamespaceChoice(preferred: preferred) else { return }
+        await selectNamespace(namespace)
+    }
+
+    /// Only auto-select when the user hasn't chosen anything yet.
+    var shouldSelectInitialNamespace: Bool {
+        selectedNamespace == nil && !namespaces.isEmpty
+    }
+
+    /// Context namespace, then `default`, then whatever exists.
+    func initialNamespaceChoice(preferred: String?) -> K8sNamespace? {
+        let candidates = [preferred, "default"].compactMap { $0 }
+        let match = candidates.lazy
+            .compactMap { name in self.namespaces.first { $0.name == name } }
+            .first
+        return match ?? namespaces.first
     }
 
     func loadNamespaces() async {

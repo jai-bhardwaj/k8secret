@@ -54,10 +54,14 @@ struct PodsListView: View {
         .searchable(text: $state.podSearch, prompt: "Filter pods")
         .overlay {
             if state.pods.isEmpty {
+                // An empty namespace is a dead end unless it says where to go
+                // next. A fresh install lands on `default`, which on most
+                // clusters holds nothing, so this was the first screen many
+                // people saw.
                 ContentUnavailableView {
                     Label("No Pods", systemImage: "circle.hexagongrid")
                 } description: {
-                    Text("This namespace has no pods.")
+                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
                 }
             } else if state.filteredPods.isEmpty {
                 ContentUnavailableView.search(text: state.podSearch)
