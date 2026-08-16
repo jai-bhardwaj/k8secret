@@ -231,6 +231,9 @@ struct VNextSidebar: View {
     /// the window can't afford 208pt of sidebar. The user's manual choice
     /// still applies when there's room.
     var autoCollapsed = false
+    /// The launch mark lands here: the Overview row's icon is the same view.
+    var markSpace: Namespace.ID?
+    var markLanded = false
     @State private var flyout = false
     @State private var hoverGen = 0
 
@@ -331,13 +334,17 @@ struct VNextSidebar: View {
                         ForEach(group.items, id: \.self) { item in
                             if collapsed {
                                 CollapsedChip(destination: item,
-                                              isSelected: state.selectedDestination == item) {
+                                              isSelected: state.selectedDestination == item,
+                                              markSpace: item == .overview ? markSpace : nil,
+                                              markLanded: markLanded) {
                                     Task { await state.selectDestination(item) }
                                 }
                             } else {
                                 ExpandedNavRow(destination: item,
                                                isSelected: state.selectedDestination == item,
-                                               count: count(for: item)) {
+                                               count: count(for: item),
+                                               markSpace: item == .overview ? markSpace : nil,
+                                               markLanded: markLanded) {
                                     Task { await state.selectDestination(item) }
                                 }
                             }
@@ -407,6 +414,8 @@ struct ExpandedNavRow: View {
     let destination: AppDestination
     let isSelected: Bool
     let count: Int?
+    var markSpace: Namespace.ID? = nil
+    var markLanded = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -415,7 +424,7 @@ struct ExpandedNavRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                DimensionalIcon(destination: destination, size: 20)
+                markedIcon(size: 20)
                     .scaleEffect(hovering && !isSelected ? 1.12 : 1)
                 Text(destination.title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
@@ -464,6 +473,18 @@ struct ExpandedNavRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// The Overview icon doubles as the launch mark's destination.
+    @ViewBuilder
+    private func markedIcon(size: CGFloat) -> some View {
+        if let markSpace, markLanded {
+            ClusterMark(size: size + 4)
+                .matchedGeometryEffect(id: "appMark", in: markSpace, isSource: false)
+                .frame(width: size + 8, height: size + 8)
+        } else {
+            DimensionalIcon(destination: destination, size: size)
+        }
+    }
+
     private var hue: Color { Theme.moduleHue(destination.moduleKey, scheme: scheme) }
     private var hoverWash: Color {
         scheme == .dark ? Color.white.opacity(0.07) : Color(hex: 0x3A2A5E).opacity(0.07)
@@ -475,6 +496,8 @@ struct ExpandedNavRow: View {
 struct CollapsedChip: View {
     let destination: AppDestination
     let isSelected: Bool
+    var markSpace: Namespace.ID? = nil
+    var markLanded = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -482,7 +505,15 @@ struct CollapsedChip: View {
 
     var body: some View {
         Button(action: action) {
-            DimensionalIcon(destination: destination, size: 22)
+            Group {
+                if let markSpace, markLanded {
+                    ClusterMark(size: 26)
+                        .matchedGeometryEffect(id: "appMark", in: markSpace, isSource: false)
+                        .frame(width: 30, height: 30)
+                } else {
+                    DimensionalIcon(destination: destination, size: 22)
+                }
+            }
                 .scaleEffect(hovering && !isSelected ? 1.14 : 1)
                 .offset(y: hovering && !isSelected ? -1 : 0)
                 .frame(width: 44, height: 44)

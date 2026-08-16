@@ -6,6 +6,11 @@ struct ContentView: View {
     /// connecting to a local cluster takes ~200ms, which is not a launch
     /// experience, it's a flicker.
     @State private var bootDone = false
+    /// The launch mark and the sidebar's Overview icon are the same view in
+    /// two places; SwiftUI interpolates the flight between them.
+    @Namespace private var markSpace
+    /// The app owns the mark from the moment the flight begins.
+    @State private var markHandedOff = false
     @State private var showFirstRun = Welcome.needsFirstRun
     @State private var showWhatsNew = false
     @Environment(\.openWindow) private var openWindow
@@ -33,8 +38,12 @@ struct ContentView: View {
 
             ZStack {
                 if !bootDone {
-                    BootView(context: state.context)
-                        .transition(.opacity.combined(with: .scale(scale: 1.04)))
+                    BootView(context: state.context,
+                             phase: state.launchPhase,
+                             namespace: markSpace,
+                             handedOff: markHandedOff)
+                        .transition(.opacity)
+                        .zIndex(2)
                 }
                 switch state.connectionState {
                 case .connecting:
@@ -157,11 +166,15 @@ struct ContentView: View {
             // Play the launch sequence and connect concurrently; the window
             // opens when both are done, so the animation is always seen and
             // never costs the user time on a slow cluster.
-            let hold = Double(ProcessInfo.processInfo.environment["K8SECRET_UITEST_BOOT"] ?? "") ?? 1.9
+            let hold = Double(ProcessInfo.processInfo.environment["K8SECRET_UITEST_BOOT"] ?? "") ?? 1.7
             async let played: Void = Task.sleep(for: .seconds(hold))
             await state.connect()
             try? await played
-            withAnimation(.easeOut(duration: 0.5)) { bootDone = true }
+            // The words leave, then the mark flies into the rail; the app is
+            // revealed by the landing, not alongside it.
+            withAnimation(.easeOut(duration: 0.28)) { bootDone = true }
+            try? await Task.sleep(for: .milliseconds(120))
+            withAnimation(.spring(response: 0.85, dampingFraction: 0.82)) { markHandedOff = true }
             // Debug-only surfacing, same contract as the tour.
             switch ProcessInfo.processInfo.environment["K8SECRET_UITEST_WELCOME"] {
             case "first": showFirstRun = true
@@ -182,7 +195,15 @@ struct ContentView: View {
     }
 
     private var connectingView: some View {
-        BootView(context: state.context)
+        // After launch, a reconnect shows the mark quietly rather than
+        // replaying the whole sequence.
+        VStack(spacing: 18) {
+            ClusterMark(size: 96)
+            Text("Reaching \(state.context.isEmpty ? "your cluster" : state.context)")
+                .font(.system(size: 18, weight: .light))
+                .foregroundStyle(Theme.text2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Overview gets the brighter hero canvas, like the prototype.
@@ -199,7 +220,9 @@ struct ContentView: View {
         // Overview and Events are single-pane; resources are list + detail —
         // or list OR detail below the compact breakpoint.
         HStack(spacing: 0) {
-            VNextSidebar(autoCollapsed: contentWidth < 980)
+            VNextSidebar(autoCollapsed: contentWidth < 980,
+                         markSpace: markSpace,
+                         markLanded: markHandedOff)
             Group {
                 switch state.selectedDestination {
                 case .overview:

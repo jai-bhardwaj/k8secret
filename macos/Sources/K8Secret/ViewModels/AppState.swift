@@ -43,6 +43,9 @@ final class AppState {
     var settingsOpen = false
     /// Status-bar cluster switcher panel (the VS Code quick-pick pattern).
     var clusterSwitcherOpen = false
+    /// How far the launch sequence's checklist has got. Driven by `connect`,
+    /// so the steps describe work that actually happened.
+    var launchPhase = 0
     /// Compact (single-pane) navigation: below ~780pt the prototype shows the
     /// list OR the detail, never both; selecting a row pushes the detail.
     var compactShowDetail = false
@@ -364,16 +367,19 @@ final class AppState {
 
     func connect(toContext: String? = nil) async {
         connectionState = .connecting
+        launchPhase = 0
         // Load available contexts
         if let contexts = try? await client.availableContexts() {
             availableContexts = contexts
         }
+        launchPhase = 1                      // kubeconfig read
         // Priority: explicit arg > initialContext (for this window) > saved default
         let targetContext = toContext ?? initialContext ?? UserDefaults.standard.string(forKey: Self.lastContextKey)
         // Consume initialContext so subsequent retries/switches don't force it
         if initialContext != nil && toContext == nil { initialContext = nil }
         do {
             let ctx = try await client.connect(context: targetContext)
+            launchPhase = 2                  // API server answered
             context = ctx
             UserDefaults.standard.set(ctx, forKey: Self.lastContextKey)
             loadClusterTint()
@@ -466,6 +472,7 @@ final class AppState {
     func loadNamespaces() async {
         do {
             namespaces = try await client.listNamespaces()
+            if launchPhase == 2 { launchPhase = 3 }   // namespaces in hand
         } catch {
             showToast("Failed to load namespaces: \(error.localizedDescription)", isError: true)
         }

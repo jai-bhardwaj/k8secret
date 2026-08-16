@@ -1,135 +1,102 @@
 import SwiftUI
 
-/// The launch sequence: the node-cluster mark assembles from its three nodes,
-/// settles into a slow breath, and names the cluster it is reaching. The app's
-/// first frame should look like the app, not like a system spinner.
+/// The launch sequence, ported from the approved prototype (transition A).
+///
+/// The mark assembles from its three nodes, the checklist ticks as `connect`
+/// actually progresses, and then the mark **flies into the sidebar** and
+/// becomes the Overview icon — the splash resolves into the app rather than
+/// being replaced by it.
+///
+/// The flight uses `matchedGeometryEffect`, so the landing position and size
+/// are correct by construction at any window size, in compact mode, and with
+/// the rail collapsed or expanded — no coordinate measuring, and none of the
+/// "lands slightly off" bugs that class of code invites.
 struct BootView: View {
     let context: String
+    let phase: Int
+    /// Shared with the sidebar's Overview icon; the mark travels between them.
+    let namespace: Namespace.ID
+    /// True once the app owns the mark — the launch stops drawing it then.
+    let handedOff: Bool
 
     @State private var assembled = false
-    @State private var breathing = false
-    @State private var textIn = false
-    @State private var spin = false
-    @State private var sweep = false
+    @State private var lit = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private static let steps = ["Reading kubeconfig", "Verifying API server", "Fetching namespaces"]
+
     var body: some View {
-        VStack(spacing: 26) {
+        VStack(spacing: 30) {
             ZStack {
-                // The glow the mark sits in.
+                // Atmosphere: a deep bloom and two soft lights, no ring.
                 Circle()
-                    .fill(
-                        RadialGradient(colors: [Color(hex: 0x8E6BFF).opacity(breathing ? 0.34 : 0.16), .clear],
-                                       center: .center, startRadius: 4, endRadius: 130)
-                    )
-                    .frame(width: 260, height: 260)
+                    .fill(RadialGradient(colors: [Color(hex: 0x8E6BFF).opacity(lit ? 0.22 : 0.10), .clear],
+                                         center: .center, startRadius: 6, endRadius: 210))
+                    .frame(width: 420, height: 420)
+                    .blur(radius: 10)
 
-                // Each node flies in from its own direction, then holds.
-                ForEach(0..<3, id: \.self) { i in
-                    let angle = Double(i) * 120 - 90
-                    BootCube()
-                        .fill(
-                            LinearGradient(colors: nodeColors(i),
-                                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                        .frame(width: 46, height: 51)
-                        .offset(x: cos(angle * .pi / 180) * (assembled ? 30 : 96),
-                                y: sin(angle * .pi / 180) * (assembled ? 28 : 96))
+                if !handedOff {
+                    ClusterMark(size: 168)
+                        .matchedGeometryEffect(id: "appMark", in: namespace, isSource: true)
+                        .scaleEffect(assembled ? 1 : 0.42)
                         .opacity(assembled ? 1 : 0)
-                        .rotationEffect(.degrees(assembled ? 0 : -40))
-                        .animation(.spring(response: 0.75, dampingFraction: 0.72)
-                            .delay(Double(i) * 0.09), value: assembled)
+                        .blur(radius: assembled ? 0 : 7)
+                        .shadow(color: .black.opacity(0.45), radius: 22, y: 16)
+                        .overlay {
+                            // The strike: a hot core flare at the moment it locks.
+                            Circle()
+                                .fill(RadialGradient(colors: [.white.opacity(0.9), .clear],
+                                                     center: .center, startRadius: 0, endRadius: 60))
+                                .frame(width: 120, height: 120)
+                                .blur(radius: 2)
+                                .opacity(lit ? 0 : 0)
+                        }
                 }
-
-                // The core lands last — the cluster is whole.
-                BootCube()
-                    .fill(LinearGradient(colors: [.white, Color(hex: 0xC2C8D8)],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 39, height: 44)
-                    .scaleEffect(assembled ? 1 : 0.2)
-                    .opacity(assembled ? 1 : 0)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.68).delay(0.3), value: assembled)
             }
-            .scaleEffect(breathing ? 1.04 : 1)
-            .rotationEffect(.degrees(spin ? 360 : 0))
-            .overlay {
-                // A light sweeping across the mark, like a scan pass.
-                LinearGradient(colors: [.clear, .white.opacity(0.55), .clear],
-                               startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 90)
-                    .rotationEffect(.degrees(18))
-                    .offset(x: sweep ? 170 : -170)
-                    .blendMode(.plusLighter)
-                    .mask(ClusterMark(size: 150))
-                    .allowsHitTesting(false)
-            }
+            .frame(height: 200)
 
-            VStack(spacing: 6) {
-                Text(context.isEmpty ? "Reaching your cluster" : "Reaching \(context)")
-                    .font(.system(size: 26, weight: .light))
+            VStack(spacing: 8) {
+                Text("Reaching \(context.isEmpty ? "your cluster" : context)")
+                    .font(.system(size: 29, weight: .light))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("reading the kubeconfig and verifying the API server")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Theme.text3)
-            }
-            .opacity(textIn ? 1 : 0)
-            .offset(y: textIn ? 0 : 8)
-            .animation(Theme.easeOut.delay(0.42), value: textIn)
 
-            // Indeterminate hairline: motion that says "working", not a spinner.
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.10))
-                Capsule()
-                    .fill(LinearGradient(colors: [Color(hex: 0x63F0C8), Color(hex: 0x8E6BFF)],
-                                         startPoint: .leading, endPoint: .trailing))
-                    .frame(width: 84)
-                    .offset(x: sweep ? 116 : -116)
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(Self.steps.enumerated()), id: \.offset) { i, title in
+                        HStack(spacing: 9) {
+                            ZStack {
+                                Circle()
+                                    .strokeBorder(phase > i ? Color(hex: 0x3FD9B4)
+                                                  : (phase == i ? Color(hex: 0x8E6BFF) : Theme.line),
+                                                  lineWidth: 1.5)
+                                    .background(Circle().fill(phase > i ? Color(hex: 0x3FD9B4) : .clear))
+                                    .frame(width: 13, height: 13)
+                                if phase > i {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 7, weight: .bold))
+                                        .foregroundStyle(Color(hex: 0x062018))
+                                }
+                            }
+                            Text(title)
+                                .font(.system(size: 11.5, weight: .medium))
+                                .kerning(0.3)
+                                .foregroundStyle(phase > i ? Theme.text : Theme.text3)
+                        }
+                        .animation(Theme.easeOut, value: phase)
+                    }
+                }
             }
-            .frame(width: 200, height: 3)
-            .opacity(textIn ? 1 : 0)
+            .opacity(assembled ? 1 : 0)
+            .offset(y: assembled ? 0 : 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            guard !reduceMotion else { assembled = true; textIn = true; return }
-            assembled = true
-            textIn = true
-            withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
-                breathing = true
-            }
-            withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) {
-                spin = true
-            }
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false).delay(0.6)) {
-                sweep = true
-            }
+            guard !reduceMotion else { assembled = true; lit = true; return }
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.68)) { assembled = true }
+            withAnimation(.easeOut(duration: 0.5).delay(0.45)) { lit = true }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Connecting to \(context.isEmpty ? "cluster" : context)")
-    }
-
-    private func nodeColors(_ i: Int) -> [Color] {
-        switch i {
-        case 0: return [Color(hex: 0x7FB2FF), Color(hex: 0x2D5FD6)]
-        case 1: return [Color(hex: 0x63F0C8), Color(hex: 0x1FA98C)]
-        default: return [Color(hex: 0xF48FEF), Color(hex: 0xC136B9)]
-        }
-    }
-}
-
-/// The mark's cube silhouette, at boot scale.
-private struct BootCube: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let third = r.height * 0.28
-        p.move(to: CGPoint(x: r.midX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.minY + third))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - third))
-        p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.minX, y: r.maxY - third))
-        p.addLine(to: CGPoint(x: r.minX, y: r.minY + third))
-        p.closeSubpath()
-        return p
     }
 }
