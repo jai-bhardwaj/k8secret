@@ -299,9 +299,9 @@ final class DestinationStateTests: XCTestCase {
     func testClusterTintRoundTripsPerContext() {
         let state = AppState()
         state.context = "test-ctx-\(UUID().uuidString)"
-        XCTAssertEqual(state.clusterTint, .mint, "unset context defaults to mint")
+        XCTAssertEqual(state.clusterTint, .ocean, "unset context defaults to ocean — the blue canvas is the app default")
         state.setClusterTint(.rose)
-        state.clusterTint = .mint          // simulate a stale in-memory value
+        state.clusterTint = .ocean         // simulate a stale in-memory value
         state.loadClusterTint()
         XCTAssertEqual(state.clusterTint, .rose)
         UserDefaults.standard.removeObject(forKey: "clusterTint.\(state.context)")

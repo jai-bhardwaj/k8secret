@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// A debug-only scripted tour of the UI, used to verify pixel parity of every
@@ -118,6 +119,41 @@ enum UITestTour {
             await state.selectNamespaceScope(all: true)
             await state.selectResourceType(.pods)
             await settle(1.6); mark("13-all-namespaces")
+
+            // 14. Collapsed rail: the dimensional icons ARE the rail.
+            state.sidebarCollapsed = true
+            await settle(1.2); mark("14-collapsed-rail")
+            await settle(1.5)   // hold for the capture
+            state.sidebarCollapsed = false
+            await settle(0.6)
+
+            // 15. Confirm dialog — in-window luminous glass.
+            state.confirmAction = AppState.ConfirmAction(
+                title: "Restart web?",
+                message: "A rolling restart replaces every pod with a fresh one, keeping the service up throughout.",
+                confirmLabel: "Rolling restart",
+                destructive: false,
+                action: {})
+            await settle(1.2); mark("15-confirm-dialog")
+            await settle(1.5)
+            state.confirmAction = nil
+            await settle(0.5)
+
+            // 16. Rose canvas — the prod tint painting the whole world.
+            let originalTint = state.clusterTint
+            state.clusterTint = .rose
+            await settle(1.2); mark("16-tint-rose")
+            await settle(1.5)
+            state.clusterTint = originalTint
+            await settle(0.5)
+
+            // 17. Light appearance, then restore.
+            let originalAppearance = NSApplication.shared.appearance
+            NSApplication.shared.appearance = NSAppearance(named: .aqua)
+            await settle(1.4); mark("17-light-mode")
+            await settle(1.5)
+            NSApplication.shared.appearance = originalAppearance
+            await settle(0.5)
 
             mark("99-done")
         }
