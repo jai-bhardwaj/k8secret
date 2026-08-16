@@ -32,40 +32,21 @@ struct DimensionalIcon: View {
     private var art: some View {
         switch destination {
         case .overview:
-            // A dimensional health gauge — our own mark, not a screen: an arc
-            // sweeping green with a needle on a small plinth. Deliberately
-            // unlike any other app's overview icon.
+            // Three nodes around a bright core: the cluster as a whole, our
+            // own mark. Reads at 22pt where a needle or a radar disc muddies.
             ZStack {
-                // Plinth
-                Capsule()
-                    .fill(grad(0xEDEFF6, 0xB9C0D2))
-                    .frame(width: size * 0.46, height: size * 0.10)
-                    .offset(y: size * 0.34)
-                // Track
-                GaugeArc(fraction: 1)
-                    .stroke(Color.black.opacity(0.22),
-                            style: StrokeStyle(lineWidth: size * 0.16, lineCap: .round))
-                    .frame(width: size * 0.88, height: size * 0.88)
-                    .offset(y: size * 0.06)
-                // Sweep
-                GaugeArc(fraction: 0.72)
-                    .stroke(
-                        AngularGradient(colors: [Color(hex: 0xF48FEF), Color(hex: 0x8E6BFF), Color(hex: 0x3ECFB2)],
-                                        center: .center, angle: .degrees(180)),
-                        style: StrokeStyle(lineWidth: size * 0.16, lineCap: .round))
-                    .frame(width: size * 0.88, height: size * 0.88)
-                    .offset(y: size * 0.06)
-                // Needle + hub
-                Capsule()
-                    .fill(grad(0xFFFFFF, 0xC9CEDE))
-                    .frame(width: size * 0.08, height: size * 0.34)
-                    .offset(y: -size * 0.17)
-                    .rotationEffect(.degrees(34), anchor: .bottom)
-                    .offset(y: size * 0.14)
-                Circle()
-                    .fill(grad(0xFFFFFF, 0xAAB0C4))
-                    .frame(width: size * 0.17)
-                    .offset(y: size * 0.14)
+                ForEach(0..<3, id: \.self) { i in
+                    let angle = Double(i) * 120 - 90
+                    CubeShape()
+                        .fill(grad(i == 0 ? 0x7FB2FF : (i == 1 ? 0x63F0C8 : 0xF48FEF),
+                                   i == 0 ? 0x2D5FD6 : (i == 1 ? 0x1FA98C : 0xC136B9)))
+                        .frame(width: size * 0.40, height: size * 0.44)
+                        .offset(x: cos(angle * .pi / 180) * size * 0.26,
+                                y: sin(angle * .pi / 180) * size * 0.24)
+                }
+                CubeShape()
+                    .fill(grad(0xFFFFFF, 0xC2C8D8))
+                    .frame(width: size * 0.34, height: size * 0.38)
             }
             .frame(width: size, height: size)
         case .resource(.deployments):
@@ -622,21 +603,5 @@ extension AppDestination {
             case .configmaps: return "configmaps"
             }
         }
-    }
-}
-
-/// The overview icon's sweep: a 220° arc opening downward.
-private struct GaugeArc: Shape {
-    /// 0…1 of the sweep drawn.
-    var fraction: CGFloat
-
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let start = Angle.degrees(160)
-        let sweep = Angle.degrees(220 * Double(fraction))
-        p.addArc(center: CGPoint(x: r.midX, y: r.midY),
-                 radius: min(r.width, r.height) / 2,
-                 startAngle: start, endAngle: start + sweep, clockwise: false)
-        return p
     }
 }
