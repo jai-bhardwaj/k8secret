@@ -167,26 +167,34 @@ struct GuidedTourView: View {
     /// it inside the window no matter how small the window is.
     private var cardOrigin: CGPoint {
         let size = proxy.size
+        let height: CGFloat = 170, gap: CGFloat = 16, pad: CGFloat = 14
+
         if let edge = current?.titlebar {
             // Just under the titlebar, on the control's own side.
             let x = edge == .leading ? 18 : max(18, size.width - Self.cardWidth - 18)
             return CGPoint(x: x, y: 16)
         }
         guard let rect else {
-            return CGPoint(x: (size.width - Self.cardWidth) / 2, y: size.height / 2 - 90)
+            return CGPoint(x: (size.width - Self.cardWidth) / 2, y: (size.height - height) / 2)
         }
-        let gap: CGFloat = 16
-        let estimatedHeight: CGFloat = 170
-        var x = rect.maxX + gap
-        if x + Self.cardWidth > size.width - 12 {
-            x = rect.minX - gap - Self.cardWidth        // flip to the left
+
+        // Beside the spotlight is always the first choice — a card talking
+        // about a full-height rail must not end up shoved against the titlebar.
+        func vertical() -> CGFloat {
+            min(max(pad, rect.midY - height / 2), max(pad, size.height - height - pad))
         }
-        if x < 12 {                                      // no room either side
-            x = min(max(12, rect.midX - Self.cardWidth / 2), size.width - Self.cardWidth - 12)
+        if rect.maxX + gap + Self.cardWidth <= size.width - pad {
+            return CGPoint(x: rect.maxX + gap, y: vertical())
         }
-        var y = rect.midY - estimatedHeight / 2
-        if rect.maxY > size.height - estimatedHeight { y = rect.minY - estimatedHeight - gap }
-        y = min(max(12, y), max(12, size.height - estimatedHeight - 12))
+        if rect.minX - gap - Self.cardWidth >= pad {
+            return CGPoint(x: rect.minX - gap - Self.cardWidth, y: vertical())
+        }
+
+        // No room on either side: below the spotlight, or above it when the
+        // window's bottom is closer.
+        let x = min(max(pad, rect.midX - Self.cardWidth / 2), max(pad, size.width - Self.cardWidth - pad))
+        let below = rect.maxY + gap
+        let y = below + height <= size.height - pad ? below : max(pad, rect.minY - gap - height)
         return CGPoint(x: x, y: y)
     }
 
