@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
+    @State private var showFirstRun = Welcome.needsFirstRun
+    @State private var showWhatsNew = false
     @Environment(\.openWindow) private var openWindow
     /// Live content width, driving the prototype's breakpoints: <1120 narrows
     /// the list column, <980 auto-collapses the rail, <780 goes single-pane.
@@ -74,6 +76,30 @@ struct ContentView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
+                // First run / what's new — the app introducing itself.
+                if showFirstRun {
+                    scrim {}
+                    FirstRunView(
+                        contexts: state.availableContexts,
+                        onPick: { ctx in
+                            Welcome.completeFirstRun()
+                            withAnimation(Theme.easeOut) { showFirstRun = false }
+                            Task { await state.switchContext(ctx) }
+                        },
+                        onSkip: {
+                            Welcome.completeFirstRun()
+                            withAnimation(Theme.easeOut) { showFirstRun = false }
+                        })
+                        .transition(.scale(scale: 0.94).combined(with: .opacity))
+                } else if showWhatsNew {
+                    scrim {}
+                    WhatsNewView {
+                        Welcome.markVersionSeen()
+                        withAnimation(Theme.easeOut) { showWhatsNew = false }
+                    }
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+                }
+
                 // Toast overlay
                 if let msg = state.toastMessage {
                     VStack {
@@ -124,6 +150,12 @@ struct ContentView: View {
                 try? await Task.sleep(for: .seconds(seconds))
             }
             await state.connect()
+            // Debug-only surfacing, same contract as the tour.
+            switch ProcessInfo.processInfo.environment["K8SECRET_UITEST_WELCOME"] {
+            case "first": showFirstRun = true
+            case "whatsnew": showWhatsNew = true
+            default: showWhatsNew = Welcome.needsWhatsNew
+            }
             await UpdateChecker.shared.checkForUpdates()
         }
     }
