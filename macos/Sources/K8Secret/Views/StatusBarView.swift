@@ -77,8 +77,8 @@ struct StatusBarView: View {
             // a 2px edge in the color chosen for this context in Settings, so
             // "am I in prod?" is answerable from the bottom of the window too.
             Rectangle()
-                .fill(state.clusterTint == .mint ? AnyShapeStyle(.separator) : AnyShapeStyle(state.clusterTint.color))
-                .frame(height: state.clusterTint == .mint ? 1 : 2)
+                .fill(state.clusterTint == .ocean ? AnyShapeStyle(.separator) : AnyShapeStyle(state.clusterTint.color))
+                .frame(height: state.clusterTint == .ocean ? 1 : 2)
         }
         .onAppear { loadTheme() }
         .onChange(of: state.context) { _, _ in loadTheme() }
