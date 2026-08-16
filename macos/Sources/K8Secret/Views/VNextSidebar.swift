@@ -32,20 +32,42 @@ struct DimensionalIcon: View {
     private var art: some View {
         switch destination {
         case .overview:
-            // Pink monitor on a stand.
-            VStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: size * 0.16, style: .continuous)
-                    .fill(grad(0xF48FEF, 0xC136B9))
-                    .frame(width: size * 0.94, height: size * 0.62)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: size * 0.16, style: .continuous)
-                            .strokeBorder(.white.opacity(0.35), lineWidth: 0.8)
-                    )
-                Rectangle().fill(grad(0xD9DCE8, 0xAAB0C4))
-                    .frame(width: size * 0.10, height: size * 0.16)
-                Capsule().fill(grad(0xEDEFF6, 0xC2C8D8))
-                    .frame(width: size * 0.44, height: size * 0.10)
+            // A dimensional health gauge — our own mark, not a screen: an arc
+            // sweeping green with a needle on a small plinth. Deliberately
+            // unlike any other app's overview icon.
+            ZStack {
+                // Plinth
+                Capsule()
+                    .fill(grad(0xEDEFF6, 0xB9C0D2))
+                    .frame(width: size * 0.46, height: size * 0.10)
+                    .offset(y: size * 0.34)
+                // Track
+                GaugeArc(fraction: 1)
+                    .stroke(Color.black.opacity(0.22),
+                            style: StrokeStyle(lineWidth: size * 0.16, lineCap: .round))
+                    .frame(width: size * 0.88, height: size * 0.88)
+                    .offset(y: size * 0.06)
+                // Sweep
+                GaugeArc(fraction: 0.72)
+                    .stroke(
+                        AngularGradient(colors: [Color(hex: 0xF48FEF), Color(hex: 0x8E6BFF), Color(hex: 0x3ECFB2)],
+                                        center: .center, angle: .degrees(180)),
+                        style: StrokeStyle(lineWidth: size * 0.16, lineCap: .round))
+                    .frame(width: size * 0.88, height: size * 0.88)
+                    .offset(y: size * 0.06)
+                // Needle + hub
+                Capsule()
+                    .fill(grad(0xFFFFFF, 0xC9CEDE))
+                    .frame(width: size * 0.08, height: size * 0.34)
+                    .offset(y: -size * 0.17)
+                    .rotationEffect(.degrees(34), anchor: .bottom)
+                    .offset(y: size * 0.14)
+                Circle()
+                    .fill(grad(0xFFFFFF, 0xAAB0C4))
+                    .frame(width: size * 0.17)
+                    .offset(y: size * 0.14)
             }
+            .frame(width: size, height: size)
         case .resource(.deployments):
             // Blue faceted cube.
             CubeShape()
@@ -600,5 +622,21 @@ extension AppDestination {
             case .configmaps: return "configmaps"
             }
         }
+    }
+}
+
+/// The overview icon's sweep: a 220° arc opening downward.
+private struct GaugeArc: Shape {
+    /// 0…1 of the sweep drawn.
+    var fraction: CGFloat
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let start = Angle.degrees(160)
+        let sweep = Angle.degrees(220 * Double(fraction))
+        p.addArc(center: CGPoint(x: r.midX, y: r.midY),
+                 radius: min(r.width, r.height) / 2,
+                 startAngle: start, endAngle: start + sweep, clockwise: false)
+        return p
     }
 }

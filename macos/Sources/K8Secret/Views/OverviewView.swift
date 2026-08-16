@@ -266,8 +266,13 @@ struct OverviewView: View {
 /// anything needs attention — the color answers before the number does.
 struct HealthRing: View {
     let percent: Int
-    @State private var shown = 0
+    /// The ring counts up once on appear; after that it tracks `percent`
+    /// directly. Mirroring the value into @State went stale whenever
+    /// ViewThatFits swapped hero layouts — the ring kept saying 100%.
+    @State private var appeared = false
     @Environment(\.colorScheme) private var scheme
+
+    private var shown: Int { appeared ? percent : 0 }
 
     /// The prototype's tiers: green at 100, amber from 70, red below.
     private var tierColors: [Color] {
@@ -299,11 +304,9 @@ struct HealthRing: View {
             }
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.9)) { shown = percent }
+            withAnimation(.easeOut(duration: 0.9)) { appeared = true }
         }
-        .onChange(of: percent) { _, new in
-            withAnimation(Theme.easeOut) { shown = new }
-        }
+        .animation(Theme.easeOut, value: percent)
         .accessibilityLabel("Cluster health \(percent) percent")
     }
 }

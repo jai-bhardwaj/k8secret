@@ -469,7 +469,7 @@ enum AppDestination: Hashable {
 
     var icon: String {
         switch self {
-        case .overview: return "square.grid.2x2"
+        case .overview: return "speedometer"
         case .resource(let t): return t.icon
         case .events: return "waveform.path.ecg"
         }
