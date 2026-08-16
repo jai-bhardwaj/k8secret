@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct DeploymentDetailView: View {
+    @Environment(\.clusterAccent) private var accent
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
     @State private var showRestartAlert = false
@@ -32,33 +33,65 @@ struct DeploymentDetailView: View {
         }
     }
 
+    enum DetailTab: String, CaseIterable { case overview = "Overview", events = "Events", yaml = "YAML" }
+
     @ViewBuilder
     private func deploymentDetail(_ dep: K8sDeployment) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                DetailBreadcrumb(type: "deployments")
                 headerSection(dep)
-
-                // Rollout progress bar
-                if state.showsRolloutBanner {
-                    rolloutBanner
-                }
-
-                Divider()
-                scaleSection(dep)
-                Divider()
-                imagesSection(dep)
-                conditionsBlock(dep)
-                labelsBlock(dep)
-                eventsBlock
             }
-            .padding(24)
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+
+            // The rollout banner stays above the tabs: an in-flight write is
+            // never allowed to hide behind a tab the user isn't on. A rollout
+            // the cluster is doing on its own gets the passive variant.
+            if state.showsRolloutBanner {
+                rolloutBanner
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+            } else if dep.status == .updating {
+                passiveRolloutBanner(dep)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+            }
+
+            UnderlineTabBar(
+                tabs: DetailTab.allCases.map { ($0, $0.rawValue) },
+                selection: Binding(get: { state.deploymentDetailTab }, set: { state.deploymentDetailTab = $0 })
+            )
+            .padding(.top, 6)
+
+            switch state.deploymentDetailTab {
+            case .overview:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        statTiles(dep)
+                        scaleSection(dep)
+                        specSection(dep)
+                        podsSection(dep)
+                        labelsBlock(dep)
+                    }
+                    .padding(24)
+                }
+            case .events:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        eventsBlock
+                    }
+                    .padding(24)
+                }
+            case .yaml:
+                ResourceYAMLView(type: .deployments, namespace: dep.namespace, name: dep.name)
+            }
         }
         .onDisappear {
             state.stopRolloutPolling()
         }
         .navigationTitle(dep.name)
-        .toolbar { deploymentToolbar(dep) }
-        .alert("Restart Deployment", isPresented: $showRestartAlert) {
+                .alert("Restart Deployment", isPresented: $showRestartAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Restart") {
                 Task { await state.restartDeployment(dep) }
@@ -68,39 +101,6 @@ struct DeploymentDetailView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private func deploymentToolbar(_ dep: K8sDeployment) -> some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            // Carries a text label and a warning tint. Sitting next to Refresh as
-            // a bare circular arrow, this was a rolling restart of a live
-            // deployment one mis-click away from a data refresh.
-            Button {
-                showRestartAlert = true
-            } label: {
-                Label("Restart", systemImage: "arrow.trianglehead.clockwise.rotate.90")
-            }
-            .labelStyle(.titleAndIcon)
-            .tint(.orange)
-            .help("Rolling restart — recreates every pod")
-            .accessibilityLabel("Rolling restart")
-
-            Button {
-                Task { await state.refreshCurrentResource() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .help("Refresh")
-            .accessibilityLabel("Refresh")
-        }
-    }
-
-    @ViewBuilder
-    private func conditionsBlock(_ dep: K8sDeployment) -> some View {
-        if !dep.conditions.isEmpty {
-            Divider()
-            conditionsSection(dep)
-        }
-    }
 
     @ViewBuilder
     private func labelsBlock(_ dep: K8sDeployment) -> some View {
@@ -118,67 +118,73 @@ struct DeploymentDetailView: View {
         }
     }
 
+    /// A rollout the cluster is doing on its own — same banner, nothing to
+    /// dismiss, because the app isn't holding a poll open for it.
+    private func passiveRolloutBanner(_ dep: K8sDeployment) -> some View {
+        RolloutBanner(name: dep.name, ready: dep.readyReplicas, total: dep.replicas)
+    }
+
+    /// A rollout this window started: the same banner, with a way to stop
+    /// watching if the cluster stalls.
+    @ViewBuilder
     private var rolloutBanner: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Rollout in progress")
-                    .font(.system(.callout, design: .monospaced, weight: .semibold))
-                Text(state.rolloutProgress)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button {
+        if let dep = state.selectedDeployment {
+            RolloutBanner(name: dep.name,
+                          ready: dep.readyReplicas,
+                          total: dep.replicas) {
                 state.stopRolloutPolling()
-            } label: {
-                Text("Dismiss")
-                    .font(.system(.caption, design: .monospaced))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
-        .padding(12)
-        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.blue.opacity(0.2), lineWidth: 1))
-        .animation(.easeInOut, value: state.rolloutProgress)
     }
 
     // MARK: - Sections
 
     private func headerSection(_ dep: K8sDeployment) -> some View {
-        HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(statusColor(dep).opacity(0.15))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(statusColor(dep))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                headerInfo(dep)
+                Spacer(minLength: 12)
+                headerActions(dep)
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(dep.name)
-                    .font(.system(.title2, design: .monospaced, weight: .bold))
-                HStack(spacing: 12) {
-                    statusBadge(dep)
-                    Label(dep.strategy, systemImage: "arrow.triangle.swap")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Label(dep.age, systemImage: "clock")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                headerInfo(dep)
+                HStack(spacing: 8) { headerActions(dep) }
             }
-
-            Spacer()
-
-            liveTailButton(dep)
         }
+    }
+
+    private func headerInfo(_ dep: K8sDeployment) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(dep.name)
+                .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .kerning(-0.25)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            HStack(spacing: 12) {
+                statusBadge(dep)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headerActions(_ dep: K8sDeployment) -> some View {
+        Button {
+            Task { await state.refreshCurrentResource() }
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Refresh")
+        Button("Restart") { showRestartAlert = true }
+            .buttonStyle(Theme.SoftPill())
+            .help("Rolling restart — recreates every pod")
+        if dep.replicas > 0 {
+            Button("Stop") { state.requestScale(dep, to: 0) }
+                .buttonStyle(Theme.DangerPill())
+                .disabled(state.scaling)
+                .help("Scale to 0 — stops every pod for this deployment")
+        }
+        liveTailButton(dep)
     }
 
     private func liveTailButton(_ dep: K8sDeployment) -> some View {
@@ -212,15 +218,15 @@ struct DeploymentDetailView: View {
                 Image(systemName: "text.line.last.and.arrowtriangle.forward")
                     .font(.system(size: 12))
                 Text("Live Tail")
-                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.blue.opacity(0.25), lineWidth: 1))
+            .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accent.opacity(0.3), lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.blue)
+        .foregroundStyle(accent)
     }
 
     private func statusBadge(_ dep: K8sDeployment) -> some View {
@@ -228,7 +234,7 @@ struct DeploymentDetailView: View {
         return HStack(spacing: 4) {
             Circle().fill(info.1).frame(width: 6, height: 6)
             Text(info.0)
-                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
         }
         .foregroundStyle(info.1)
         .padding(.horizontal, 8)
@@ -236,123 +242,102 @@ struct DeploymentDetailView: View {
         .background(info.1.opacity(0.12), in: Capsule())
     }
 
+    private func statTiles(_ dep: K8sDeployment) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
+            StatCard(label: "Ready", value: "\(dep.readyReplicas)", suffix: " / \(dep.replicas)",
+                     valueColor: dep.readyReplicas < dep.replicas ? Theme.warn : nil)
+            let agg = state.aggregateMetrics(of: dep)
+            StatCard(label: "CPU", value: agg?.cpu ?? "—", mono: true, valueColor: agg == nil ? nil : Theme.cpu)
+            StatCard(label: "Memory", value: agg?.mem ?? "—", mono: true, valueColor: agg == nil ? nil : Theme.memory)
+            StatCard(label: "Age", value: dep.age, mono: true)
+        }
+    }
+
     private func scaleSection(_ dep: K8sDeployment) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Replicas", systemImage: "square.stack.3d.up.fill")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Text("Replicas")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Theme.text)
 
-            HStack(spacing: 16) {
-                HStack(spacing: 18) {
-                    replicaStat("Desired", value: dep.replicas, color: .primary)
-                    replicaStat("Ready", value: dep.readyReplicas, color: .green)
-                    replicaStat("Updated", value: dep.updatedReplicas, color: .blue)
-                    replicaStat("Available", value: dep.availableReplicas, color: .green)
-                }
-
-                Spacer(minLength: 8)
-
-                HStack(spacing: 8) {
-                    Button {
-                        // Step from what is on screen, not from the last count the
-                        // cluster reported. After setting 100 the field shows 100
-                        // while the cluster still says 2, and stepping off the
-                        // stale value took "minus one" from 2 to 1 — discarding
-                        // the number the user was looking at.
-                        let current = displayedReplicas(dep)
-                        if current > 0 {
-                            state.requestScale(dep, to: current - 1)
-                        }
-                    } label: {
-                        Image(systemName: "minus")
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 32, height: 32)
+                // One control, not three: the prototype's stepper is a single
+                // capsule with the count living between its two buttons.
+                HStack(spacing: 0) {
+                    stepButton("minus", enabled: displayedReplicas(dep) > 0 && !state.scaling) {
+                        replicaInput = String(max(0, displayedReplicas(dep) - 1))
                     }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Scale down one replica")
-                    .disabled(displayedReplicas(dep) <= 0 || state.scaling)
 
-                    // Type the count directly. With only +/- available, going from
-                    // 2 to 100 meant 98 clicks and 98 API calls, and there was no
-                    // way to state a target at all.
                     ZStack {
                         TextField("", text: $replicaInput)
                             .textFieldStyle(.plain)
                             .multilineTextAlignment(.center)
-                            .font(.system(.title2, design: .monospaced, weight: .bold))
-                            .frame(width: 56)
-                            .padding(.vertical, 4)
-                            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(replicaFieldFocused ? Color.accentColor : .clear, lineWidth: 1.5)
-                            )
+                            .font(.system(size: 13.5, weight: .bold, design: .monospaced))
+                            .frame(width: 56, height: 30)
+                            // Focus lights the field itself rather than ringing
+                            // it — a ring inside the capsule reads as a second
+                            // control.
+                            .background(replicaFieldFocused ? Theme.soft(accent) : Color.clear)
                             .focused($replicaFieldFocused)
                             .disabled(state.scaling)
                             .opacity(state.scaling ? 0.25 : 1)
                             .onSubmit { commitReplicaInput(dep) }
-                            .onChange(of: replicaFieldFocused) { _, focused in
-                                // Commit on blur as well, so clicking away doesn't
-                                // discard what was typed — but pressing Return
-                                // *also* moves focus to the confirmation dialog,
-                                // so this fired straight after onSubmit and asked
-                                // for the same scale a second time.
-                                // commitReplicaInput is idempotent per target.
-                                if !focused { commitReplicaInput(dep) }
-                            }
                             .accessibilityLabel("Replica count")
-                            .help("Type a replica count and press Return")
-
+                            .help("Type a replica count, then Apply")
                         if state.scaling {
                             ProgressView().controlSize(.small)
                         }
                     }
                     .motion(Motion.stateChange, value: state.scaling)
-                    // Track the cluster while the user isn't editing.
                     .onAppear { replicaInput = String(dep.replicas) }
                     .onChange(of: dep.replicas) { _, newValue in
                         if !replicaFieldFocused { replicaInput = String(newValue) }
-                        // Scale landed: allow this target to be requested again later.
                         if newValue == lastRequestedReplicas { lastRequestedReplicas = nil }
                     }
 
-                    Button {
-                        state.requestScale(dep, to: displayedReplicas(dep) + 1)
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 32, height: 32)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Scale up one replica")
-                    .disabled(state.scaling)
-
-                    // Taking a workload down is a thing people actually want to do,
-                    // and clicking minus until it reaches zero is a poor way to
-                    // express it. Confirms, like any scale to zero.
-                    if dep.replicas > 0 {
-                        Button {
-                            replicaFieldFocused = false
-                            state.requestScale(dep, to: 0)
-                        } label: {
-                            Text("Stop")
-                                .font(.system(.caption, design: .monospaced, weight: .semibold))
-                                .lineLimit(1)
-                                .fixedSize()
-                                .padding(.horizontal, 4)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.red)
-                        .disabled(state.scaling)
-                        .fixedSize()
-                        .help("Scale to 0 — stops all pods for this deployment")
-                        .accessibilityLabel("Stop deployment, scale to zero")
+                    stepButton("plus", enabled: !state.scaling) {
+                        replicaInput = String(displayedReplicas(dep) + 1)
                     }
                 }
-                // Never let the controls be the thing that compresses — Stop was
-                // squeezed to an unlabelled grey box against the pane edge.
-                .fixedSize()
+                .background(Theme.inset)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Theme.lineStrong, lineWidth: 1)
+                )
+
+                Button("Apply") { commitReplicaInput(dep) }
+                    .buttonStyle(Theme.PrimaryPill())
+                    .disabled(state.scaling || displayedReplicas(dep) == dep.replicas)
+                    .keyboardShortcut(.defaultAction)
+
+                Spacer(minLength: 0)
             }
+
+            Text("Steppers count from the number shown, never a stale cluster read. Jumps of ±5 or more, and any scale to zero, confirm first. Ceiling \(Self.maxReplicas).")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.text3)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Theme.line, lineWidth: 1)
+        )
+    }
+
+    private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.text2)
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(symbol == "minus" ? "One fewer replica" : "One more replica")
     }
 
     /// Apply a typed replica count, or put the field back if it isn't usable.
@@ -393,91 +378,97 @@ struct DeploymentDetailView: View {
     /// into 2000 would try to schedule two thousand pods.
     private static let maxReplicas = 500
 
-    private func replicaStat(_ label: String, value: Int, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(verbatim: "\(value)")
-                .font(.system(.title3, design: .monospaced, weight: .bold))
-                .foregroundStyle(color)
-                .contentTransition(.numericText())
-            // "Desired" and "Available" were being hyphenated across two lines
-            // once the scale controls shared the row.
-            Text(label)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize()
-        }
-        .motion(Motion.stateChange, value: value)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(value) \(label.lowercased())")
-    }
-
-    private func imagesSection(_ dep: K8sDeployment) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Container Images", systemImage: "shippingbox")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
-
-            ForEach(dep.images, id: \.self) { image in
-                HStack {
-                    Text(image)
-                        .font(.system(.callout, design: .monospaced))
-                        .textSelection(.enabled)
-                        .lineLimit(2)
-                    Spacer()
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(image, forType: .string)
-                        state.showToast("Image copied")
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
+    /// The prototype's SPEC block: quiet label/value rows, conditions as
+    /// pills — a failing condition speaks its message on a line below.
+    private func specSection(_ dep: K8sDeployment) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("SPEC")
+                .font(.system(size: 10, weight: .semibold))
+                .kerning(0.8)
+                .foregroundStyle(Theme.text3)
+                .padding(.bottom, 4)
+            ForEach(Array(dep.images.enumerated()), id: \.offset) { i, image in
+                KVDetailRow(label: i == 0 ? "Image" : "", value: image)
+            }
+            KVDetailRow(label: "Strategy", value: dep.strategy.isEmpty ? "—" : dep.strategy)
+            KVDetailRow(label: "Selector",
+                        value: dep.labels["app"].map { "app=\($0)" } ?? "—")
+            KVDetailRow(label: "Requests / Limits", value: state.requestsSummary(of: dep) ?? "—")
+            if !dep.conditions.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Conditions")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.text2)
+                        .frame(width: 130, alignment: .leading)
+                    HStack(spacing: 6) {
+                        ForEach(dep.conditions, id: \.self) { cond in
+                            StatusPill(text: cond.type,
+                                       color: cond.status == "True" ? Theme.ok : Theme.bad)
+                                .help(cond.reason.isEmpty ? cond.type : cond.reason)
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
-                .padding(10)
-                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.vertical, 3)
+                ForEach(dep.conditions.filter { $0.status != "True" && !$0.message.isEmpty }, id: \.self) { cond in
+                    Text("\(cond.type): \(cond.message)")
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundStyle(Theme.bad)
+                        .padding(.leading, 142)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
 
-    private func conditionsSection(_ dep: K8sDeployment) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Conditions", systemImage: "checkmark.shield")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
-
-            ForEach(dep.conditions, id: \.self) { cond in
-                conditionRow(cond)
-            }
-        }
-    }
-
-    private func conditionRow(_ cond: DeploymentCondition) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: cond.status == "True" ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(cond.status == "True" ? .green : .red)
-
+    /// The prototype's PODS table: this deployment's pods with a jump link.
+    @ViewBuilder
+    private func podsSection(_ dep: K8sDeployment) -> some View {
+        let pods = state.pods(of: dep)
+        if !pods.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
-                Text(cond.type)
-                    .font(.system(.callout, design: .monospaced, weight: .medium))
-                if !cond.message.isEmpty {
-                    Text(cond.message)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                Text("PODS")
+                    .font(.system(size: 10, weight: .semibold))
+                    .kerning(0.8)
+                    .foregroundStyle(Theme.text3)
+                    .padding(.bottom, 4)
+                HStack(spacing: 12) {
+                    Text("NAME").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("READY").frame(width: 54, alignment: .leading)
+                    Text("RESTARTS").frame(width: 72, alignment: .leading)
+                    Spacer().frame(width: 56)
+                }
+                .font(.system(size: 9.5, weight: .semibold))
+                .kerning(0.5)
+                .foregroundStyle(Theme.text3)
+                ForEach(pods) { pod in
+                    HStack(spacing: 12) {
+                        Text(pod.name)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(pod.ready)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Theme.text2)
+                            .frame(width: 54, alignment: .leading)
+                        Text("\(pod.restarts)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(pod.restarts > 5 ? Theme.bad : Theme.text2)
+                            .frame(width: 72, alignment: .leading)
+                        Button("Open") {
+                            Task {
+                                await state.selectDestination(.resource(.pods))
+                                state.selectedPod = pod
+                                await state.selectPod(pod)
+                            }
+                        }
+                        .buttonStyle(Theme.SoftPill())
+                    }
+                    .padding(.vertical, 3)
                 }
             }
-
-            Spacer()
-
-            if !cond.reason.isEmpty {
-                Text(cond.reason)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-            }
         }
-        .padding(8)
-        .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func statusColor(_ dep: K8sDeployment) -> Color {
@@ -504,19 +495,25 @@ struct DeploymentDetailView: View {
 func labelsSection(_ labels: [String: String]) -> some View {
     VStack(alignment: .leading, spacing: 8) {
         Label("Labels", systemImage: "tag")
-            .font(.system(.headline, design: .monospaced, weight: .semibold))
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
         FlowLayout(spacing: 6) {
             ForEach(labels.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                 HStack(spacing: 4) {
                     Text(key)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     Text("=")
                         .foregroundStyle(.tertiary)
                     Text(value)
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
+                .frame(maxWidth: 280)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
@@ -535,7 +532,7 @@ struct EventsSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Events (\(state.events.count))", systemImage: "list.bullet.rectangle")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
             ForEach(state.events) { event in
                 eventRow(event)
@@ -553,15 +550,15 @@ struct EventsSectionView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(event.reason)
-                        .font(.system(.callout, design: .monospaced, weight: .medium))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                     if event.count > 1 {
                         Text(verbatim: "×\(event.count)")
-                            .font(.system(.caption, design: .monospaced, weight: .bold))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundStyle(.orange)
                     }
                 }
                 Text(event.message)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
@@ -570,7 +567,7 @@ struct EventsSectionView: View {
 
             if let last = event.lastSeen {
                 Text(formatAge(last))
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
         }

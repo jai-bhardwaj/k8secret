@@ -1,12 +1,27 @@
 import SwiftUI
 
 struct LogStreamWindow: View {
+    @Environment(\.colorScheme) private var scheme
     let logID: LogStreamID
+
+    /// Its own window, so nothing hands it the cluster accent — it reads the
+    /// tint saved for the context whose logs it is streaming.
+    private var accent: Color {
+        let raw = UserDefaults.standard.string(forKey: "clusterTint.\(logID.context)") ?? ""
+        return (Theme.ClusterTint(rawValue: raw) ?? .default).accent(scheme)
+    }
     @State private var state: LogStreamState
 
     init(logID: LogStreamID) {
         self.logID = logID
         self._state = State(initialValue: LogStreamState(id: logID))
+    }
+
+    /// The saved tint of the cluster this stream belongs to, so this window
+    /// wears the same canvas as its parent — no per-theme code.
+    private var contextTint: Theme.ClusterTint {
+        let raw = UserDefaults.standard.string(forKey: "clusterTint.\(logID.context)") ?? ""
+        return Theme.ClusterTint(rawValue: raw) ?? .default
     }
 
     var body: some View {
@@ -17,14 +32,18 @@ struct LogStreamWindow: View {
             Divider()
             statusBar
         }
+        .background(Theme.CanvasBackground(tint: contextTint, hero: false))
         .overlay {
             if let toast = copyToast {
                 VStack {
                     Text(toast)
-                        .font(.system(.caption, design: .monospaced, weight: .medium))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        // LiveMaterial, not a stock one: a stock material greys
+                        // out whenever this window isn't frontmost.
+                        .background(LiveMaterial(material: .popover)
+                            .clipShape(RoundedRectangle(cornerRadius: 6)))
                         .transition(.opacity)
                     Spacer()
                 }
@@ -61,7 +80,7 @@ struct LogStreamWindow: View {
                     set: { state.search = $0 }
                 ))
                 .textFieldStyle(.plain)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
 
                 if !state.search.isEmpty {
                     Button {
@@ -102,7 +121,7 @@ struct LogStreamWindow: View {
                 } label: {
                     Image(systemName: "arrow.down.to.line")
                         .font(.system(size: 12))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(accent)
                 }
                 .buttonStyle(.plain)
                 .help("Jump to bottom")
@@ -156,7 +175,7 @@ struct LogStreamWindow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(Theme.inset)
     }
 
     // MARK: - Level filters
@@ -175,10 +194,10 @@ struct LogStreamWindow: View {
                             .fill(level.color)
                             .frame(width: 6, height: 6)
                         Text(level.rawValue)
-                            .font(.system(.caption2, design: .monospaced, weight: .medium))
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                         if count > 0 {
                             Text(verbatim: "\(count)")
-                                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                                 .foregroundStyle(level.color)
                         }
                     }
@@ -230,19 +249,19 @@ struct LogStreamWindow: View {
                     .fill(state.isStreaming ? .green : .red)
                     .frame(width: 6, height: 6)
                 Text(state.isStreaming ? "Streaming" : "Paused")
-                    .font(.system(.caption2, design: .monospaced, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
             }
 
             Rectangle().fill(.quaternary).frame(width: 1, height: 12)
 
             // Line count
             Text(verbatim: "\(state.filteredLines.count) lines")
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.secondary)
 
             if state.filteredLines.count != state.lines.count {
                 Text(verbatim: "(\(state.lines.count) total)")
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
 
@@ -250,7 +269,7 @@ struct LogStreamWindow: View {
             // rather than presenting a truncated view as if it were complete.
             if state.droppedLines > 0 {
                 Text("· \(state.droppedLines) earlier lines dropped")
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .help("The log buffer holds the most recent lines only. Older output is no longer in memory.")
                     .accessibilityLabel("\(state.droppedLines) earlier lines dropped from the buffer")
@@ -265,7 +284,7 @@ struct LogStreamWindow: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.red)
                     Text(err)
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.red)
                         .lineLimit(1)
                 }
@@ -273,16 +292,16 @@ struct LogStreamWindow: View {
 
             // Pod info
             Text("\(logID.namespace)/\(logID.pod)")
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.tertiary)
 
             Text(logID.container)
-                .font(.system(.caption2, design: .monospaced, weight: .medium))
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)
         .frame(height: 24)
-        .background(.bar)
+        .background(Theme.inset)
     }
 }
 

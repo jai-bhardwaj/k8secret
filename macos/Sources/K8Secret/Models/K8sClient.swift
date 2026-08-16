@@ -10,6 +10,7 @@ enum K8sError: LocalizedError {
     case authFailed(String)
     case requestFailed(Int, String)
     case networkError(String)
+    case parseError(String)
 
     var errorDescription: String? {
         switch self {
@@ -21,6 +22,7 @@ enum K8sError: LocalizedError {
         case .authFailed(let msg): return "Auth failed: \(msg)"
         case .requestFailed(let code, let msg): return "HTTP \(code): \(msg)"
         case .networkError(let msg): return msg
+        case .parseError(let msg): return "Parse error: \(msg)"
         }
     }
 }
@@ -39,6 +41,8 @@ struct K8sSecret: Identifiable, Hashable {
     let namespace: String
     let type: String
     let createdAt: Date
+    /// Number of keys, from the list payload — the prototype's Keys column.
+    var keyCount: Int = 0
 
     var age: String { formatAge(createdAt) }
 }
@@ -173,6 +177,49 @@ struct K8sConfigMap: Identifiable, Hashable {
     var age: String { formatAge(createdAt) }
 }
 
+struct K8sCronJob: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let namespace: String
+    let schedule: String
+    let suspended: Bool
+    let active: Int
+    let lastScheduleTime: Date?
+    let lastSuccessfulTime: Date?
+    let createdAt: Date
+
+    var age: String { formatAge(createdAt) }
+    var lastRun: String { lastScheduleTime.map { formatAge($0) + " ago" } ?? "never" }
+    /// The last scheduled run finished successfully iff a success time exists
+    /// at or after the schedule time (controller updates success second).
+    var lastRunSucceeded: Bool {
+        guard let sched = lastScheduleTime else { return true }
+        guard let ok = lastSuccessfulTime else { return false }
+        return ok >= sched.addingTimeInterval(-1)
+    }
+}
+
+struct K8sIngress: Identifiable, Hashable {
+    struct Rule: Hashable {
+        let host: String
+        let path: String
+        let serviceName: String
+        let servicePort: Int
+    }
+
+    let id: String
+    let name: String
+    let namespace: String
+    let className: String
+    let rules: [Rule]
+    let tlsHosts: [String]
+    let createdAt: Date
+
+    var age: String { formatAge(createdAt) }
+    var primaryHost: String { rules.first?.host ?? "—" }
+    var tls: Bool { !tlsHosts.isEmpty }
+}
+
 struct K8sNode: Identifiable, Hashable {
     let id: String
     let name: String
@@ -226,6 +273,81 @@ struct K8sEvent: Identifiable, Hashable {
     let firstSeen: Date?
     let lastSeen: Date?
     let source: String
+    /// "namespace/object" the event is about — the prototype's attribution.
+    var about: String = ""
+}
+
+struct K8sJob: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let ownerCronJob: String
+    let startTime: Date?
+    let completionTime: Date?
+    let succeeded: Bool
+    let active: Bool
+
+    var duration: String {
+        guard let start = startTime else { return "—" }
+        let end = completionTime ?? Date()
+        let d = Int(end.timeIntervalSince(start))
+        if d < 60 { return "\(d)s" }
+        return "\(d / 60)m \(d % 60)s"
+    }
+}
+
+extension K8sCronJob {
+    /// Next scheduled run for standard 5-field cron specs (numbers, lists,
+    /// */n steps, *); nil when suspended or the spec is beyond this parser.
+    var nextRun: Date? {
+        guard !suspended else { return nil }
+        let fields = schedule.split(separator: " ").map(String.init)
+        guard fields.count == 5 else { return nil }
+        func matches(_ field: String, _ value: Int) -> Bool {
+            if field == "*" { return true }
+            for part in field.split(separator: ",").map(String.init) {
+                if part.hasPrefix("*/"), let step = Int(part.dropFirst(2)), step > 0 {
+                    if value % step == 0 { return true }
+                } else if let n = Int(part), n == value {
+                    return true
+                } else if part.contains("-") {
+                    let ends = part.split(separator: "-").compactMap { Int($0) }
+                    if ends.count == 2, value >= ends[0], value <= ends[1] { return true }
+                }
+            }
+            return false
+        }
+        var date = Calendar.current.date(bySetting: .second, value: 0, of: Date()) ?? Date()
+        let cal = Calendar.current
+        for _ in 0..<(60 * 24 * 366) {
+            date = cal.date(byAdding: .minute, value: 1, to: date) ?? date
+            let c = cal.dateComponents([.minute, .hour, .day, .month, .weekday], from: date)
+            if matches(fields[0], c.minute ?? 0),
+               matches(fields[1], c.hour ?? 0),
+               matches(fields[2], c.day ?? 1),
+               matches(fields[3], c.month ?? 1),
+               matches(fields[4], (c.weekday ?? 1) - 1) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    /// "in 3h 40m" — the prototype's phrasing.
+    var nextRunLabel: String {
+        guard let next = nextRun else { return "—" }
+        let d = Int(next.timeIntervalSinceNow)
+        if d < 60 { return "under a minute" }
+        if d < 3600 { return "in \(d / 60)m" }
+        return "in \(d / 3600)h \((d % 3600) / 60)m"
+    }
+}
+
+extension K8sPod {
+    /// Any container stuck in CrashLoopBackOff — the pod-level truth the
+    /// prototype's status pill speaks.
+    var isCrashLooping: Bool {
+        containers.contains { $0.stateReason == "CrashLoopBackOff" }
+    }
 }
 
 struct PodMetrics: Hashable {
@@ -306,21 +428,72 @@ struct ContainerMetrics: Hashable {
 }
 
 enum ResourceType: String, CaseIterable, Identifiable {
-    case deployments = "Deploys"
+    case deployments = "Deployments"
     case pods = "Pods"
+    case cronjobs = "CronJobs"
     case services = "Services"
+    case ingresses = "Ingresses"
     case secrets = "Secrets"
+    case configmaps = "ConfigMaps"
 
     var id: String { rawValue }
 
     var icon: String {
         switch self {
-        case .secrets: return "key.fill"
-        case .deployments: return "shippingbox.fill"
-        case .pods: return "circle.hexagongrid.fill"
-        case .services: return "network"
+        case .deployments: return "shippingbox"
+        case .pods: return "square.3.layers.3d"
+        case .cronjobs: return "clock"
+        case .services: return "arrow.left.arrow.right"
+        case .ingresses: return "globe"
+        case .secrets: return "key"
+        case .configmaps: return "slider.horizontal.3"
         }
     }
+}
+
+/// Where the window is looking. Resources aren't the only destinations any
+/// more: Overview answers "is anything wrong?" before drilling in, and Events
+/// is the cross-cutting feed the per-resource tabs can't give.
+enum AppDestination: Hashable {
+    case overview
+    case resource(ResourceType)
+    case events
+
+    var title: String {
+        switch self {
+        case .overview: return "Overview"
+        case .resource(let t): return t.rawValue
+        case .events: return "Events"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .overview: return "cube.transparent"
+        case .resource(let t): return t.icon
+        case .events: return "waveform.path.ecg"
+        }
+    }
+}
+
+/// The sidebar's information architecture — resource-first, grouped by what
+/// the user is doing, matching the k9s/Lens mental model the redesign adopted:
+/// namespace is a *filter* (toolbar scope), resources are *places*.
+struct NavGroup: Identifiable {
+    let id: String
+    let label: String?
+    let items: [AppDestination]
+
+    static let all: [NavGroup] = [
+        NavGroup(id: "home", label: nil, items: [.overview]),
+        NavGroup(id: "workloads", label: "Workloads",
+                 items: [.resource(.deployments), .resource(.pods), .resource(.cronjobs)]),
+        NavGroup(id: "network", label: "Network",
+                 items: [.resource(.services), .resource(.ingresses)]),
+        NavGroup(id: "config", label: "Config",
+                 items: [.resource(.secrets), .resource(.configmaps)]),
+        NavGroup(id: "cluster", label: "Cluster", items: [.events]),
+    ]
 }
 
 func formatAge(_ date: Date) -> String {
@@ -442,7 +615,9 @@ actor K8sClient {
             let type = item["type"] as? String ?? "Opaque"
             let tsStr = meta["creationTimestamp"] as? String ?? ""
             let created = dateFormatter.date(from: tsStr) ?? fallbackFormatter.date(from: tsStr) ?? Date()
-            return K8sSecret(id: "\(ns)/\(name)", name: name, namespace: ns, type: type, createdAt: created)
+            let keys = (item["data"] as? [String: Any])?.count ?? 0
+            return K8sSecret(id: "\(ns)/\(name)", name: name, namespace: ns, type: type,
+                             createdAt: created, keyCount: keys)
         }
     }
 
@@ -644,8 +819,12 @@ actor K8sClient {
         )
     }
 
-    func getPodLogs(namespace: String, name: String, container: String?, tailLines: Int = 200) async throws -> String {
+    func getPodLogs(namespace: String, name: String, container: String?, tailLines: Int = 200,
+                    sinceSeconds: Int? = nil) async throws -> String {
         var path = "/api/v1/namespaces/\(Self.encodePath(namespace))/pods/\(Self.encodePath(name))/log?tailLines=\(tailLines)"
+        if let since = sinceSeconds {
+            path += "&sinceSeconds=\(since)"
+        }
         if let c = container {
             path += "&container=\(Self.encodeQuery(c))"
         }
@@ -903,6 +1082,148 @@ actor K8sClient {
         )
     }
 
+    // MARK: - CronJobs
+
+    /// Jobs in the namespace, with their owning CronJob (for run history).
+    func listJobs(namespace: String) async throws -> [K8sJob] {
+        let items = try await listItems(basePath: "/apis/batch/v1/namespaces/\(Self.encodePath(namespace))/jobs")
+        return items.compactMap { item in
+            guard let meta = item["metadata"] as? [String: Any],
+                  let name = meta["name"] as? String else { return nil }
+            let status = item["status"] as? [String: Any] ?? [:]
+            var owner = ""
+            if let owners = meta["ownerReferences"] as? [[String: Any]],
+               let first = owners.first(where: { ($0["kind"] as? String) == "CronJob" }) {
+                owner = first["name"] as? String ?? ""
+            }
+            return K8sJob(
+                id: name,
+                name: name,
+                ownerCronJob: owner,
+                startTime: parseDate(status["startTime"] as? String),
+                completionTime: parseDate(status["completionTime"] as? String),
+                succeeded: (status["succeeded"] as? Int ?? 0) > 0,
+                active: (status["active"] as? Int ?? 0) > 0
+            )
+        }
+    }
+
+    func listCronJobs(namespace: String) async throws -> [K8sCronJob] {
+        let items = try await listItems(basePath: "/apis/batch/v1/namespaces/\(Self.encodePath(namespace))/cronjobs")
+        return items.compactMap { Self.parseCronJobStatic($0) }
+    }
+
+    /// Pause or resume a schedule. A strategic-merge on `spec.suspend` — nothing
+    /// currently running is touched, which is exactly the kubectl semantics.
+    func setCronJobSuspended(namespace: String, name: String, suspended: Bool) async throws {
+        let patch: [String: Any] = ["spec": ["suspend": suspended]]
+        let data = try JSONSerialization.data(withJSONObject: patch)
+        _ = try await request(
+            path: "/apis/batch/v1/namespaces/\(Self.encodePath(namespace))/cronjobs/\(Self.encodePath(name))",
+            method: "PATCH",
+            body: data,
+            contentType: "application/merge-patch+json"
+        )
+    }
+
+    /// Run a CronJob now, out of schedule — what `kubectl create job --from=cronjob/x`
+    /// does: read the cronjob's jobTemplate and POST it as a Job with a
+    /// `generateName` derived from the parent, so runs are attributable.
+    func triggerCronJob(namespace: String, name: String) async throws -> String {
+        let data = try await request(
+            path: "/apis/batch/v1/namespaces/\(Self.encodePath(namespace))/cronjobs/\(Self.encodePath(name))")
+        let json = try parseJSON(data)
+        guard let spec = json["spec"] as? [String: Any],
+              var template = spec["jobTemplate"] as? [String: Any] else {
+            throw K8sError.parseError("CronJob \(name) has no jobTemplate")
+        }
+        var meta = template["metadata"] as? [String: Any] ?? [:]
+        meta["generateName"] = "\(name)-manual-"
+        // The annotation kubectl sets; controllers and humans both look for it.
+        var annotations = meta["annotations"] as? [String: String] ?? [:]
+        annotations["cronjob.kubernetes.io/instantiate"] = "manual"
+        meta["annotations"] = annotations
+        template["metadata"] = meta
+        template["apiVersion"] = "batch/v1"
+        template["kind"] = "Job"
+
+        let body = try JSONSerialization.data(withJSONObject: template)
+        let created = try await request(
+            path: "/apis/batch/v1/namespaces/\(Self.encodePath(namespace))/jobs",
+            method: "POST",
+            body: body,
+            contentType: "application/json"
+        )
+        let createdJSON = try parseJSON(created)
+        let createdMeta = createdJSON["metadata"] as? [String: Any]
+        return createdMeta?["name"] as? String ?? "\(name)-manual"
+    }
+
+    /// Non-private and static so parse coverage doesn't need a live server.
+    nonisolated static func parseCronJobStatic(_ item: [String: Any]) -> K8sCronJob? {
+        guard let meta = item["metadata"] as? [String: Any],
+              let name = meta["name"] as? String,
+              let ns = meta["namespace"] as? String,
+              let spec = item["spec"] as? [String: Any],
+              let schedule = spec["schedule"] as? String else { return nil }
+        let status = item["status"] as? [String: Any] ?? [:]
+        let active = (status["active"] as? [[String: Any]])?.count ?? 0
+        return K8sCronJob(
+            id: "\(ns)/\(name)",
+            name: name,
+            namespace: ns,
+            schedule: schedule,
+            suspended: spec["suspend"] as? Bool ?? false,
+            active: active,
+            // map, not a bare call: parseDateStatic coerces absence to a real
+            // date, and "never ran" must stay distinguishable from "just ran".
+            lastScheduleTime: (status["lastScheduleTime"] as? String).map { parseDateStatic($0) },
+            lastSuccessfulTime: (status["lastSuccessfulTime"] as? String).map { parseDateStatic($0) },
+            createdAt: parseDateStatic(meta["creationTimestamp"] as? String)
+        )
+    }
+
+    // MARK: - Ingresses
+
+    func listIngresses(namespace: String) async throws -> [K8sIngress] {
+        let items = try await listItems(basePath: "/apis/networking.k8s.io/v1/namespaces/\(Self.encodePath(namespace))/ingresses")
+        return items.compactMap { Self.parseIngressStatic($0) }
+    }
+
+    nonisolated static func parseIngressStatic(_ item: [String: Any]) -> K8sIngress? {
+        guard let meta = item["metadata"] as? [String: Any],
+              let name = meta["name"] as? String,
+              let ns = meta["namespace"] as? String else { return nil }
+        let spec = item["spec"] as? [String: Any] ?? [:]
+        let tlsHosts = (spec["tls"] as? [[String: Any]])?
+            .flatMap { ($0["hosts"] as? [String]) ?? [] } ?? []
+
+        var rules: [K8sIngress.Rule] = []
+        for rule in (spec["rules"] as? [[String: Any]]) ?? [] {
+            let host = rule["host"] as? String ?? "*"
+            let paths = ((rule["http"] as? [String: Any])?["paths"] as? [[String: Any]]) ?? []
+            for p in paths {
+                let backend = (p["backend"] as? [String: Any])?["service"] as? [String: Any]
+                let port = (backend?["port"] as? [String: Any])
+                rules.append(K8sIngress.Rule(
+                    host: host,
+                    path: p["path"] as? String ?? "/",
+                    serviceName: backend?["name"] as? String ?? "",
+                    servicePort: port?["number"] as? Int ?? 0
+                ))
+            }
+        }
+        return K8sIngress(
+            id: "\(ns)/\(name)",
+            name: name,
+            namespace: ns,
+            className: spec["ingressClassName"] as? String ?? "",
+            rules: rules,
+            tlsHosts: tlsHosts,
+            createdAt: parseDateStatic(meta["creationTimestamp"] as? String)
+        )
+    }
+
     // MARK: - ConfigMaps
 
     func listConfigMaps(namespace: String) async throws -> [K8sConfigMap] {
@@ -1058,6 +1379,18 @@ actor K8sClient {
         )
     }
 
+    /// POST a manifest to a collection path (create), and delete by path.
+    /// Exists for the live test suite's create→operate→delete cycles, and is
+    /// generally useful for anything the typed API doesn't cover yet.
+    func createRawResource(collectionPath: String, jsonData: Data) async throws {
+        _ = try await request(
+            path: collectionPath, method: "POST", body: jsonData, contentType: "application/json")
+    }
+
+    func deleteRawResource(path: String) async throws {
+        _ = try await request(path: path, method: "DELETE")
+    }
+
     // MARK: - Events
 
     func getEvents(namespace: String, fieldSelector: String? = nil) async throws -> [K8sEvent] {
@@ -1081,6 +1414,9 @@ actor K8sClient {
             guard let meta = e["metadata"] as? [String: Any],
                   let name = meta["name"] as? String else { return nil }
             let source = (e["source"] as? [String: Any])?["component"] as? String ?? ""
+            let obj = e["involvedObject"] as? [String: Any] ?? [:]
+            let aboutNS = obj["namespace"] as? String ?? ""
+            let aboutName = obj["name"] as? String ?? ""
             return K8sEvent(
                 id: name,
                 type: e["type"] as? String ?? "Normal",
@@ -1089,7 +1425,8 @@ actor K8sClient {
                 count: e["count"] as? Int ?? 1,
                 firstSeen: (e["firstTimestamp"] as? String).flatMap { df.date(from: $0) },
                 lastSeen: (e["lastTimestamp"] as? String).flatMap { df.date(from: $0) },
-                source: source
+                source: source,
+                about: aboutName.isEmpty ? "" : (aboutNS.isEmpty ? aboutName : "\(aboutNS)/\(aboutName)")
             )
         }.sorted { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }
     }
@@ -1150,7 +1487,7 @@ actor K8sClient {
             }
         case .networkError:
             retryable = true
-        case .noConfig, .noContext, .noCluster, .noUser, .configParse, .authFailed:
+        case .noConfig, .noContext, .noCluster, .noUser, .configParse, .authFailed, .parseError:
             retryable = false
         }
 

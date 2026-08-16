@@ -14,13 +14,13 @@ struct YAMLEditorView: View {
                 Image(systemName: "doc.text")
                     .foregroundStyle(.orange)
                 Text("YAML Editor")
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
 
                 Spacer()
 
                 if hasEdits {
                     Text("Modified")
-                        .font(.system(.caption, design: .monospaced, weight: .medium))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.orange)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
@@ -38,13 +38,12 @@ struct YAMLEditorView: View {
                         dismiss()
                         state.requestApplyRawYAML()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .buttonStyle(Theme.PrimaryPill())
                     .disabled(state.saving)
                 }
             }
             .padding(16)
-            .background(.bar)
+            .background(Theme.inset)
             .overlay(alignment: .bottom) { Divider() }
 
             // Editor
@@ -53,12 +52,12 @@ struct YAMLEditorView: View {
                     ProgressView()
                     Text("Loading resource...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 TextEditor(text: $editedYAML)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .scrollContentBackground(.hidden)
                     .background(Color.black.opacity(0.2))
                     .onChange(of: editedYAML) { _, newValue in
@@ -67,6 +66,7 @@ struct YAMLEditorView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 500)
+        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
         .onAppear {
             editedYAML = state.rawYAML
         }

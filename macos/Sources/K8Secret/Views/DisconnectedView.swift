@@ -2,31 +2,37 @@ import SwiftUI
 
 struct DisconnectedView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.clusterAccent) private var accent
     let message: String
 
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
 
-            Image(systemName: "externaldrive.trianglebadge.exclamationmark")
-                .font(.system(size: 56))
-                .foregroundStyle(.secondary)
-                .symbolRenderingMode(.hierarchical)
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 34))
+                .foregroundStyle(.tertiary)
 
-            Text("Not Connected")
-                .font(.system(.title, design: .monospaced, weight: .semibold))
+            Text("Can't reach the cluster")
+                .font(.system(size: 16, weight: .bold))
 
+            // The raw error in the prototype's errbox: mono, red hairline —
+            // the actual message is the debugging clue, so it gets the frame.
             Text(message)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
+                .font(.system(size: 12, design: .monospaced))
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: 440)
+                .background(Theme.soft(Theme.bad), in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.bad, lineWidth: 1))
+                .textSelection(.enabled)
 
             // Context picker — lets the user choose which cluster to connect to
             if !state.availableContexts.isEmpty {
                 VStack(spacing: 10) {
                     Text("Select a context to connect")
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
 
                     VStack(spacing: 4) {
@@ -41,7 +47,7 @@ struct DisconnectedView: View {
                                         .frame(width: 20)
 
                                     Text(ctx)
-                                        .font(.system(.callout, design: .monospaced, weight: .medium))
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                                         .lineLimit(1)
                                         .truncationMode(.middle)
 
@@ -76,12 +82,12 @@ struct DisconnectedView: View {
             Button {
                 Task { await state.connect() }
             } label: {
-                Label("Retry Connection", systemImage: "arrow.clockwise")
-                    .font(.system(.body, design: .monospaced))
+                Label("Retry", systemImage: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(Theme.PrimaryPill())
             .controlSize(.large)
-            .tint(.accentColor)
+            .tint(accent)
 
             Spacer()
         }
@@ -95,7 +101,7 @@ struct DisconnectedView: View {
                 .frame(width: 20)
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.system(.callout, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
         }

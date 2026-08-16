@@ -7,7 +7,7 @@ struct SecretsListView: View {
         @Bindable var state = state
 
         Group {
-            if state.selectedNamespace == nil {
+            if state.selectedNamespace == nil && !state.allNamespaces {
                 ContentUnavailableView {
                     Label("Select a Namespace", systemImage: "sidebar.left")
                 } description: {
@@ -22,7 +22,7 @@ struct SecretsListView: View {
                     ProgressView()
                     Text("Loading secrets...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -45,26 +45,32 @@ struct SecretsListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Secrets")
     }
 
     private var secretsList: some View {
         @Bindable var state = state
 
-        return List(state.filteredSecrets, selection: $state.selectedSecret) { secret in
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Secrets",
+            subtitle: "\(state.secrets.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter secrets…", text: $state.secretSearch)
+        List(state.filteredSecrets) { secret in
             SecretRow(secret: secret)
-                .tag(secret)
+                .vnextRow(isSelected: state.selectedSecret?.id == secret.id)
+                .onTapGesture { state.selectedSecret = secret }
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.secretSearch, prompt: "Filter secrets")
+        .vnextKeyboardSelection(items: state.filteredSecrets, selection: $state.selectedSecret)
         .overlay {
             if state.secrets.isEmpty {
-                ContentUnavailableView {
-                    Label("No Secrets", systemImage: "lock.slash")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
-                }
+                EmptyPane(icon: "lock.slash", title: "No Secrets",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredSecrets.isEmpty {
-                ContentUnavailableView.search(text: state.secretSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.secretSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedSecret?.id) { _, _ in
@@ -76,6 +82,8 @@ struct SecretsListView: View {
             guard let secret = state.selectedSecret else { return }
             Task { await state.selectSecret(secret) }
         }
+        }
+        .vnextListPane()
     }
 }
 
@@ -91,11 +99,13 @@ struct SecretRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(secret.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                     .lineLimit(1)
 
-                Text(secret.type)
-                    .font(.system(.caption, design: .monospaced))
+                Text(secret.keyCount > 0
+                     ? "\(secret.type) · \(secret.keyCount) key\(secret.keyCount == 1 ? "" : "s")"
+                     : secret.type)
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -103,7 +113,7 @@ struct SecretRow: View {
             Spacer()
 
             Text(secret.age)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)

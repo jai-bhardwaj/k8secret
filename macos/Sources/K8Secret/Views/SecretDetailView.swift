@@ -2,6 +2,26 @@ import SwiftUI
 
 struct SecretDetailView: View {
     @Environment(AppState.self) private var state
+    @State private var tab = DetailTab.overview
+
+    /// What the user is looking at: cluster values with staged edits applied,
+    /// staged additions included, staged deletions excluded — the export must
+    /// match the screen, and say so when it differs from the cluster.
+    private var exportPairs: [(String, String)] {
+        var pairs: [(String, String)] = state.secretData
+            .filter { !state.deletions.contains($0.key) }
+            .map { ($0.key, state.modifications[$0.key] ?? $0.value) }
+        for (key, value) in state.additions.sorted(by: { $0.key < $1.key }) {
+            pairs.append((key, value))
+        }
+        return pairs
+    }
+
+    private var stagedNote: String? {
+        let staged = state.modifications.count + state.additions.count + state.deletions.count
+        guard staged > 0 else { return nil }
+        return "includes \(staged) staged \(staged == 1 ? "change" : "changes") not yet saved to the cluster"
+    }
 
     var body: some View {
         @Bindable var state = state
@@ -25,7 +45,7 @@ struct SecretDetailView: View {
                     ProgressView()
                     Text("Loading secret data...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if state.isLocked {
@@ -62,7 +82,7 @@ struct SecretDetailView: View {
             Button("Show values") {
                 Task { await state.unlockSecrets() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(Theme.PrimaryPill())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -73,41 +93,59 @@ struct SecretDetailView: View {
         return state.secretData.first(where: { $0.key == key })?.value ?? ""
     }
 
+    enum DetailTab: String, CaseIterable { case overview = "Overview", yaml = "YAML" }
+
     private var detailContent: some View {
         @Bindable var state = state
 
         return VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                DetailBreadcrumb(type: "secrets")
+                Text(state.selectedSecret?.name ?? "")
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .kerning(-0.25)
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                // The prototype's meta line: keys · type · age · rv.
+                Text(metaLine)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
+
+            UnderlineTabBar(tabs: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
+                .padding(.bottom, 2)
+
+            if tab == .yaml, let secret = state.selectedSecret {
+                ResourceYAMLView(type: .secrets, namespace: secret.namespace, name: secret.name)
+            } else {
             // Change summary bar
             if state.hasChanges {
                 changeSummaryBar
             }
 
-            // KV search bar — always visible, prominent
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search keys & values...", text: $state.kvSearch)
-                    .textFieldStyle(.plain)
-                    .font(.system(.body, design: .monospaced))
-                if !state.kvSearch.isEmpty {
-                    Button {
-                        state.kvSearch = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear search")
-
-                    Text(verbatim: "\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+            // KV search bar — always visible; at narrow widths the actions
+            // drop to their own row instead of crushing the field.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    kvSearchField
+                    kvActions
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) { kvSearchField }
+                    HStack(spacing: 8) { kvActions }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(.bar)
-            .overlay(alignment: .bottom) { Divider() }
+            .background(Theme.inset)
+            .overlay(alignment: .bottom) { Divider().overlay(Theme.line) }
 
             // KV list
             ScrollView {
@@ -137,57 +175,26 @@ struct SecretDetailView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(hex: 0x231646))
                         .frame(width: 48, height: 48)
-                        .background(.green.gradient, in: Circle())
-                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+                        .background(.white, in: Circle())
+                        .shadow(color: .black.opacity(0.32), radius: 9, y: 4)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("n", modifiers: .command)
-                .help("Add Key (⌘N)")
-                .accessibilityLabel("Add Key (⌘N)")
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .help("Add Key (⌥⌘N)")
+                .accessibilityLabel("Add Key (⌥⌘N)")
                 .padding(20)
+            }
             }
         }
         .navigationTitle(state.selectedSecret?.name ?? "")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    state.discardChanges()
-                } label: {
-                    Label("Discard", systemImage: "arrow.uturn.backward")
-                }
-                .opacity(state.hasChanges ? 1 : 0)
-                .disabled(!state.hasChanges)
-
-                Button {
-                    state.requestSaveChanges()
-                } label: {
-                    // Going dim was the only sign a save was happening. A write to
-                    // a live secret is exactly the moment to show progress.
-                    if state.saving {
-                        Label { Text("Saving") } icon: { ProgressView().controlSize(.small) }
-                    } else {
-                        Label("Save", systemImage: "checkmark.circle.fill")
-                    }
-                }
-                .tint(.green)
-                .opacity(state.hasChanges ? 1 : 0)
-                .disabled(!state.hasChanges || state.saving)
-                .animation(.easeOut(duration: 0.15), value: state.saving)
-
-                Button { state.showBulkImport = true } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                }
-                .help("Bulk import keys")
-                .accessibilityLabel("Bulk import keys")
-
-                Button { state.showYAMLEditor = true } label: {
-                    Label("YAML", systemImage: "doc.text")
-                }
-                .help("Edit raw YAML")
-                .accessibilityLabel("Edit raw YAML")
-            }
+        .sheet(isPresented: $state.secretExportOpen) {
+            EnvExportSheet(
+                title: state.selectedSecret?.name ?? "secret",
+                pairs: exportPairs,
+                stagedNote: stagedNote
+            )
         }
         .sheet(isPresented: $state.showBulkImport) {
             BulkImportSheet()
@@ -202,49 +209,91 @@ struct SecretDetailView: View {
         }
     }
 
-    private var changeSummaryBar: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "pencil.circle.fill")
-                .foregroundStyle(.orange)
-
-            Text(verbatim: "\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
-                .font(.system(.callout, design: .default, weight: .medium))
-
-            if !state.modifications.isEmpty {
-                badge("~\(state.modifications.count)", color: .orange)
-            }
-            if !state.additions.isEmpty {
-                badge("+\(state.additions.count)", color: .green)
-            }
-            if !state.deletions.isEmpty {
-                badge("-\(state.deletions.count)", color: .red)
-            }
-
-            Spacer()
-
-            Button("Discard") {
-                state.discardChanges()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
+    @ViewBuilder
+    private var kvSearchField: some View {
+        @Bindable var state = state
+        Image(systemName: "magnifyingglass")
+            .foregroundStyle(.secondary)
+        TextField("Search keys & values...", text: $state.kvSearch)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12.5, design: .monospaced))
+        if !state.kvSearch.isEmpty {
             Button {
-                state.requestSaveChanges()
+                state.kvSearch = ""
             } label: {
-                if state.saving {
-                    HStack(spacing: 5) {
-                        ProgressView().controlSize(.small)
-                        Text("Saving…")
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Clear search")
+
+            Text(verbatim: "\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private var kvActions: some View {
+        // Whole-secret actions, in the pane they act on — the titlebar
+        // belongs to scope and search alone.
+        Button { state.showBulkImport = true } label: {
+            Label("Import", systemImage: "square.and.arrow.down")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Bulk-import keys from a .env file")
+        Button { state.secretExportOpen = true } label: {
+            Label("Export .env", systemImage: "square.and.arrow.up")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .disabled(state.secretData.isEmpty && state.additions.isEmpty)
+        .help("Export every key as a .env file")
+        Button { state.showYAMLEditor = true } label: {
+            Label("YAML", systemImage: "doc.text")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Edit raw YAML")
+    }
+
+    private var metaLine: String {
+        var bits: [String] = []
+        bits.append("\(state.secretData.count) key\(state.secretData.count == 1 ? "" : "s")")
+        if let sec = state.selectedSecret {
+            bits.append(sec.type)
+            bits.append("created \(sec.age) ago")
+        }
+        if let rv = state.secretResourceVersion {
+            bits.append("rv \(rv)")
+        }
+        return bits.joined(separator: " · ")
+    }
+
+    private var changeSummaryBar: some View {
+        ViewThatFits(in: .horizontal) {
+            changeBarRow(stacked: false)
+            changeBarRow(stacked: true)
+        }
+    }
+
+    @ViewBuilder
+    private func changeBarRow(stacked: Bool) -> some View {
+        Group {
+            if stacked {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) { changeStatus }
+                    HStack(spacing: 10) {
+                        Spacer()
+                        changeActions
                     }
-                } else {
-                    Text("Save All")
+                }
+            } else {
+                HStack(spacing: 16) {
+                    changeStatus
+                    Spacer()
+                    changeActions
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
-            .controlSize(.small)
-            .disabled(state.saving)
-            .animation(.easeOut(duration: 0.15), value: state.saving)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -254,9 +303,55 @@ struct SecretDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var changeStatus: some View {
+        Image(systemName: "pencil.circle.fill")
+            .foregroundStyle(.orange)
+
+        Text(verbatim: "\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
+            .font(.system(size: 12, weight: .medium, design: .default))
+            .lineLimit(1)
+
+        if !state.modifications.isEmpty {
+            badge("~\(state.modifications.count)", color: .orange)
+        }
+        if !state.additions.isEmpty {
+            badge("+\(state.additions.count)", color: .green)
+        }
+        if !state.deletions.isEmpty {
+            badge("-\(state.deletions.count)", color: .red)
+        }
+    }
+
+    @ViewBuilder
+    private var changeActions: some View {
+        Button("Discard") {
+            state.discardChanges()
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+
+        Button {
+            state.requestSaveChanges()
+        } label: {
+            if state.saving {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.small)
+                    Text("Saving…")
+                }
+            } else {
+                Text("Save All")
+            }
+        }
+        .buttonStyle(Theme.PrimaryPill())
+        .controlSize(.small)
+        .disabled(state.saving)
+        .animation(.easeOut(duration: 0.15), value: state.saving)
+    }
+
     private func badge(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.system(.caption, design: .monospaced, weight: .bold))
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -279,8 +374,14 @@ struct KVRow: View {
     @State private var isRevealed = false
 
     /// Fixed-width mask so the dots don't leak the length of the secret.
-    private static func mask(_ value: String) -> String {
-        value.isEmpty ? "(empty)" : String(repeating: "•", count: 12)
+    /// Start and end visible, a *fixed* six dots between — enough to recognise
+    /// which credential this is ("sk_l…dK2m") without revealing it, and the
+    /// constant dot count still doesn't leak the value's length. Short values
+    /// stay fully masked: showing 8 of 10 characters wouldn't be masking.
+    static func mask(_ value: String) -> String {
+        if value.isEmpty { return "(empty)" }
+        guard value.count >= 12 else { return String(repeating: "•", count: 12) }
+        return value.prefix(4) + "••••••" + value.suffix(4)
     }
 
     var body: some View {
@@ -290,7 +391,7 @@ struct KVRow: View {
                 statusIcon
 
                 Text(kv.key)
-                    .font(.system(.body, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(keyColor)
                     .lineLimit(1)
                     .textSelection(.enabled)
@@ -341,7 +442,7 @@ struct KVRow: View {
             HStack(spacing: 0) {
                 if isRevealed {
                     Text(kv.value)
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(kv.status == .deleted ? Color.secondary : Color.primary.opacity(0.7))
                         .strikethrough(kv.status == .deleted)
                         .lineLimit(1)
@@ -350,7 +451,7 @@ struct KVRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text(Self.mask(kv.value))
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .strikethrough(kv.status == .deleted)
                         .lineLimit(1)
@@ -489,16 +590,16 @@ struct EditSheet: View {
                 Image(systemName: "pencil.circle.fill")
                     .foregroundStyle(.orange)
                 Text("Edit Value")
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("KEY")
-                    .font(.system(.caption, design: .monospaced, weight: .bold))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Text(key)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .foregroundStyle(Color.accentColor)
                     .textSelection(.enabled)
             }
@@ -506,15 +607,15 @@ struct EditSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("VALUE")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text(verbatim: "\(value.count) chars")
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
                 TextEditor(text: $value)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .frame(minHeight: 160)
                     .padding(4)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
@@ -525,7 +626,7 @@ struct EditSheet: View {
             HStack {
                 if value != initialValue {
                     Text("Modified")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.orange)
                 }
                 Spacer()
@@ -536,7 +637,7 @@ struct EditSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(Theme.PrimaryPill())
                 .disabled(value == initialValue)
             }
         }
@@ -571,24 +672,24 @@ struct AddKeySheet: View {
                 Image(systemName: "plus.circle.fill")
                     .foregroundStyle(.green)
                 Text("Add Key")
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("KEY")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
                     if isDuplicate {
                         Label("Key already exists", systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.red)
                     }
                 }
                 TextField("e.g. DATABASE_URL, API_KEY", text: $key)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .textFieldStyle(.roundedBorder)
                     .focused($keyFieldFocused)
                     .overlay(
@@ -601,17 +702,17 @@ struct AddKeySheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("VALUE")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
                     if !value.isEmpty {
                         Text(verbatim: "\(value.count) chars")
-                            .font(.system(.caption2, design: .monospaced))
+                            .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
                 }
                 TextEditor(text: $value)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .frame(minHeight: 140)
                     .padding(4)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
@@ -628,8 +729,7 @@ struct AddKeySheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .buttonStyle(Theme.PrimaryPill())
                 .disabled(!canAdd)
             }
         }

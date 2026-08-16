@@ -24,12 +24,25 @@ struct ServiceDetailView: View {
         }
     }
 
-    private func detailContent(_ svc: K8sService) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                headerSection(svc)
+    enum DetailTab: String, CaseIterable { case overview = "Overview", yaml = "YAML" }
+    @State private var tab = DetailTab.overview
 
-                Divider()
+    private func detailContent(_ svc: K8sService) -> some View {
+        VStack(spacing: 0) {
+            headerSection(svc)
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+
+            UnderlineTabBar(tabs: DetailTab.allCases.map { ($0, $0.rawValue) },
+                            selection: $tab)
+                .padding(.top, 6)
+
+            switch tab {
+            case .yaml:
+                ResourceYAMLView(type: .services, namespace: svc.namespace, name: svc.name)
+            case .overview:
+                ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
 
                 // Network info
                 networkSection(svc)
@@ -44,6 +57,7 @@ struct ServiceDetailView: View {
                 if !svc.selector.isEmpty {
                     Divider()
                     selectorSection(svc)
+                    endpointsSection(svc)
                 }
 
                 // Labels
@@ -59,63 +73,73 @@ struct ServiceDetailView: View {
                 }
             }
             .padding(24)
+                }
+            }
         }
         .navigationTitle(svc.name)
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    Task { await state.refreshCurrentResource() }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
-                }
+    }
 
+    private func headerSection(_ svc: K8sService) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                headerInfo(svc)
+                Spacer(minLength: 12)
+                headerActions(svc)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                headerInfo(svc)
+                HStack(spacing: 8) { headerActions(svc) }
             }
         }
     }
 
-    private func headerSection(_ svc: K8sService) -> some View {
-        HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(typeColor(svc).opacity(0.15))
-                    .frame(width: 48, height: 48)
-                Image(systemName: typeIcon(svc))
-                    .font(.system(size: 20))
-                    .foregroundStyle(typeColor(svc))
-            }
+    private func headerInfo(_ svc: K8sService) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            DetailBreadcrumb(type: "services")
+                .padding(.bottom, 2)
+            Text(svc.name)
+                .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .kerning(-0.25)
+                .lineLimit(1)
+                .truncationMode(.middle)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(svc.name)
-                    .font(.system(.title2, design: .monospaced, weight: .bold))
-
-                HStack(spacing: 12) {
-                    // Type badge
-                    HStack(spacing: 4) {
-                        Circle().fill(typeColor(svc)).frame(width: 6, height: 6)
-                        Text(svc.type)
-                            .font(.system(.caption, design: .monospaced, weight: .semibold))
-                    }
-                    .foregroundStyle(typeColor(svc))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(typeColor(svc).opacity(0.12), in: Capsule())
-
-                    Label("\(svc.ports.count) port\(svc.ports.count == 1 ? "" : "s")", systemImage: "arrow.left.arrow.right")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-
-                    Label(svc.age, systemImage: "clock")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                HStack(spacing: 4) {
+                    Circle().fill(typeColor(svc)).frame(width: 6, height: 6)
+                    Text(svc.type)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 }
-            }
+                .foregroundStyle(typeColor(svc))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(typeColor(svc).opacity(0.12), in: Capsule())
+                .fixedSize()
 
-            Spacer()
+                Label("\(svc.ports.count) port\(svc.ports.count == 1 ? "" : "s")", systemImage: "arrow.left.arrow.right")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
 
-            // Port forward button — forward the first port
-            if let firstPort = svc.ports.first {
-                portForwardButton(svc, port: firstPort)
+                Label(svc.age, systemImage: "clock")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
             }
+        }
+    }
+
+    @ViewBuilder
+    private func headerActions(_ svc: K8sService) -> some View {
+        Button {
+            Task { await state.refreshCurrentResource() }
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Refresh")
+
+        if let firstPort = svc.ports.first {
+            portForwardButton(svc, port: firstPort)
         }
     }
 
@@ -140,7 +164,7 @@ struct ServiceDetailView: View {
                         HStack(spacing: 5) {
                             Circle().fill(.green).frame(width: 6, height: 6)
                             Text(verbatim: "localhost:\(fwd.localPort)")
-                                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -163,7 +187,7 @@ struct ServiceDetailView: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text("Starting port forward…")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityLabel("Port forward starting")
@@ -171,7 +195,7 @@ struct ServiceDetailView: View {
                 HStack(spacing: 6) {
                     Circle().fill(.orange).frame(width: 6, height: 6)
                     Text("Reconnecting…")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.orange)
                 }
                 .help(existing?.error ?? "The tunnel dropped and is being re-established.")
@@ -190,7 +214,7 @@ struct ServiceDetailView: View {
                         HStack(spacing: 5) {
                             Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .bold))
                             Text("Retry port forward")
-                                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -203,7 +227,7 @@ struct ServiceDetailView: View {
 
                     if let reason = failed.error {
                         Text(reason)
-                            .font(.system(.caption2, design: .monospaced))
+                            .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .textSelection(.enabled)
@@ -222,7 +246,7 @@ struct ServiceDetailView: View {
                         Image(systemName: "network.badge.shield.half.filled")
                             .font(.system(size: 12))
                         Text("Port Forward")
-                            .font(.system(.caption, design: .monospaced, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
@@ -238,7 +262,7 @@ struct ServiceDetailView: View {
     private func networkSection(_ svc: K8sService) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Network", systemImage: "network")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
             LazyVGrid(columns: [
                 GridItem(.flexible(), alignment: .leading),
@@ -259,10 +283,12 @@ struct ServiceDetailView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(.system(.caption, design: .monospaced, weight: .bold))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Text(value)
-                    .font(.system(.callout, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .textSelection(.enabled)
             }
 
@@ -288,42 +314,19 @@ struct ServiceDetailView: View {
     private func portsSection(_ svc: K8sService) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Ports", systemImage: "arrow.left.arrow.right")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
             ForEach(svc.ports, id: \.self) { port in
-                HStack(spacing: 16) {
-                    if !port.name.isEmpty {
-                        Text(port.name)
-                            .font(.system(.callout, design: .monospaced, weight: .medium))
-                            .frame(minWidth: 80, alignment: .leading)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        portIdentity(port)
+                        Spacer()
+                        portActions(svc, port)
                     }
-
-                    HStack(spacing: 6) {
-                        portChip("\(port.port)", color: .blue, label: "Port")
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                        portChip(port.targetPort, color: .green, label: "Target")
-
-                        if let np = port.nodePort {
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
-                            portChip("\(np)", color: .orange, label: "Node")
-                        }
+                    VStack(alignment: .leading, spacing: 8) {
+                        portIdentity(port)
+                        HStack(spacing: 10) { portActions(svc, port) }
                     }
-
-                    Spacer()
-
-                    // Per-port forward button
-                    portForwardMiniButton(svc, port: port)
-
-                    Text(port.protocol_)
-                        .font(.system(.caption, design: .monospaced, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .padding(10)
                 .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
@@ -331,13 +334,49 @@ struct ServiceDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private func portIdentity(_ port: ServicePort) -> some View {
+        if !port.name.isEmpty {
+            Text(port.name)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 80, maxWidth: 140, alignment: .leading)
+        }
+        HStack(spacing: 6) {
+            portChip("\(port.port)", color: .blue, label: "Port")
+            Image(systemName: "arrow.right")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            portChip(port.targetPort, color: .green, label: "Target")
+            if let np = port.nodePort {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                portChip("\(np)", color: .orange, label: "Node")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func portActions(_ svc: K8sService, _ port: ServicePort) -> some View {
+        portForwardMiniButton(svc, port: port)
+        Text(port.protocol_)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+    }
+
     private func portChip(_ value: String, color: Color, label: String) -> some View {
         VStack(spacing: 1) {
             Text(value)
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(color)
             Text(label)
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 8)
@@ -367,7 +406,7 @@ struct ServiceDetailView: View {
                     HStack(spacing: 4) {
                         Circle().fill(.green).frame(width: 5, height: 5)
                         Text(verbatim: ":\(existing?.localPort ?? 0)")
-                            .font(.system(.caption2, design: .monospaced, weight: .semibold))
+                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     }
                 }
                 .buttonStyle(.bordered)
@@ -380,7 +419,7 @@ struct ServiceDetailView: View {
                 HStack(spacing: 4) {
                     ProgressView().controlSize(.mini).scaleEffect(0.6)
                     Text("starting")
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityLabel("Port forward starting")
@@ -389,7 +428,7 @@ struct ServiceDetailView: View {
                 HStack(spacing: 4) {
                     Circle().fill(.orange).frame(width: 5, height: 5)
                     Text("reconnecting")
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.orange)
                 }
                 .help(existing?.error ?? "The tunnel dropped and is being re-established.")
@@ -407,7 +446,7 @@ struct ServiceDetailView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9))
-                        Text("retry").font(.system(.caption2, design: .monospaced))
+                        Text("retry").font(.system(size: 10.5, design: .monospaced))
                     }
                 }
                 .buttonStyle(.bordered)
@@ -439,7 +478,7 @@ struct ServiceDetailView: View {
     private func selectorSection(_ svc: K8sService) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Selector", systemImage: "line.3.horizontal.decrease.circle")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
             FlowLayout(spacing: 6) {
                 ForEach(svc.selector.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
@@ -451,12 +490,73 @@ struct ServiceDetailView: View {
                         Text(value)
                             .foregroundStyle(.primary)
                     }
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                 }
             }
+        }
+    }
+
+    /// The selector resolved to actual pods: "which pods back this service"
+    /// is the question routing debugging always ends at. A selector matching
+    /// nothing is said out loud — traffic to that service goes nowhere.
+    private func endpointsSection(_ svc: K8sService) -> some View {
+        let matching = state.pods.filter { pod in
+            !svc.selector.isEmpty && svc.selector.allSatisfy { key, value in
+                pod.labels[key] == value
+            }
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Endpoints", systemImage: "point.3.connected.trianglepath.dotted")
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+
+            if matching.isEmpty {
+                Text("No pods match this selector — traffic to this service goes nowhere.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.warn)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(matching) { pod in
+                        Button {
+                            jumpToPod(pod)
+                        } label: {
+                            HStack(spacing: 9) {
+                                Circle()
+                                    .fill(pod.phase == "Running" ? Theme.ok : Theme.bad)
+                                    .frame(width: 7, height: 7)
+                                Text(pod.name)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Text(pod.podIP.isEmpty ? "—" : pod.podIP)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text(pod.ready)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .lineLimit(1)
+                                    .foregroundStyle(pod.readyCount == pod.totalCount ? Theme.ok : Theme.warn)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open pod \(pod.name)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func jumpToPod(_ pod: K8sPod) {
+        Task {
+            await state.selectResourceType(.pods)
+            state.selectedPod = state.pods.first { $0.id == pod.id }
         }
     }
 

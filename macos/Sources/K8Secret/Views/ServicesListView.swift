@@ -7,7 +7,7 @@ struct ServicesListView: View {
         @Bindable var state = state
 
         Group {
-            if state.selectedNamespace == nil {
+            if state.selectedNamespace == nil && !state.allNamespaces {
                 ContentUnavailableView {
                     Label("Select a Namespace", systemImage: "sidebar.left")
                 } description: {
@@ -22,7 +22,7 @@ struct ServicesListView: View {
                     ProgressView()
                     Text("Loading services...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -45,30 +45,36 @@ struct ServicesListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Services")
     }
 
     private var servicesList: some View {
         @Bindable var state = state
 
-        return List(state.filteredServices, selection: $state.selectedService) { svc in
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Services",
+            subtitle: "\(state.services.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter services…", text: $state.serviceSearch)
+        List(state.filteredServices) { svc in
             ServiceRow(service: svc)
-                .tag(svc)
+                .vnextRow(isSelected: state.selectedService?.id == svc.id)
+                .onTapGesture { state.selectedService = svc }
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.serviceSearch, prompt: "Filter services")
+        .vnextKeyboardSelection(items: state.filteredServices, selection: $state.selectedService)
         .overlay {
             if state.services.isEmpty {
                 // An empty namespace is a dead end unless it says where to go
                 // next. A fresh install lands on `default`, which on most
                 // clusters holds nothing, so this was the first screen many
                 // people saw.
-                ContentUnavailableView {
-                    Label("No Services", systemImage: "network")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
-                }
+                EmptyPane(icon: "network", title: "No Services",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredServices.isEmpty {
-                ContentUnavailableView.search(text: state.serviceSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.serviceSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedService?.id) { _, _ in
@@ -80,6 +86,8 @@ struct ServicesListView: View {
             guard let svc = state.selectedService else { return }
             Task { await state.selectService(svc) }
         }
+        }
+        .vnextListPane()
     }
 }
 
@@ -95,7 +103,7 @@ struct ServiceRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(service.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -106,7 +114,7 @@ struct ServiceRow: View {
                     // Cluster IP
                     if service.clusterIP != "None" {
                         Text(service.clusterIP)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -115,7 +123,7 @@ struct ServiceRow: View {
                     // Ports summary
                     if !service.ports.isEmpty {
                         Text(service.ports.map { "\($0.port)/\($0.protocol_)" }.joined(separator: ", "))
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
@@ -129,7 +137,7 @@ struct ServiceRow: View {
                 typeBadge
 
                 Text(service.age)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -151,7 +159,7 @@ struct ServiceRow: View {
     private var typeBadge: some View {
         // "ClusterIP" was being hyphenated across two lines as "Clus-terIP".
         Text(service.type)
-            .font(.system(.caption2, design: .monospaced, weight: .medium))
+            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(typeColor)

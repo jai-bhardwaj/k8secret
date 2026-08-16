@@ -1,0 +1,106 @@
+import SwiftUI
+
+/// The cross-cutting event feed: everything the cluster said recently, newest
+/// first, with warnings separable — the view the per-resource Events tabs
+/// can't give.
+struct EventsFeedView: View {
+    @Environment(AppState.self) private var state
+    @State private var warningsOnly = false
+
+    private var shown: [K8sEvent] {
+        warningsOnly ? state.clusterEvents.filter { $0.type != "Normal" } : state.clusterEvents
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Events").font(.title3.weight(.bold))
+                    Text("\(state.context) · all namespaces · newest first")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle("Warnings only", isOn: $warningsOnly)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            if state.loadingClusterEvents && state.clusterEvents.isEmpty {
+                Spacer(); ProgressView().frame(maxWidth: .infinity); Spacer()
+            } else if shown.isEmpty {
+                ContentUnavailableView {
+                    Label(warningsOnly ? "No warnings" : "No events",
+                          systemImage: warningsOnly ? "checkmark.circle" : "waveform.path.ecg")
+                } description: {
+                    Text(warningsOnly ? "Nothing needs attention right now."
+                                      : "The cluster hasn't reported anything recently.")
+                }
+            } else {
+                List(shown) { event in
+                    EventFeedRow(event: event)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparatorTint(Theme.line)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .navigationTitle("Events")
+        .task { await state.loadClusterEvents() }
+        .refreshable { await state.loadClusterEvents() }
+        .motion(Motion.listChange, value: state.clusterEvents)
+    }
+}
+
+struct EventFeedRow: View {
+    let event: K8sEvent
+
+    private var isWarning: Bool { event.type != "Normal" }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(event.lastSeen.map { formatAge($0) + " ago" } ?? "—")
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(Theme.text3)
+                .frame(width: 64, alignment: .leading)
+                .padding(.top, 1)
+
+            RoundedRectangle(cornerRadius: 2)
+                .fill(isWarning ? Theme.warn : Theme.ok)
+                .frame(width: 3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(event.reason.uppercased())
+                        .font(.system(size: 11, weight: .semibold))
+                        .kerning(0.55)
+                        .foregroundStyle(isWarning ? Theme.warn : Theme.text3)
+                    if event.count > 1 {
+                        Text("×\(event.count)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                    if !event.about.isEmpty {
+                        Text("· \(event.about)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                Text(event.message)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.text2)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(isWarning ? "Warning" : "Event"): \(event.reason), \(event.message)")
+    }
+}

@@ -7,7 +7,7 @@ struct DeploymentsListView: View {
         @Bindable var state = state
 
         Group {
-            if state.selectedNamespace == nil {
+            if state.selectedNamespace == nil && !state.allNamespaces {
                 ContentUnavailableView {
                     Label("Select a Namespace", systemImage: "sidebar.left")
                 } description: {
@@ -22,7 +22,7 @@ struct DeploymentsListView: View {
                     ProgressView()
                     Text("Loading deployments...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -45,30 +45,36 @@ struct DeploymentsListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Deployments")
     }
 
     private var deploymentsList: some View {
         @Bindable var state = state
 
-        return List(state.filteredDeployments, selection: $state.selectedDeployment) { dep in
-            DeploymentRow(deployment: dep)
-                .tag(dep)
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Deployments",
+            subtitle: "\(state.deployments.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter deployments…", text: $state.deploymentSearch)
+        List(state.filteredDeployments) { dep in
+            DeploymentRow(deployment: dep, showNamespace: state.allNamespaces)
+                .vnextRow(isSelected: state.selectedDeployment?.id == dep.id)
+                .onTapGesture { state.selectedDeployment = dep }
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.deploymentSearch, prompt: "Filter deployments")
+        .vnextKeyboardSelection(items: state.filteredDeployments, selection: $state.selectedDeployment)
         .overlay {
             if state.deployments.isEmpty {
                 // An empty namespace is a dead end unless it says where to go
                 // next. A fresh install lands on `default`, which on most
                 // clusters holds nothing, so this was the first screen many
                 // people saw.
-                ContentUnavailableView {
-                    Label("No Deployments", systemImage: "shippingbox")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
-                }
+                EmptyPane(icon: "shippingbox", title: "No Deployments",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredDeployments.isEmpty {
-                ContentUnavailableView.search(text: state.deploymentSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.deploymentSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedDeployment?.id) { _, _ in
@@ -80,80 +86,80 @@ struct DeploymentsListView: View {
             guard let dep = state.selectedDeployment else { return }
             Task { await state.selectDeployment(dep) }
         }
+        }
+        .vnextListPane()
     }
 }
 
 struct DeploymentRow: View {
+    @Environment(\.clusterAccent) private var accent
+    @Environment(AppState.self) private var state
     let deployment: K8sDeployment
+    var showNamespace = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Status indicator
-            Circle()
-                .fill(statusColor)
-                .frame(width: 10, height: 10)
-                .overlay {
-                    if deployment.status == .updating {
-                        Circle()
-                            .stroke(statusColor, lineWidth: 2)
-                            .frame(width: 16, height: 16)
-                            .opacity(0.5)
-                    }
-                }
-
-            VStack(alignment: .leading, spacing: 4) {
+        // The prototype's two-line anatomy: name + state pill + age, then the
+        // data line — ready-with-check and the image as a neutral chip. The
+        // strategy string moved to the detail pane where it belongs.
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
                 Text(deployment.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
-
-                HStack(spacing: 8) {
-                    // Replicas badge
-                    HStack(spacing: 3) {
-                        Image(systemName: "square.stack.3d.up.fill")
-                            .font(.system(size: 9))
-                        Text(verbatim: "\(deployment.readyReplicas)/\(deployment.replicas)")
-                    }
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(deployment.readyReplicas == deployment.replicas ? .green : .orange)
-
-                    // Image name (shortened)
-                    if let image = deployment.images.first {
-                        Text(shortenImage(image))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                if showNamespace { NamespaceBadge(name: deployment.namespace) }
+                Spacer(minLength: 4)
+                statusPill
+                Text(deployment.age)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+            HStack(spacing: 6) {
+                // The prototype's data line: live CPU + memory, not the image
+                // (that's SPEC's job in the detail pane).
+                if let agg = state.aggregateMetrics(of: deployment) {
+                    MetricChip(icon: "cpu", text: agg.cpu, hue: Theme.cpu)
+                    MetricChip(icon: "memorychip", text: agg.mem, hue: Theme.memory)
+                } else {
+                    MetricChip(icon: "moon.zzz", text: "no usage", hue: nil)
+                }
+                Spacer(minLength: 4)
+                HStack(spacing: 3) {
+                    Text(verbatim: "\(deployment.readyReplicas)/\(deployment.replicas)")
+                    if deployment.readyReplicas == deployment.replicas && deployment.replicas > 0 {
+                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
                     }
                 }
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(deployment.readyReplicas == deployment.replicas && deployment.replicas > 0
+                                 ? Theme.ok : (deployment.replicas == 0 ? Color.secondary : Theme.warn))
             }
-
-            Spacer()
-
-            // Strategy + Age
-            VStack(alignment: .trailing, spacing: 4) {
-                // "RollingUpdate" is long enough to hyphenate in a narrow column.
-                Text(deployment.strategy)
-                    .font(.system(.caption2, design: .monospaced))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-
-                Text(deployment.age)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+            // Mid-rollout: the prototype's progress minibar under the row.
+            if deployment.status == .updating, deployment.replicas > 0 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.inset)
+                        Capsule().fill(accent)
+                            .frame(width: geo.size.width * CGFloat(deployment.readyReplicas) / CGFloat(deployment.replicas))
+                    }
+                }
+                .frame(height: 3)
+                .padding(.top, 2)
+                // The prototype's `transition: width .5s ease` — a poll's step
+                // becomes a move, not a jump.
+                .animation(.easeInOut(duration: 0.5), value: deployment.readyReplicas)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
     }
 
-    private var statusColor: Color {
+    @ViewBuilder
+    private var statusPill: some View {
         switch deployment.status {
-        case .running: return .green
-        case .updating: return .orange
-        case .scaled: return .blue
-        case .degraded: return .red
+        case .running: StatusPill(text: "Running", color: Theme.ok)
+        case .updating: StatusPill(text: "Rolling", color: accent, pulses: true)
+        case .scaled: StatusPill(text: "Stopped", color: Theme.warn)
+        case .degraded: StatusPill(text: "Degraded", color: Theme.bad)
         }
     }
 

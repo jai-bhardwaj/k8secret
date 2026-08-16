@@ -7,7 +7,7 @@ struct PodsListView: View {
         @Bindable var state = state
 
         Group {
-            if state.selectedNamespace == nil {
+            if state.selectedNamespace == nil && !state.allNamespaces {
                 ContentUnavailableView {
                     Label("Select a Namespace", systemImage: "sidebar.left")
                 } description: {
@@ -22,7 +22,7 @@ struct PodsListView: View {
                     ProgressView()
                     Text("Loading pods...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -45,30 +45,37 @@ struct PodsListView: View {
         // floor this column collapsed next to the detail pane and truncated
         // its own empty-state title to "No Deploy…".
         .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 560)
-        .navigationTitle(state.selectedNamespace?.name ?? "Pods")
     }
 
     private var podsList: some View {
         @Bindable var state = state
 
-        return List(state.filteredPods, selection: $state.selectedPod) { pod in
-            PodRow(pod: pod, metrics: state.metrics(for: pod.name))
-                .tag(pod)
+        return VStack(spacing: 0) {
+        PaneHeader(
+            title: "Pods",
+            subtitle: "\(state.pods.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+        FilterField(prompt: "Filter pods…", text: $state.podSearch)
+        List(state.filteredPods) { pod in
+            PodRow(pod: pod, metrics: state.metrics(for: pod.name),
+                   showNamespace: state.allNamespaces)
+                .vnextRow(isSelected: state.selectedPod?.id == pod.id, hoverKey: pod.name)
+                .onTapGesture { state.selectedPod = pod }
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(Theme.line)
+                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
-        .searchable(text: $state.podSearch, prompt: "Filter pods")
+        .vnextKeyboardSelection(items: state.filteredPods, selection: $state.selectedPod)
         .overlay {
             if state.pods.isEmpty {
                 // An empty namespace is a dead end unless it says where to go
                 // next. A fresh install lands on `default`, which on most
                 // clusters holds nothing, so this was the first screen many
                 // people saw.
-                ContentUnavailableView {
-                    Label("No Pods", systemImage: "circle.hexagongrid")
-                } description: {
-                    Text("Nothing here in **\(state.selectedNamespace?.name ?? "this namespace")**. Pick another namespace on the left, or try a different resource type above.")
-                }
+                EmptyPane(icon: "circle.hexagongrid", title: "No Pods",
+                           message: "Nothing here in \(state.selectedNamespace?.name ?? "this namespace"). Pick another namespace from the menu above, or a different resource type in the sidebar.")
             } else if state.filteredPods.isEmpty {
-                ContentUnavailableView.search(text: state.podSearch)
+                EmptyPane(icon: "magnifyingglass", title: "No matches",
+                           message: "No results for “\(state.podSearch)”. The filter matches anywhere in the name.")
             }
         }
         .onChange(of: state.selectedPod?.id) { _, _ in
@@ -80,12 +87,15 @@ struct PodsListView: View {
             guard let pod = state.selectedPod else { return }
             Task { await state.selectPod(pod) }
         }
+        }
+        .vnextListPane()
     }
 }
 
 struct PodRow: View {
     let pod: K8sPod
     let metrics: PodMetrics?
+    var showNamespace = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -95,41 +105,41 @@ struct PodRow: View {
                     .frame(width: 18)
 
                 Text(pod.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                     .lineLimit(1)
+
+                if showNamespace { NamespaceBadge(name: pod.namespace) }
 
                 Spacer()
 
                 phaseBadge
 
                 Text(pod.age)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
 
             // Row 2: metrics chips (only for running pods with metrics)
             if let m = metrics, pod.phase.lowercased() == "running" {
-                HStack(spacing: 12) {
-                    metricsChip(
-                        icon: "cpu",
-                        color: .blue,
-                        usage: m.totalCPU,
-                        requestPct: m.cpuPercent(pod: pod),
-                        limitPct: m.cpuLimitPercent(pod: pod)
-                    )
-
-                    metricsChip(
-                        icon: "memorychip",
-                        color: .purple,
-                        usage: m.totalMemory,
-                        requestPct: m.memPercent(pod: pod),
-                        limitPct: m.memLimitPercent(pod: pod)
-                    )
-
-                    Spacer()
-
-                    // Ready + restarts + containers inline
-                    podInfoChips
+                // Degrade predictably in the 280pt column: drop the R/L
+                // badges before anything can crush or wrap.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        metricsChip(icon: "cpu", color: Theme.cpu, usage: m.totalCPU,
+                                    requestPct: m.cpuPercent(pod: pod),
+                                    limitPct: m.cpuLimitPercent(pod: pod))
+                        metricsChip(icon: "memorychip", color: Theme.memory, usage: m.totalMemory,
+                                    requestPct: m.memPercent(pod: pod),
+                                    limitPct: m.memLimitPercent(pod: pod))
+                        Spacer(minLength: 8)
+                        podInfoChips
+                    }
+                    HStack(spacing: 10) {
+                        compactChip(icon: "cpu", color: Theme.cpu, usage: m.totalCPU)
+                        compactChip(icon: "memorychip", color: Theme.memory, usage: m.totalMemory)
+                        Spacer(minLength: 8)
+                        podInfoChips
+                    }
                 }
             } else {
                 // No metrics — still show ready/restarts/containers
@@ -168,7 +178,7 @@ struct PodRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .font(.system(.caption2, design: .monospaced))
+        .font(.system(size: 10.5, design: .monospaced))
     }
 
     // MARK: - Metrics chip
@@ -187,7 +197,8 @@ struct PodRow: View {
 
             // Usage value
             Text(usage)
-                .font(.system(.caption2, design: .monospaced, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
                 .foregroundStyle(color)
 
             // Percentage badges: req% / lim%
@@ -202,21 +213,26 @@ struct PodRow: View {
                             .foregroundStyle(pctColor(lPct))
                     }
                 }
-                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                .lineLimit(1)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 3))
             }
         }
-        .font(.system(.caption2, design: .monospaced))
+        .font(.system(size: 10.5, design: .monospaced))
+        .fixedSize()
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(color.opacity(0.05), in: RoundedRectangle(cornerRadius: 5))
     }
 
-    private func pctColor(_ p: Int) -> Color {
-        p > 90 ? .red : p > 70 ? .orange : .green
+    /// The chip without its R/L badges — the narrow fallback.
+    private func compactChip(icon: String, color: Color, usage: String) -> some View {
+        metricsChip(icon: icon, color: color, usage: usage, requestPct: nil, limitPct: nil)
     }
+
+    private func pctColor(_ p: Int) -> Color { Theme.pressure(p) }
 
     // MARK: - Phase icon & badge
 
@@ -249,22 +265,22 @@ struct PodRow: View {
     private var phaseBadge: some View {
         // Short words like "Running"/"Succeeded" were free to hyphenate in a
         // narrow column, same as the service type badge did.
-        Text(pod.phase)
-            .font(.system(.caption2, design: .monospaced, weight: .medium))
+        Text(pod.isCrashLooping ? "CrashLoop" : pod.phase)
+            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
             .lineLimit(1)
             .fixedSize()
-            .foregroundStyle(phaseColor)
+            .foregroundStyle(pod.isCrashLooping ? Theme.bad : phaseColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(phaseColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            .background((pod.isCrashLooping ? Theme.bad : phaseColor).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var phaseColor: Color {
         switch pod.phase.lowercased() {
-        case "running": return .green
-        case "succeeded": return .blue
-        case "pending": return .yellow
-        case "failed": return .red
+        case "running": return Theme.ok
+        case "succeeded": return Theme.cpu
+        case "pending": return Theme.warn
+        case "failed": return Theme.bad
         default: return .secondary
         }
     }
