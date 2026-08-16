@@ -242,40 +242,7 @@ struct ContentView: View {
             .help("Settings (⌘,)")
         }
         ToolbarItem(placement: .navigation) {
-            Menu {
-                Button {
-                    Task { await state.selectNamespaceScope(all: true) }
-                } label: {
-                    HStack {
-                        Text("All Namespaces")
-                        if state.allNamespaces { Spacer(); Image(systemName: "checkmark") }
-                    }
-                }
-                Divider()
-                ForEach(state.filteredNamespaces) { ns in
-                    Button {
-                        Task {
-                            state.selectedNamespace = ns
-                            await state.selectNamespace(ns)
-                        }
-                    } label: {
-                        HStack {
-                            Text(ns.name)
-                            if !state.allNamespaces && state.selectedNamespace?.id == ns.id {
-                                Spacer(); Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                // One concatenated Text: toolbar Menu labels flatten HStacks
-                // and dropped the name entirely.
-                (Text("namespace ").foregroundStyle(.secondary)
-                 + Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—")).bold())
-                    .font(.callout)
-                    .lineLimit(1)
-            }
-            .help("Scope every list to one namespace, or all of them")
+            NamespaceScopeButton()
         }
     }
 
@@ -343,6 +310,107 @@ struct ModuleWashView: View {
         .id(moduleKey)
         .transition(.opacity)
         .animation(.easeOut(duration: 0.7), value: moduleKey)
+    }
+}
+
+/// The namespace scope: a real scope picker, not a flat menu — clusters have
+/// hundreds of namespaces, so the popover opens with a filter field focused,
+/// "All Namespaces" pinned above a scrolling, clipped list.
+struct NamespaceScopeButton: View {
+    @Environment(AppState.self) private var state
+    @State private var open = false
+    @State private var query = ""
+    @FocusState private var filterFocused: Bool
+
+    var body: some View {
+        Button {
+            query = ""
+            open.toggle()
+        } label: {
+            (Text("namespace ").foregroundStyle(.secondary)
+             + Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—")).bold())
+                .font(.callout)
+                .lineLimit(1)
+                .frame(maxWidth: 190)
+        }
+        .help("Scope every list to one namespace, or all of them")
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(spacing: 6) {
+                TextField("Filter namespaces…", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($filterFocused)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
+
+                scopeRow(name: "All Namespaces",
+                         selected: state.allNamespaces,
+                         count: state.namespaces.count) {
+                    Task { await state.selectNamespaceScope(all: true) }
+                    open = false
+                }
+                Divider().padding(.horizontal, 10)
+
+                ScrollView {
+                    LazyVStack(spacing: 1) {
+                        ForEach(matches) { ns in
+                            scopeRow(name: ns.name,
+                                     selected: !state.allNamespaces && state.selectedNamespace?.id == ns.id,
+                                     count: nil) {
+                                Task {
+                                    state.selectedNamespace = ns
+                                    await state.selectNamespace(ns)
+                                }
+                                open = false
+                            }
+                        }
+                        if matches.isEmpty {
+                            Text("No matches")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.tertiary)
+                                .padding(8)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                }
+                .frame(maxHeight: 260)
+                .padding(.bottom, 6)
+            }
+            .frame(width: 260)
+            .onAppear { filterFocused = true }
+        }
+    }
+
+    private var matches: [K8sNamespace] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return state.filteredNamespaces }
+        return state.filteredNamespaces.filter { $0.name.lowercased().contains(q) }
+    }
+
+    private func scopeRow(name: String, selected: Bool, count: Int?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .opacity(selected ? 1 : 0)
+                Text(name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: 11))
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .font(.system(size: 12.5))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(selected ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, 4)
     }
 }
 

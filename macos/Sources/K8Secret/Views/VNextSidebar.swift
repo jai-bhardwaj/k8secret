@@ -225,6 +225,7 @@ struct VNextSidebar: View {
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
     @State private var flyout = false
+    @State private var hoverGen = 0
 
     var body: some View {
         let collapsed = state.sidebarCollapsed
@@ -239,15 +240,34 @@ struct VNextSidebar: View {
         .overlay(alignment: .topLeading) {
             if collapsed && flyout {
                 flyoutPanel
+                    .onHover { setFlyout($0) }
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
         }
         .onHover { inside in
             guard state.sidebarCollapsed else { return }
-            withAnimation(Theme.easeOut) { flyout = inside }
+            setFlyout(inside)
         }
         .animation(Theme.easeOut, value: collapsed)
         .zIndex(20)
+    }
+
+    /// Rail and panel share one intent: the flyout stays open while the
+    /// pointer is over EITHER. Closing waits a beat so crossing the gap
+    /// between rail and panel never flickers it shut (the prototype's
+    /// "closing randomly while hovering" bug, pre-fixed here).
+    private func setFlyout(_ inside: Bool) {
+        hoverGen += 1
+        let gen = hoverGen
+        if inside {
+            withAnimation(Theme.easeOut) { flyout = true }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                // A newer hover event (re-entry) supersedes this close.
+                guard gen == hoverGen else { return }
+                withAnimation(Theme.easeOut) { flyout = false }
+            }
+        }
     }
 
     // The whisper zone wash: barely darker than the canvas, fading right.
