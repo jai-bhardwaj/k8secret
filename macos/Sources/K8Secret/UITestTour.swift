@@ -44,6 +44,15 @@ enum UITestTour {
             }
             mark("00-connected")
 
+            // Window size override for responsive verification runs.
+            if let spec = env["K8SECRET_UITEST_SIZE"] {
+                let parts = spec.split(separator: "x").compactMap { Double($0) }
+                if parts.count == 2, let w = NSApplication.shared.windows.first(where: { $0.isVisible }) {
+                    w.setFrame(NSRect(x: 60, y: 80, width: parts[0], height: parts[1]), display: true)
+                }
+                await settle(0.8)
+            }
+
             // 1. Scope to the seeded namespace.
             if let target = state.namespaces.first(where: { $0.name == ns }) {
                 state.selectedNamespace = target

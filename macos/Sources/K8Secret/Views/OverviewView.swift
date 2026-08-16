@@ -55,38 +55,51 @@ struct OverviewView: View {
         return Int((Double(depsReady + podsRunning) / Double(total) * 100).rounded())
     }
 
+    /// The hero's right half: verdict headline, scope line, attention rows.
+    private var heroVerdict: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(needsAttention.isEmpty
+                 ? "Everything is running."
+                 : "\(needsAttention.count) thing\(needsAttention.count == 1 ? "" : "s") need\(needsAttention.count == 1 ? "s" : "") attention")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(Theme.text)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+            Text(state.allNamespaces
+                 ? "Across all namespaces in \(state.context)."
+                 : "In \(state.selectedNamespace?.name ?? "—") on \(state.context).")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.text2)
+            if !needsAttention.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(needsAttention.prefix(3)) { item in
+                        attentionRow(item)
+                    }
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 // The hero: CleanMyMac's Smart Care grammar — a glowing health
                 // ring beside a huge light-weight verdict, on the hero canvas.
+                ViewThatFits(in: .horizontal) {
                 HStack(spacing: 34) {
                     HealthRing(percent: healthPercent,
                                troubled: !needsAttention.isEmpty)
                         .frame(width: 190, height: 190)
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(needsAttention.isEmpty
-                             ? "Everything is running."
-                             : "\(needsAttention.count) thing\(needsAttention.count == 1 ? "" : "s") need\(needsAttention.count == 1 ? "s" : "") attention")
-                            .font(.system(size: 38, weight: .light))
-                            .foregroundStyle(Theme.text)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.6)
-                        Text(state.allNamespaces
-                             ? "Across all namespaces in \(state.context)."
-                             : "In \(state.selectedNamespace?.name ?? "—") on \(state.context).")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.text2)
-                        if !needsAttention.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(needsAttention.prefix(3)) { item in
-                                    attentionRow(item)
-                                }
-                            }
-                            .padding(.top, 6)
-                        }
-                    }
+                    heroVerdict
                     Spacer(minLength: 0)
+                }
+                VStack(alignment: .leading, spacing: 18) {
+                    HealthRing(percent: healthPercent,
+                               troubled: !needsAttention.isEmpty)
+                        .frame(width: 150, height: 150)
+                    heroVerdict
+                }
                 }
                 .padding(.top, 18)
 

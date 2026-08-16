@@ -43,6 +43,9 @@ final class AppState {
     var settingsOpen = false
     /// Status-bar cluster switcher panel (the VS Code quick-pick pattern).
     var clusterSwitcherOpen = false
+    /// Compact (single-pane) navigation: below ~780pt the prototype shows the
+    /// list OR the detail, never both; selecting a row pushes the detail.
+    var compactShowDetail = false
     var secretExportOpen = false
     var podDetailTab: PodDetailView.DetailTab = .overview
     var deploymentDetailTab: DeploymentDetailView.DetailTab = .overview

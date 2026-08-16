@@ -42,7 +42,7 @@ struct K8SecretApp: App {
         // Default window — connects to last-used or current context
         WindowGroup(id: "cluster") {
             ClusterWindow(initialContext: nil)
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 660, minHeight: 520)
                 .sheet(isPresented: $showUpdateSheet) {
                     UpdateSheetView(checker: UpdateChecker.shared)
                 }
@@ -95,7 +95,7 @@ struct K8SecretApp: App {
         // Context-specific window — opened via openWindow(id:value:)
         WindowGroup(id: "cluster-ctx", for: String.self) { $ctx in
             ClusterWindow(initialContext: ctx)
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 660, minHeight: 520)
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified(showsTitle: false))

@@ -224,11 +224,15 @@ private struct PulseShape: Shape {
 struct VNextSidebar: View {
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
+    /// The prototype's ~900pt breakpoint: the rail collapses on its own when
+    /// the window can't afford 208pt of sidebar. The user's manual choice
+    /// still applies when there's room.
+    var autoCollapsed = false
     @State private var flyout = false
     @State private var hoverGen = 0
 
     var body: some View {
-        let collapsed = state.sidebarCollapsed
+        let collapsed = state.sidebarCollapsed || autoCollapsed
         ZStack(alignment: .topLeading) {
             // Layout slot: reserves rail width only.
             railContent(collapsed: collapsed)
@@ -245,7 +249,7 @@ struct VNextSidebar: View {
             }
         }
         .onHover { inside in
-            guard state.sidebarCollapsed else { return }
+            guard state.sidebarCollapsed || autoCollapsed else { return }
             setFlyout(inside)
         }
         .animation(Theme.easeOut, value: collapsed)

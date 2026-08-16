@@ -3,6 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
+    /// Live content width, driving the prototype's breakpoints: <1120 narrows
+    /// the list column, <980 auto-collapses the rail, <780 goes single-pane.
+    @State private var contentWidth: CGFloat = 1200
 
 
     var body: some View {
@@ -143,9 +146,10 @@ struct ContentView: View {
     private var mainView: some View {
         // The prototype's layout, verbatim: a custom rail beside content on
         // one shared canvas — no NavigationSplitView, no opaque columns.
-        // Overview and Events are single-pane; resources are list + detail.
+        // Overview and Events are single-pane; resources are list + detail —
+        // or list OR detail below the compact breakpoint.
         HStack(spacing: 0) {
-            VNextSidebar()
+            VNextSidebar(autoCollapsed: contentWidth < 980)
             Group {
                 switch state.selectedDestination {
                 case .overview:
@@ -153,19 +157,90 @@ struct ContentView: View {
                 case .events:
                     EventsFeedView()
                 case .resource:
-                    HStack(spacing: 0) {
-                        contentColumn
-                            .frame(width: 320)
-                            .frame(maxHeight: .infinity, alignment: .top)
-                        detailColumn
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    if contentWidth < 780 {
+                        compactResource
+                    } else {
+                        HStack(spacing: 0) {
+                            contentColumn
+                                .frame(width: contentWidth < 1120 ? 280 : 320)
+                                .frame(maxHeight: .infinity, alignment: .top)
+                            detailColumn
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
                     }
                 }
             }
             .frame(maxWidth: .infinity)
         }
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onChange(of: geo.size.width, initial: true) { _, w in
+                        contentWidth = w
+                    }
+            }
+        }
+        .onChange(of: currentSelectionID) { _, new in
+            // In compact mode, picking a row pushes the detail pane.
+            if contentWidth < 780, new != nil {
+                withAnimation(Theme.easeOut) { state.compactShowDetail = true }
+            }
+        }
+        .onChange(of: state.selectedResourceType) { _, _ in
+            state.compactShowDetail = false
+        }
         .toolbar { scopeToolbar }
         .toolbarBackground(.hidden, for: .windowToolbar)
+    }
+
+    /// Single-pane resources below ~780pt: the list fills the pane; selecting
+    /// pushes the detail with a back chevron, like the prototype's compact
+    /// media query.
+    @ViewBuilder
+    private var compactResource: some View {
+        if state.compactShowDetail {
+            VStack(spacing: 0) {
+                HStack {
+                    Button {
+                        withAnimation(Theme.easeOut) { state.compactShowDetail = false }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(state.selectedResourceType.rawValue)
+                                .font(.system(size: 12.5, weight: .semibold))
+                        }
+                        .foregroundStyle(Theme.text2)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                detailColumn
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        } else {
+            contentColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+        }
+    }
+
+    /// The id of whatever is selected in the current resource type — compact
+    /// navigation watches this to know a row was picked.
+    private var currentSelectionID: String? {
+        switch state.selectedResourceType {
+        case .secrets: state.selectedSecret?.id
+        case .deployments: state.selectedDeployment?.id
+        case .pods: state.selectedPod?.id
+        case .services: state.selectedService?.id
+        case .configmaps: state.selectedConfigMap?.id
+        case .cronjobs: state.selectedCronJob?.id
+        case .ingresses: state.selectedIngress?.id
+        }
     }
 
     /// The prototype's titlebar, verbatim: [toggle] [context pill] [namespace
@@ -576,6 +651,8 @@ struct ConfirmDialogView: View {
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
                 .font(.system(size: 12.5, weight: .bold))
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(destructive ? Color(hex: 0xC6423B) : Color(hex: 0x231646))
                 .padding(.horizontal, 16).padding(.vertical, 6)
                 .background(Capsule().fill(.white))

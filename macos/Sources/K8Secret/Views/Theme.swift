@@ -206,6 +206,8 @@ enum Theme {
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
                 .font(.system(size: 12.5, weight: .bold))
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(Color(hex: 0x231646))
                 .padding(.horizontal, 16).padding(.vertical, 6)
                 .background(Capsule().fill(.white))
@@ -221,6 +223,8 @@ enum Theme {
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
                 .font(.system(size: 12.5, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(Theme.bad)
                 .padding(.horizontal, 14).padding(.vertical, 6)
                 .background(Capsule().fill(Theme.bad.opacity(0.14)))
@@ -235,6 +239,8 @@ enum Theme {
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
                 .font(.system(size: 12.5, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(Theme.text)
                 .padding(.horizontal, 14).padding(.vertical, 6)
                 .background(Capsule().fill(Theme.raised))
