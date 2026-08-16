@@ -16,7 +16,7 @@ struct EventsFeedView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Events").font(.title3.weight(.bold))
-                    Text("all namespaces · newest first")
+                    Text("\(state.context) · all namespaces · newest first")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -84,6 +84,13 @@ struct EventFeedRow: View {
                         Text("×\(event.count)")
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.tertiary)
+                    }
+                    if !event.about.isEmpty {
+                        Text("· \(event.about)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
                 Text(event.message)

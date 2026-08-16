@@ -62,6 +62,8 @@ final class AppState {
     var services: [K8sService] = []
     var configMaps: [K8sConfigMap] = []
     var cronJobs: [K8sCronJob] = []
+    /// Recent Jobs in scope, keyed to their owning CronJob for run history.
+    var cronJobRuns: [K8sJob] = []
     var ingresses: [K8sIngress] = []
     var clusterEvents: [K8sEvent] = []
     var configMapData: [K8sKeyValue] = []
@@ -682,6 +684,11 @@ final class AppState {
             do { let listed = try await listScoped { [client] in try await client.listCronJobs(namespace: $0) }
                  if stillCurrent() { cronJobs = listed } }
             catch { showToast("Failed to load cronjobs: \(error.localizedDescription)", isError: true) }
+            // Run history rides along: recent Jobs, matched to owners in the view.
+            if let runs = try? await listScoped({ [client] in try await client.listJobs(namespace: $0) }),
+               stillCurrent() {
+                cronJobRuns = runs
+            }
             loadingCronJobs = false
         case .ingresses:
             loadingIngresses = true
@@ -717,6 +724,24 @@ final class AppState {
             showToast("Failed to load configmap: \(error.localizedDescription)", isError: true)
         }
         loadingConfigMapData = false
+    }
+
+    /// Create an empty ConfigMap in the scoped namespace (the list's "+ New").
+    func createConfigMap(named name: String) async {
+        guard let ns = selectedNamespace else { return }
+        let body: [String: Any] = [
+            "apiVersion": "v1", "kind": "ConfigMap",
+            "metadata": ["name": name, "namespace": ns.name],
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: body)
+            try await client.createRawResource(
+                collectionPath: "/api/v1/namespaces/\(ns.name)/configmaps", jsonData: data)
+            showToast("Created configmap \(name)")
+            await refreshCurrentResource()
+        } catch {
+            showToast("Create failed: \(error.localizedDescription)", isError: true)
+        }
     }
 
     func saveConfigMapKey(namespace: String, name: String, key: String, value: String) async {
@@ -1262,6 +1287,19 @@ final class AppState {
         return (cpu, mem)
     }
 
+    /// "100m · 256Mi  /  500m · 512Mi per pod" from the first pod's first
+    /// container requests/limits; nil when unknown.
+    func requestsSummary(of dep: K8sDeployment) -> String? {
+        guard let pod = pods(of: dep).first,
+              let c = pod.containers.first else { return nil }
+        let req = [c.cpuRequest, c.memRequest].filter { !$0.isEmpty }
+        let lim = [c.cpuLimit, c.memLimit].filter { !$0.isEmpty }
+        guard !req.isEmpty || !lim.isEmpty else { return nil }
+        let reqStr = req.isEmpty ? "—" : req.joined(separator: " · ")
+        let limStr = lim.isEmpty ? "—" : lim.joined(separator: " · ")
+        return "\(reqStr)  /  \(limStr) per pod"
+    }
+
     func requestScale(_ dep: K8sDeployment, to replicas: Int) {
         let takingDown = replicas == 0 && dep.replicas > 0
 
@@ -1430,11 +1468,12 @@ final class AppState {
         await loadEvents(for: "Pod", name: pod.name)
     }
 
-    func loadPodLogs(container: String? = nil) async {
+    func loadPodLogs(container: String? = nil, tailLines: Int = 200, sinceSeconds: Int? = nil) async {
         guard let ns = selectedNamespace, let pod = selectedPod else { return }
         loadingLogs = true
         do {
-            let fetched = try await client.getPodLogs(namespace: ns.name, name: pod.name, container: container)
+            let fetched = try await client.getPodLogs(namespace: ns.name, name: pod.name, container: container,
+                                                      tailLines: tailLines, sinceSeconds: sinceSeconds)
             // Logs are the pane people read most carefully, so showing one pod's
             // output under another's name is worth guarding even though the fetch
             // is usually quick.

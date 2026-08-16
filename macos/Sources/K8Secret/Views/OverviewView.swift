@@ -55,50 +55,66 @@ struct OverviewView: View {
         return Int((Double(depsReady + podsRunning) / Double(total) * 100).rounded())
     }
 
-    /// The hero's right half: verdict headline, scope line, attention rows.
+    /// The hero's right half, the prototype's herocopy: tiered verdict,
+    /// readiness sentence, and the three quick-action buttons.
     private var heroVerdict: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(needsAttention.isEmpty
-                 ? "Everything is running."
-                 : "\(needsAttention.count) thing\(needsAttention.count == 1 ? "" : "s") need\(needsAttention.count == 1 ? "s" : "") attention")
+            Text(healthPercent >= 100 ? "All systems running"
+                 : (healthPercent >= 70 ? "Mostly healthy" : "Needs attention"))
                 .font(.system(size: 38, weight: .light))
                 .foregroundStyle(Theme.text)
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
-            Text(state.allNamespaces
-                 ? "Across all namespaces in \(state.context)."
-                 : "In \(state.selectedNamespace?.name ?? "—") on \(state.context).")
+            Text("\(depsReady) of \(deps.count) deployments and \(podsRunning) of \(pods.count) pods are where they should be.")
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.text2)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if !needsAttention.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(needsAttention.prefix(3)) { item in
-                        attentionRow(item)
-                    }
-                }
-                .padding(.top, 6)
+                .lineLimit(2)
+
+            // The prototype's heroactions: three doorways.
+            VStack(alignment: .leading, spacing: 12) {
+                heroAction(.resource(.deployments), title: "Review workloads",
+                           sub: "deployments, pods and cronjobs")
+                heroAction(.events, title: "Live events",
+                           sub: "everything the cluster said recently")
+                heroAction(.resource(.secrets), title: "Security check",
+                           sub: "secrets, masking and exports")
             }
+            .padding(.top, 14)
+        }
+    }
+
+    private func heroAction(_ dest: AppDestination, title: String, sub: String) -> some View {
+        HeroActionButton(destination: dest, title: title, sub: sub) {
+            Task { await state.selectDestination(dest) }
         }
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
+                // Pane header: crumbs + title, like every other pane.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(state.context) · \(state.allNamespaces ? "all namespaces" : (state.selectedNamespace?.name ?? "—"))")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.text2)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text("Overview")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Theme.text)
+                }
+                .padding(.top, 8)
                 // The hero: CleanMyMac's Smart Care grammar — a glowing health
                 // ring beside a huge light-weight verdict, on the hero canvas.
                 ViewThatFits(in: .horizontal) {
                 HStack(spacing: 34) {
-                    HealthRing(percent: healthPercent,
-                               troubled: !needsAttention.isEmpty)
+                    HealthRing(percent: healthPercent)
                         .frame(width: 190, height: 190)
                     heroVerdict
                     Spacer(minLength: 0)
                 }
                 VStack(alignment: .leading, spacing: 18) {
-                    HealthRing(percent: healthPercent,
-                               troubled: !needsAttention.isEmpty)
+                    HealthRing(percent: healthPercent)
                         .frame(width: 150, height: 150)
                     heroVerdict
                 }
@@ -112,6 +128,8 @@ struct OverviewView: View {
                              valueColor: podsRunning < pods.count ? Theme.warn : nil)
                     StatCard(label: "Namespaces", value: "\(state.namespaces.count)")
                     StatCard(label: "Kubernetes", value: state.k8sVersion.isEmpty ? "—" : state.k8sVersion, mono: true)
+                    StatCard(label: "Port forwards",
+                             value: "\(PortForwardManager.shared.forwards.filter { $0.context == state.context }.count)")
                     if state.clusterCPUPercent > 0 {
                         StatCard(label: "Cluster CPU", value: "\(state.clusterCPUPercent)%",
                                  valueColor: Theme.pressure(state.clusterCPUPercent))
@@ -122,10 +140,15 @@ struct OverviewView: View {
                     }
                 }
 
-                if needsAttention.count > 3 {
-                    section("Also needs attention") {
+                // The prototype's standalone section, below the stats.
+                section("Needs attention") {
+                    if needsAttention.isEmpty {
+                        Label("Everything is running.", systemImage: "checkmark.circle")
+                            .font(.callout)
+                            .foregroundStyle(Theme.ok)
+                    } else {
                         VStack(spacing: 6) {
-                            ForEach(needsAttention.dropFirst(3)) { item in
+                            ForEach(needsAttention) { item in
                                 attentionRow(item)
                             }
                         }
@@ -141,6 +164,16 @@ struct OverviewView: View {
                         }
                     }
                 }
+
+                // The prototype's scan orb: a glowing re-scan control.
+                HStack {
+                    Spacer()
+                    ScanOrb {
+                        Task { await state.loadOverview() }
+                    }
+                    Spacer()
+                }
+                .padding(.top, 10)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -233,9 +266,15 @@ struct OverviewView: View {
 /// anything needs attention — the color answers before the number does.
 struct HealthRing: View {
     let percent: Int
-    let troubled: Bool
     @State private var shown = 0
     @Environment(\.colorScheme) private var scheme
+
+    /// The prototype's tiers: green at 100, amber from 70, red below.
+    private var tierColors: [Color] {
+        if percent >= 100 { return [Color(hex: 0x2FC392), Color(hex: 0x63F0C8)] }
+        if percent >= 70 { return [Color(hex: 0xE5A93D), Color(hex: 0xF5C468)] }
+        return [Color(hex: 0xE5564F), Color(hex: 0xF58F8A)]
+    }
 
     var body: some View {
         ZStack {
@@ -244,15 +283,10 @@ struct HealthRing: View {
             Circle()
                 .trim(from: 0, to: CGFloat(shown) / 100)
                 .stroke(
-                    AngularGradient(
-                        colors: troubled
-                            ? [Color(hex: 0xE5A93D), Color(hex: 0xF5C468)]
-                            : [Color(hex: 0x2FC392), Color(hex: 0x63F0C8)],
-                        center: .center),
+                    AngularGradient(colors: tierColors, center: .center),
                     style: StrokeStyle(lineWidth: 13, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .shadow(color: (troubled ? Color(hex: 0xE5A93D) : Color(hex: 0x2FC392)).opacity(0.55),
-                        radius: 12)
+                .shadow(color: tierColors[0].opacity(0.55), radius: 12)
             VStack(spacing: 2) {
                 Text("\(shown)%")
                     .font(.system(size: 44, weight: .light))
@@ -271,5 +305,91 @@ struct HealthRing: View {
             withAnimation(Theme.easeOut) { shown = new }
         }
         .accessibilityLabel("Cluster health \(percent) percent")
+    }
+}
+
+/// The prototype's heroact: an icon chip beside a title and muted subtitle,
+/// sliding right on hover.
+struct HeroActionButton: View {
+    let destination: AppDestination
+    let title: String
+    let sub: String
+    let action: () -> Void
+
+    @State private var hovering = false
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                DimensionalIcon(destination: destination, size: 24)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Theme.line, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                    Text(sub)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.text3)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(hovering ? Theme.inset : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .offset(x: hovering ? 3 : 0)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .motion(Motion.stateChange, value: hovering)
+        .frame(maxWidth: 380)
+        .accessibilityLabel("\(title) — \(sub)")
+    }
+}
+
+/// The prototype's scanorb: a pulsing, glowing circular Scan button that
+/// re-reads cluster health on demand.
+struct ScanOrb: View {
+    let action: () -> Void
+    @State private var pulsing = false
+    @State private var spinning = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button {
+            action()
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.7)) { spinning.toggle() }
+        } label: {
+            Text("Scan")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 104, height: 104)
+                .background(
+                    Circle().fill(
+                        RadialGradient(colors: [Color(hex: 0xE24BE0), Color(hex: 0x8A2BB8)],
+                                       center: UnitPoint(x: 0.35, y: 0.3),
+                                       startRadius: 6, endRadius: 90))
+                )
+                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                .shadow(color: Color(hex: 0xD935D9).opacity(pulsing ? 0.55 : 0.35),
+                        radius: pulsing ? 34 : 22)
+                .scaleEffect(pulsing ? 1.03 : 1)
+                .rotation3DEffect(.degrees(spinning ? 360 : 0), axis: (x: 0, y: 1, z: 0))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 3.4).repeatForever(autoreverses: true)) {
+                pulsing = true
+            }
+        }
+        .help("Re-scan cluster health")
+        .accessibilityLabel("Scan cluster health")
     }
 }

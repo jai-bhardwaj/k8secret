@@ -96,11 +96,24 @@ struct SecretDetailView: View {
         @Bindable var state = state
 
         return VStack(spacing: 0) {
-            DetailBreadcrumb(type: "secrets")
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 6)
+            VStack(alignment: .leading, spacing: 4) {
+                DetailBreadcrumb(type: "secrets")
+                Text(state.selectedSecret?.name ?? "")
+                    .font(.system(.title2, design: .monospaced, weight: .bold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                // The prototype's meta line: keys · type · age · rv.
+                Text(metaLine)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
             // Change summary bar
             if state.hasChanges {
                 changeSummaryBar
@@ -229,6 +242,19 @@ struct SecretDetailView: View {
         }
         .buttonStyle(Theme.SoftPill())
         .help("Edit raw YAML")
+    }
+
+    private var metaLine: String {
+        var bits: [String] = []
+        bits.append("\(state.secretData.count) key\(state.secretData.count == 1 ? "" : "s")")
+        if let sec = state.selectedSecret {
+            bits.append(sec.type)
+            bits.append("created \(sec.age) ago")
+        }
+        if let rv = state.secretResourceVersion {
+            bits.append("rv \(rv)")
+        }
+        return bits.joined(separator: " · ")
     }
 
     private var changeSummaryBar: some View {

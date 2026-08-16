@@ -45,9 +45,14 @@ struct DeploymentDetailView: View {
             .padding(.top, 16)
 
             // The rollout banner stays above the tabs: an in-flight write is
-            // never allowed to hide behind a tab the user isn't on.
+            // never allowed to hide behind a tab the user isn't on. A rollout
+            // the cluster is doing on its own gets the passive variant.
             if state.showsRolloutBanner {
                 rolloutBanner
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+            } else if dep.status == .updating {
+                passiveRolloutBanner(dep)
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
             }
@@ -110,6 +115,25 @@ struct DeploymentDetailView: View {
         }
     }
 
+    /// The prototype's rollout banner for rollouts the app didn't start:
+    /// progress ring + "N of M replicas ready".
+    private func passiveRolloutBanner(_ dep: K8sDeployment) -> some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Rolling update — \(dep.readyReplicas) of \(dep.replicas) replicas ready")
+                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .lineLimit(1)
+            Spacer()
+            Text("\(dep.replicas > 0 ? Int(Double(dep.readyReplicas) / Double(dep.replicas) * 100) : 0)%")
+                .font(.system(.callout, design: .monospaced, weight: .bold))
+                .foregroundStyle(Theme.warn)
+        }
+        .padding(12)
+        .background(Theme.soft(Theme.warn), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.warn.opacity(0.4), lineWidth: 1))
+    }
+
     private var rolloutBanner: some View {
         HStack(spacing: 10) {
             ProgressView()
@@ -164,14 +188,6 @@ struct DeploymentDetailView: View {
                 .truncationMode(.middle)
             HStack(spacing: 12) {
                 statusBadge(dep)
-                Label(dep.strategy, systemImage: "arrow.triangle.swap")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                Label(dep.age, systemImage: "clock")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
             }
         }
     }
@@ -256,10 +272,9 @@ struct DeploymentDetailView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
             StatCard(label: "Ready", value: "\(dep.readyReplicas) / \(dep.replicas)",
                      valueColor: dep.readyReplicas < dep.replicas ? Theme.warn : nil)
-            if let agg = state.aggregateMetrics(of: dep) {
-                StatCard(label: "CPU", value: agg.cpu, mono: true, valueColor: Theme.cpu)
-                StatCard(label: "Memory", value: agg.mem, mono: true, valueColor: Theme.memory)
-            }
+            let agg = state.aggregateMetrics(of: dep)
+            StatCard(label: "CPU", value: agg?.cpu ?? "—", mono: true, valueColor: agg == nil ? nil : Theme.cpu)
+            StatCard(label: "Memory", value: agg?.mem ?? "—", mono: true, valueColor: agg == nil ? nil : Theme.memory)
             StatCard(label: "Age", value: dep.age, mono: true)
         }
     }
@@ -394,6 +409,9 @@ struct DeploymentDetailView: View {
                 KVDetailRow(label: i == 0 ? "Image" : "", value: image)
             }
             KVDetailRow(label: "Strategy", value: dep.strategy.isEmpty ? "—" : dep.strategy)
+            KVDetailRow(label: "Selector",
+                        value: dep.labels["app"].map { "app=\($0)" } ?? "—")
+            KVDetailRow(label: "Requests / Limits", value: state.requestsSummary(of: dep) ?? "—")
             if !dep.conditions.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text("Conditions")

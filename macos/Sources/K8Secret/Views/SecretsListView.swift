@@ -102,7 +102,9 @@ struct SecretRow: View {
                     .font(.system(.body, design: .monospaced, weight: .medium))
                     .lineLimit(1)
 
-                Text(secret.type)
+                Text(secret.keyCount > 0
+                     ? "\(secret.type) · \(secret.keyCount) key\(secret.keyCount == 1 ? "" : "s")"
+                     : secret.type)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

@@ -51,6 +51,11 @@ struct EnvExportSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            Text("PREVIEW")
+                .font(.system(size: 10, weight: .semibold))
+                .kerning(0.8)
+                .foregroundStyle(Theme.text3)
+
             ScrollView {
                 Text(rendered)
                     .font(.system(.caption, design: .monospaced))

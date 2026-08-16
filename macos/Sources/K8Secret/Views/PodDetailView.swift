@@ -4,6 +4,7 @@ struct PodDetailView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
     @State private var selectedLogContainer: String?
+    @State private var logRange: LogRange = .last200
     @State private var showDeleteAlert = false
 
     var body: some View {
@@ -51,6 +52,9 @@ struct PodDetailView: View {
             case .overview:
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
+                        if pod.isCrashLooping {
+                            crashBanner(pod)
+                        }
                         statTiles(pod)
                         infoSection(pod)
                         Divider()
@@ -162,11 +166,27 @@ struct PodDetailView: View {
             .help("Delete pod")
     }
 
+    /// The prototype's red crash-loop banner: the diagnosis, above the fold.
+    private func crashBanner(_ pod: K8sPod) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.octagon.fill")
+                .foregroundStyle(Theme.bad)
+            Text("Crash-looping — \(pod.restarts) restart\(pod.restarts == 1 ? "" : "s"). Kubernetes is backing off before the next attempt.")
+                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .foregroundStyle(Theme.bad)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+        .padding(12)
+        .background(Theme.soft(Theme.bad), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.bad.opacity(0.45), lineWidth: 1))
+    }
+
     private func phaseBadge(_ pod: K8sPod) -> some View {
-        let color = phaseColor(pod)
+        let color = pod.isCrashLooping ? Theme.bad : phaseColor(pod)
         return HStack(spacing: 4) {
             Circle().fill(color).frame(width: 6, height: 6)
-            Text(pod.phase)
+            Text(pod.isCrashLooping ? "CrashLoop" : pod.phase)
                 .font(.system(.caption, design: .monospaced, weight: .semibold))
         }
         .foregroundStyle(color)
@@ -181,11 +201,9 @@ struct PodDetailView: View {
             StatCard(label: "Ready", value: pod.ready, mono: true)
             StatCard(label: "Restarts", value: "\(pod.restarts)",
                      valueColor: pod.restarts > 5 ? Theme.bad : (pod.restarts > 0 ? Theme.warn : nil))
-            if let m = state.metrics(for: pod.name) {
-                StatCard(label: "CPU", value: m.totalCPU, mono: true, valueColor: Theme.cpu)
-                StatCard(label: "Memory", value: m.totalMemory, mono: true, valueColor: Theme.memory)
-            }
-            StatCard(label: "Age", value: pod.age, mono: true)
+            let m = state.metrics(for: pod.name)
+            StatCard(label: "CPU", value: m?.totalCPU ?? "—", mono: true, valueColor: m == nil ? nil : Theme.cpu)
+            StatCard(label: "Memory", value: m?.totalMemory ?? "—", mono: true, valueColor: m == nil ? nil : Theme.memory)
         }
     }
 
@@ -200,6 +218,7 @@ struct PodDetailView: View {
             KVDetailRow(label: "Pod IP", value: pod.podIP.isEmpty ? "—" : pod.podIP)
             KVDetailRow(label: "Host IP", value: pod.hostIP.isEmpty ? "—" : pod.hostIP)
             KVDetailRow(label: "Controlled by", value: pod.ownerKind.isEmpty ? "—" : "\(pod.ownerKind)/\(pod.ownerName)")
+            KVDetailRow(label: "Age", value: pod.age)
         }
     }
 
@@ -293,10 +312,24 @@ struct PodDetailView: View {
         }
     }
 
+    /// The prototype's tail/since ranges.
+    enum LogRange: String, CaseIterable {
+        case last200 = "last 200", last1000 = "last 1000", since5m = "since 5m", since1h = "since 1h"
+        var tail: Int { self == .last1000 ? 1000 : 200 }
+        var since: Int? { self == .since5m ? 300 : (self == .since1h ? 3600 : nil) }
+    }
+
     @ViewBuilder
     private func logsTitle(_ pod: K8sPod) -> some View {
         Label("Logs", systemImage: "text.alignleft")
             .font(.system(.headline, design: .monospaced, weight: .semibold))
+        Picker("Range", selection: $logRange) {
+            ForEach(LogRange.allCases, id: \.self) { r in
+                Text(r.rawValue).tag(r)
+            }
+        }
+        .frame(maxWidth: 120)
+        .labelsHidden()
         if pod.containers.count > 1 {
             Picker("Container", selection: Binding(
                 get: { selectedLogContainer ?? pod.containers.first?.name ?? "" },
@@ -314,7 +347,8 @@ struct PodDetailView: View {
     private func logsActions(_ pod: K8sPod) -> some View {
         Button {
             Task {
-                await state.loadPodLogs(container: selectedLogContainer ?? pod.containers.first?.name)
+                await state.loadPodLogs(container: selectedLogContainer ?? pod.containers.first?.name,
+                                        tailLines: logRange.tail, sinceSeconds: logRange.since)
             }
         } label: {
             Label(state.podLogs.isEmpty ? "Load Logs" : "Refresh", systemImage: "arrow.clockwise")

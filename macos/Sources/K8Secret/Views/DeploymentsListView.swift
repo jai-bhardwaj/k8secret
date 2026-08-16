@@ -119,6 +119,8 @@ struct DeploymentRow: View {
                 if let agg = state.aggregateMetrics(of: deployment) {
                     MetricChip(icon: "cpu", text: agg.cpu, hue: Theme.cpu)
                     MetricChip(icon: "memorychip", text: agg.mem, hue: Theme.memory)
+                } else {
+                    MetricChip(icon: "moon.zzz", text: "no usage", hue: nil)
                 }
                 Spacer(minLength: 4)
                 HStack(spacing: 3) {
@@ -130,6 +132,18 @@ struct DeploymentRow: View {
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(deployment.readyReplicas == deployment.replicas && deployment.replicas > 0
                                  ? Theme.ok : (deployment.replicas == 0 ? Color.secondary : Theme.warn))
+            }
+            // Mid-rollout: the prototype's progress minibar under the row.
+            if deployment.status == .updating, deployment.replicas > 0 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.inset)
+                        Capsule().fill(Theme.warn)
+                            .frame(width: geo.size.width * CGFloat(deployment.readyReplicas) / CGFloat(deployment.replicas))
+                    }
+                }
+                .frame(height: 3)
+                .padding(.top, 2)
             }
         }
         .padding(.vertical, 3)

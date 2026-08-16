@@ -89,8 +89,8 @@ struct IngressDetailView: View {
 
                     section("Routing") {
                         KVGrid(rows: [
+                            ("Host", ing.primaryHost, true),
                             ("Class", ing.className.isEmpty ? "—" : ing.className, false),
-                            ("Primary host", ing.primaryHost, true),
                             ("TLS", ing.tls ? "Terminated at ingress — \(ing.tlsHosts.joined(separator: ", "))" : "None", false),
                             ("Age", ing.age, false),
                         ])
@@ -126,6 +126,15 @@ struct IngressDetailView: View {
 
     private func pathsTable(_ ing: K8sIngress) -> some View {
         VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text("HOST").frame(maxWidth: 200, alignment: .leading)
+                Text("PATH").frame(maxWidth: .infinity, alignment: .leading)
+                Text("SERVICE")
+            }
+            .font(.system(size: 9.5, weight: .semibold))
+            .kerning(0.5)
+            .foregroundStyle(Theme.text3)
+            .padding(.bottom, 6)
             ForEach(Array(ing.rules.enumerated()), id: \.offset) { i, rule in
                 if i > 0 { Divider() }
                 HStack(spacing: 12) {

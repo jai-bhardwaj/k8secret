@@ -265,14 +265,14 @@ struct PodRow: View {
     private var phaseBadge: some View {
         // Short words like "Running"/"Succeeded" were free to hyphenate in a
         // narrow column, same as the service type badge did.
-        Text(pod.phase)
+        Text(pod.isCrashLooping ? "CrashLoop" : pod.phase)
             .font(.system(.caption2, design: .monospaced, weight: .medium))
             .lineLimit(1)
             .fixedSize()
-            .foregroundStyle(phaseColor)
+            .foregroundStyle(pod.isCrashLooping ? Theme.bad : phaseColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(phaseColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            .background((pod.isCrashLooping ? Theme.bad : phaseColor).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var phaseColor: Color {

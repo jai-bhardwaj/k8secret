@@ -4,13 +4,22 @@ import SwiftUI
 
 struct ConfigMapsListView: View {
     @Environment(AppState.self) private var state
+    @State private var creatingNew = false
+    @State private var newName = ""
 
     var body: some View {
         @Bindable var state = state
         VStack(spacing: 0) {
         PaneHeader(
             title: "ConfigMaps",
-            subtitle: "\(state.configMaps.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
+            subtitle: "\(state.configMaps.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))") {
+            // The prototype's "+ New" — only when a namespace is scoped.
+            if !state.allNamespaces, state.selectedNamespace != nil {
+                Button("+ New") { creatingNew = true }
+                    .buttonStyle(Theme.SoftPill())
+                    .help("Create an empty configmap in this namespace")
+            }
+        }
         FilterField(prompt: "Filter configmaps…", text: $state.configMapSearch)
         List(state.filteredConfigMaps) { cm in
             HStack(spacing: 8) {
@@ -67,6 +76,9 @@ struct ConfigMapDetailView: View {
     @State private var editingKey: K8sKeyValue?
     @State private var editValue = ""
     @State private var showExport = false
+    @State private var addingKey = false
+    @State private var newKey = ""
+    @State private var newValue = ""
 
     var body: some View {
         if let cm = state.selectedConfigMap {
@@ -93,6 +105,9 @@ struct ConfigMapDetailView: View {
             .sheet(item: $editingKey) { kv in
                 editSheet(cm, kv)
             }
+            .sheet(isPresented: $addingKey) {
+                addKeySheet(cm)
+            }
             .sheet(isPresented: $showExport) {
                 EnvExportSheet(
                     title: cm.name,
@@ -118,17 +133,54 @@ struct ConfigMapDetailView: View {
                     .font(.system(.title3, design: .monospaced, weight: .bold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("\(state.configMapData.count) keys · created \(cm.age) ago")
+                Text("\(state.configMapData.count) keys · ConfigMap · created \(cm.age) ago")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
             Spacer()
+            Button("Add key") { addingKey = true }
+                .buttonStyle(Theme.SoftPill())
+                .help("Stage a new key in this configmap")
             Button("Export .env") { showExport = true }
                 .buttonStyle(Theme.SoftPill())
                 .disabled(state.configMapData.isEmpty)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+    }
+
+    private func addKeySheet(_ cm: K8sConfigMap) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add key to \(cm.name)")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Theme.text)
+            TextField("KEY_NAME", text: $newKey)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+            TextField("value", text: $newValue)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+            HStack {
+                Spacer()
+                Button("Cancel") { addingKey = false }
+                    .buttonStyle(Theme.SoftPill())
+                Button("Add") {
+                    let key = newKey.trimmingCharacters(in: .whitespaces)
+                    guard !key.isEmpty else { return }
+                    Task {
+                        await state.saveConfigMapKey(namespace: cm.namespace, name: cm.name,
+                                                     key: key, value: newValue)
+                        newKey = ""; newValue = ""
+                        addingKey = false
+                    }
+                }
+                .buttonStyle(Theme.PrimaryPill())
+                .disabled(newKey.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420)
+        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
     }
 
     private func row(_ cm: K8sConfigMap, _ kv: K8sKeyValue) -> some View {
@@ -144,6 +196,13 @@ struct ConfigMapDetailView: View {
                 .truncationMode(.tail)
                 .textSelection(.enabled)
             Spacer(minLength: 4)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(kv.value, forType: .string)
+                state.showToast("\(kv.key) copied")
+            } label: { Image(systemName: "doc.on.doc") }
+                .buttonStyle(.borderless)
+                .help("Copy value of \(kv.key)")
             Button {
                 editValue = kv.value
                 editingKey = kv

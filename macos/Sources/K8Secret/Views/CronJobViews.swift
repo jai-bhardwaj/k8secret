@@ -100,6 +100,7 @@ struct CronJobDetailView: View {
                     header(cj)
                     statGrid(cj)
                     scheduleNote(cj)
+                    recentRuns(cj)
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -161,8 +162,58 @@ struct CronJobDetailView: View {
             StatCard(label: "Schedule", value: cj.schedule, mono: true)
             StatCard(label: "Last run", value: cj.lastRun,
                      valueColor: cj.lastRunSucceeded ? nil : Theme.bad)
+            StatCard(label: "Next run", value: cj.suspended ? "—" : cj.nextRunLabel, mono: true)
             StatCard(label: "Active now", value: "\(cj.active)")
             StatCard(label: "Age", value: cj.age)
+        }
+    }
+
+    /// The prototype's Recent runs table: Started / Result / Duration.
+    @ViewBuilder
+    private func recentRuns(_ cj: K8sCronJob) -> some View {
+        let runs = state.cronJobRuns
+            .filter { $0.ownerCronJob == cj.name }
+            .sorted { ($0.startTime ?? .distantPast) > ($1.startTime ?? .distantPast) }
+            .prefix(6)
+        if !runs.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("RECENT RUNS")
+                    .font(.system(size: 10, weight: .semibold))
+                    .kerning(0.8)
+                    .foregroundStyle(Theme.text3)
+                    .padding(.bottom, 4)
+                HStack(spacing: 12) {
+                    Text("STARTED").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("RESULT").frame(width: 100, alignment: .leading)
+                    Text("DURATION").frame(width: 80, alignment: .leading)
+                }
+                .font(.system(size: 9.5, weight: .semibold))
+                .kerning(0.5)
+                .foregroundStyle(Theme.text3)
+                ForEach(Array(runs)) { run in
+                    HStack(spacing: 12) {
+                        Text(run.startTime.map { formatAge($0) + " ago" } ?? "—")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Theme.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Group {
+                            if run.active {
+                                StatusPill(text: "Running", color: Theme.warn, pulses: true)
+                            } else if run.succeeded {
+                                StatusPill(text: "Succeeded", color: Theme.ok)
+                            } else {
+                                StatusPill(text: "Failed", color: Theme.bad)
+                            }
+                        }
+                        .frame(width: 100, alignment: .leading)
+                        Text(run.duration)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Theme.text2)
+                            .frame(width: 80, alignment: .leading)
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
         }
     }
 
