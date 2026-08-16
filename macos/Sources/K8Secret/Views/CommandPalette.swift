@@ -137,9 +137,7 @@ struct CommandPaletteView: View {
             }
         }
         .frame(width: 520)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator, lineWidth: 1))
-        .shadow(radius: 30, y: 10)
+        .popGlass(radius: 18)
         .onAppear {
             fieldFocused = true
             // Warm the all-namespace arrays so pods/deployments anywhere match.

@@ -69,8 +69,9 @@ struct StatusBarView: View {
         .padding(.horizontal, 12)
         .frame(height: 28)
         .frame(maxWidth: .infinity)
+        // vNext: the status bar sits directly on the canvas — no material,
+        // no opaque bar. The optional per-context barTint stays as a wash.
         .background(theme.barTint)
-        .background(.bar)
         .overlay(alignment: .top) {
             // The cluster tint's second anchor (the context dot is the first):
             // a 2px edge in the color chosen for this context in Settings, so

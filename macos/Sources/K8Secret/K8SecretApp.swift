@@ -8,6 +8,22 @@ struct K8SecretApp: App {
     init() {
         SettingsView.apply(
             appearanceOverride: UserDefaults.standard.string(forKey: "appearanceOverride") ?? "system")
+        // vNext canvas chrome: every window becomes one gradient world — the
+        // titlebar is transparent and content extends under it. Applied on
+        // every key/became-visible transition (idempotent) because a
+        // representable's async hook races window attachment.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didUpdateNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                guard let w = note.object as? NSWindow,
+                      w.styleMask.contains(.titled),
+                      !w.titlebarAppearsTransparent else { return }
+                MainActor.assumeIsolated {
+                    w.titlebarAppearsTransparent = true
+                    w.titleVisibility = .hidden
+                    w.styleMask.insert(.fullSizeContentView)
+                }
+            }
+        }
         // Clean up port forwards when the app terminates
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -31,8 +47,8 @@ struct K8SecretApp: App {
                     UpdateSheetView(checker: UpdateChecker.shared)
                 }
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1100, height: 720)
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -66,8 +82,8 @@ struct K8SecretApp: App {
             ClusterWindow(initialContext: ctx)
                 .frame(minWidth: 900, minHeight: 600)
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1100, height: 720)
 
         // Log stream window
@@ -79,8 +95,8 @@ struct K8SecretApp: App {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 900, height: 600)
     }
 }
@@ -99,6 +115,7 @@ struct ClusterWindow: View {
         ContentView()
             .environment(state)
             .navigationTitle(windowTitle)
+            .background(WindowConfigurator())
     }
 
     private var windowTitle: String {

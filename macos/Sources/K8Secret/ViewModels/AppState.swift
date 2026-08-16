@@ -29,7 +29,12 @@ final class AppState {
     var allNamespaces = false
     /// Per-context cluster color — the "am I in prod?" glance. Persisted per
     /// context name; loaded on connect and on context switch.
-    var clusterTint: Theme.ClusterTint = .mint
+    var clusterTint: Theme.ClusterTint = .ocean
+    /// Sidebar rail collapse (56pt icon rail vs 208pt full sidebar). Persisted
+    /// app-wide — it's a workspace preference, not a per-context one.
+    var sidebarCollapsed = UserDefaults.standard.bool(forKey: "sidebarCollapsed") {
+        didSet { UserDefaults.standard.set(sidebarCollapsed, forKey: "sidebarCollapsed") }
+    }
     /// ⌘K overlay visibility — lives here so the palette can be summoned from
     /// menu commands and dismissed from anywhere.
     var paletteOpen = false
@@ -436,7 +441,7 @@ final class AppState {
 
     func loadClusterTint() {
         let raw = UserDefaults.standard.string(forKey: "clusterTint.\(context)") ?? ""
-        clusterTint = Theme.ClusterTint(rawValue: raw) ?? .mint
+        clusterTint = Theme.ClusterTint(rawValue: raw) ?? .ocean
     }
 
     func setClusterTint(_ tint: Theme.ClusterTint) {

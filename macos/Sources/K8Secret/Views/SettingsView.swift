@@ -12,66 +12,97 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Form {
-            Section {
-                LabeledContent("Cluster color — \(state.context)") {
-                    HStack(spacing: 8) {
-                        ForEach(Theme.ClusterTint.allCases) { tint in
-                            Button {
-                                state.setClusterTint(tint)
-                            } label: {
-                                Circle()
-                                    .fill(tint.color)
-                                    .frame(width: 22, height: 22)
-                                    .overlay {
-                                        if state.clusterTint == tint {
-                                            Circle().strokeBorder(.primary, lineWidth: 2)
-                                        }
+        @Bindable var state = state
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Settings")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Theme.text)
+
+            // Cluster color — paints the whole canvas.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Cluster color — \(state.context)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                Text("Paints this whole window's canvas — rose for prod means prod is unmistakable from across the room. Saved per context.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    ForEach(Theme.ClusterTint.allCases) { tint in
+                        Button {
+                            withAnimation(Theme.easeOut) { state.setClusterTint(tint) }
+                        } label: {
+                            Circle()
+                                .fill(tint.color)
+                                .frame(width: 26, height: 26)
+                                .overlay {
+                                    if state.clusterTint == tint {
+                                        Circle().strokeBorder(.white, lineWidth: 2.5)
+                                            .shadow(color: .black.opacity(0.3), radius: 2)
                                     }
-                            }
-                            .buttonStyle(.plain)
-                            .help(tint.label)
-                            .accessibilityLabel("\(tint.label)\(state.clusterTint == tint ? ", selected" : "")")
+                                }
                         }
+                        .buttonStyle(.plain)
+                        .help(tint.label)
+                        .accessibilityLabel("\(tint.label)\(state.clusterTint == tint ? ", selected" : "")")
                     }
                 }
-                Text("Tints this window's context dot and status bar edge, so a glance tells you which cluster you're in. Saved per context.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .padding(.top, 4)
             }
 
-            Section {
-                Picker("Appearance", selection: $appearanceOverride) {
+            Divider().overlay(Color.white.opacity(0.14))
+
+            // Appearance
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Appearance")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                    Text("Follows macOS unless you choose.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.text2)
+                }
+                Spacer()
+                Picker("", selection: $appearanceOverride) {
                     Text("Light").tag("light")
                     Text("System").tag("system")
                     Text("Dark").tag("dark")
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
                 .onChange(of: appearanceOverride) { _, newValue in
                     Self.apply(appearanceOverride: newValue)
                 }
             }
 
-            Section {
-                LabeledContent("Feedback") {
-                    Button("Send feedback…") { showFeedback = true }
+            Divider().overlay(Color.white.opacity(0.14))
+
+            // Feedback
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Feedback")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                    Text("Opens a prefilled GitHub issue — bugs, ideas, anything.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.text2)
                 }
-                Text("Opens a prefilled GitHub issue — bugs, ideas, anything.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Send feedback…") { showFeedback = true }
+                    .buttonStyle(Theme.SoftPill())
             }
-        }
-        .formStyle(.grouped)
-        .frame(width: 460)
-        .safeAreaInset(edge: .bottom) {
+
             HStack {
                 Spacer()
-                Button("Done") { dismiss() }
+                Button("Done") { state.settingsOpen = false }
+                    .buttonStyle(Theme.PrimaryPill())
                     .keyboardShortcut(.defaultAction)
             }
-            .padding(12)
-            .background(.bar)
         }
+        .padding(26)
+        .frame(width: 460)
+        .popGlass(radius: 22)
         .sheet(isPresented: $showFeedback) { FeedbackSheet() }
     }
 

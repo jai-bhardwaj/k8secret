@@ -198,10 +198,22 @@ struct VNextRow: ViewModifier {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(
-                isSelected ? Theme.soft(Theme.accent) : (hovering ? Theme.inset : Color.clear),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
+            .background {
+                // Prototype selection grammar: sel-row fill + theme-aware
+                // ring; hover is the recessed wash. Rounded 12 like the
+                // prototype's cards-on-canvas rows.
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Theme.selRow)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Theme.selRing, lineWidth: 1)
+                        )
+                } else if hovering {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Theme.inset)
+                }
+            }
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .motion(Motion.stateChange, value: hovering)

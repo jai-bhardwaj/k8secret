@@ -8,7 +8,18 @@ struct ContentView: View {
     var body: some View {
         @Bindable var state = state
 
-        return VStack(spacing: 0) {
+        return ZStack {
+            // The canvas: one luminous gradient world behind everything,
+            // painted by the cluster tint (ocean by default). The module wash
+            // layers the destination's hue over it, replaying only when the
+            // destination actually changes (identity-keyed).
+            Theme.CanvasBackground(
+                tint: state.clusterTint,
+                hero: heroCanvasActive
+            )
+            ModuleWashView(moduleKey: state.selectedDestination.moduleKey)
+
+            VStack(spacing: 0) {
             UpdateBannerView(checker: UpdateChecker.shared)
 
             ZStack {
@@ -23,13 +34,27 @@ struct ContentView: View {
 
                 // ⌘K command palette
                 if state.paletteOpen {
-                    Color.black.opacity(0.25)
-                        .ignoresSafeArea()
-                        .onTapGesture { state.paletteOpen = false }
+                    scrim { state.paletteOpen = false }
                     CommandPaletteView()
                         .padding(.top, 60)
                         .frame(maxHeight: .infinity, alignment: .top)
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                // Settings — an in-window glass panel, not an NSSheet: sheets
+                // are separate windows, so material glass there would sample
+                // the desktop instead of our canvas.
+                if state.settingsOpen {
+                    scrim { state.settingsOpen = false }
+                    SettingsView()
+                        .transition(.scale(scale: 0.94).combined(with: .offset(y: 14)).combined(with: .opacity))
+                }
+
+                // Confirm dialog — same reasoning as settings.
+                if let action = state.confirmAction {
+                    scrim { state.confirmAction = nil }
+                    ConfirmDialogView(action: action)
+                        .transition(.scale(scale: 0.94).combined(with: .offset(y: 14)).combined(with: .opacity))
                 }
 
                 // Toast overlay
@@ -50,7 +75,9 @@ struct ContentView: View {
             .frame(maxHeight: .infinity)
 
             StatusBarView()
+            }
         }
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .background {
             // Invisible per-window shortcuts: ⌘K palette, ⌘, settings.
             Button("") { state.paletteOpen.toggle() }
@@ -60,36 +87,23 @@ struct ContentView: View {
                 .keyboardShortcut(",", modifiers: .command)
                 .hidden()
         }
-        .sheet(isPresented: $state.settingsOpen) {
-            SettingsView()
-                .environment(state)
-        }
         .motion(Motion.panel, value: state.paletteOpen)
+        .motion(Motion.panel, value: state.settingsOpen)
+        .motion(Motion.panel, value: state.confirmAction != nil)
         .task {
             UITestTour.startIfRequested(state: state)
             await state.connect()
             await UpdateChecker.shared.checkForUpdates()
         }
-        // Single confirmation surface for every irreversible action, so a new
-        // destructive operation can't ship without one by simply forgetting to add
-        // an alert to its own view.
-        .alert(
-            state.confirmAction?.title ?? "",
-            isPresented: Binding(
-                get: { state.confirmAction != nil },
-                set: { if !$0 { state.confirmAction = nil } }
-            ),
-            presenting: state.confirmAction
-        ) { action in
-            Button("Cancel", role: .cancel) { state.confirmAction = nil }
-            Button(action.confirmLabel, role: action.destructive ? .destructive : nil) {
-                let work = action.action
-                state.confirmAction = nil
-                Task { await work() }
-            }
-        } message: { action in
-            Text(action.message)
-        }
+    }
+
+    /// The dim behind any floating panel: gentle, so the canvas stays alive
+    /// behind the glass (the prototype's 34% scrim rule).
+    private func scrim(dismiss: @escaping () -> Void) -> some View {
+        Color.black.opacity(0.30)
+            .ignoresSafeArea()
+            .onTapGesture(perform: dismiss)
+            .transition(.opacity)
     }
 
     private var connectingView: some View {
@@ -103,38 +117,40 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Overview gets the brighter hero canvas, like the prototype.
+    private var heroCanvasActive: Bool {
+        if case .connected = state.connectionState,
+           state.selectedDestination == .overview { return true }
+        return false
+    }
+
     @ViewBuilder
     private var mainView: some View {
-        // Overview and Events are single-pane destinations; resources keep the
-        // three-column list + detail. Two split views, one sidebar — the
-        // sidebar's state lives in AppState so nothing is lost switching.
-        switch state.selectedDestination {
-        case .overview:
-            NavigationSplitView {
-                SidebarView()
-            } detail: {
-                OverviewView()
+        // The prototype's layout, verbatim: a custom rail beside content on
+        // one shared canvas — no NavigationSplitView, no opaque columns.
+        // Overview and Events are single-pane; resources are list + detail.
+        HStack(spacing: 0) {
+            VNextSidebar()
+            Group {
+                switch state.selectedDestination {
+                case .overview:
+                    OverviewView()
+                case .events:
+                    EventsFeedView()
+                case .resource:
+                    HStack(spacing: 0) {
+                        contentColumn
+                            .frame(width: 320)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                        detailColumn
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
+                }
             }
-            .toolbar { scopeToolbar }
-        case .events:
-            NavigationSplitView {
-                SidebarView()
-            } detail: {
-                EventsFeedView()
-            }
-            .toolbar { scopeToolbar }
-        case .resource:
-            NavigationSplitView {
-                SidebarView()
-            } content: {
-                contentColumn
-                    .background(Theme.panel)
-            } detail: {
-                detailColumn
-                    .background(Theme.panel)
-            }
-            .toolbar { scopeToolbar }
+            .frame(maxWidth: .infinity)
         }
+        .toolbar { scopeToolbar }
+        .toolbarBackground(.hidden, for: .windowToolbar)
     }
 
     /// The namespace scope control: a filter in the toolbar, not a place in
@@ -142,8 +158,17 @@ struct ContentView: View {
     /// per row; selecting any row scopes back into its own namespace.
     @ToolbarContentBuilder
     private var scopeToolbar: some ToolbarContent {
-        // The prototype's titlebar order: context pill first (beside the
-        // traffic lights), then the namespace scope — cluster before filter.
+        // The prototype's titlebar order: sidebar toggle, then context pill
+        // (beside the traffic lights), then the namespace scope.
+        ToolbarItem(placement: .navigation) {
+            Button {
+                withAnimation(Theme.easeOut) { state.sidebarCollapsed.toggle() }
+            } label: {
+                Label("Toggle Sidebar", systemImage: "sidebar.left")
+            }
+            .keyboardShortcut("\\", modifiers: .command)
+            .help("\(state.sidebarCollapsed ? "Show" : "Hide") sidebar (⌘\\)")
+        }
         ToolbarItem(placement: .navigation) {
             Menu {
                 ForEach(state.availableContexts, id: \.self) { ctx in
@@ -295,6 +320,118 @@ struct ContentView: View {
     }
 }
 
+/// The per-module hue wash: a soft radial of the destination's identity color
+/// bleeding from the top-trailing corner over the canvas. Keyed by module so
+/// SwiftUI replaces (and re-fades) it only when the destination changes —
+/// background polls reuse the same identity and cause zero visual churn.
+struct ModuleWashView: View {
+    let moduleKey: String
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        EllipticalGradient(
+            stops: [
+                .init(color: Theme.moduleHue(moduleKey, scheme: scheme).opacity(0.34), location: 0),
+                .init(color: .clear, location: 0.72),
+            ],
+            center: UnitPoint(x: 0.80, y: -0.12),
+            startRadiusFraction: 0,
+            endRadiusFraction: 0.85
+        )
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .id(moduleKey)
+        .transition(.opacity)
+        .animation(.easeOut(duration: 0.7), value: moduleKey)
+    }
+}
+
+/// The single confirmation surface for every irreversible action — an
+/// in-window luminous glass dialog matching the prototype: title, message,
+/// soft Cancel, white-pill confirm (red text when destructive).
+struct ConfirmDialogView: View {
+    @Environment(AppState.self) private var state
+    let action: AppState.ConfirmAction
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(action.title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Theme.text)
+            Text(action.message)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel") { state.confirmAction = nil }
+                    .buttonStyle(Theme.SoftPill())
+                    .keyboardShortcut(.cancelAction)
+                Button(action.confirmLabel) {
+                    let work = action.action
+                    state.confirmAction = nil
+                    Task { await work() }
+                }
+                .buttonStyle(DangerAwarePill(destructive: action.destructive))
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 8)
+        }
+        .padding(24)
+        .frame(width: 430)
+        .popGlass(radius: 22)
+    }
+
+    /// White pill; destructive actions keep the white pill but speak in red —
+    /// the prototype's dialog grammar.
+    struct DangerAwarePill: ButtonStyle {
+        let destructive: Bool
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .font(.system(size: 12.5, weight: .bold))
+                .foregroundStyle(destructive ? Color(hex: 0xC6423B) : Color(hex: 0x231646))
+                .padding(.horizontal, 16).padding(.vertical, 6)
+                .background(Capsule().fill(.white))
+                .shadow(color: .black.opacity(0.32), radius: 9, y: 4)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .animation(Theme.spring, value: configuration.isPressed)
+        }
+    }
+}
+
+/// Makes the titlebar part of the canvas: transparent titlebar + full-size
+/// content, so the window is one gradient world and the toolbar pills float
+/// on it (the prototype's chrome).
+struct WindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        Self.configureWhenAttached(v, attempts: 0)
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        Self.configureWhenAttached(nsView, attempts: 0)
+    }
+
+    /// The view can be created before it's in a window; retry briefly until
+    /// the window exists (observed: nil on the first main-queue hop).
+    private static func configureWhenAttached(_ v: NSView, attempts: Int) {
+        DispatchQueue.main.async { [weak v] in
+            guard let v else { return }
+            guard let w = v.window else {
+                if attempts < 20 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        configureWhenAttached(v, attempts: attempts + 1)
+                    }
+                }
+                return
+            }
+            w.titlebarAppearsTransparent = true
+            w.titleVisibility = .hidden
+            w.styleMask.insert(.fullSizeContentView)
+        }
+    }
+}
+
 struct ToastView: View {
     let message: String
     let isError: Bool
@@ -318,8 +455,20 @@ struct ToastView: View {
         }
         .frame(maxWidth: 340, alignment: .leading)
         .fixedSize(horizontal: true, vertical: true)
-        .background(Theme.raised(scheme), in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.lineStrong(scheme), lineWidth: 1))
+        .background {
+            // Glass toast: material + veil, colors scheme-resolved by hand
+            // because this subtree renders detached (see `scheme` above).
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(scheme == .dark ? Color.white.opacity(0.10) : Color.white.opacity(0.55))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(scheme == .dark ? 0.18 : 0.45), lineWidth: 1)
+                )
+        }
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .accessibilityLabel("\(isError ? "Error" : "Done"): \(message)")
     }
