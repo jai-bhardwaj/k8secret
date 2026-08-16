@@ -96,6 +96,11 @@ struct SecretDetailView: View {
         @Bindable var state = state
 
         return VStack(spacing: 0) {
+            DetailBreadcrumb(type: "secrets")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
             // Change summary bar
             if state.hasChanges {
                 changeSummaryBar

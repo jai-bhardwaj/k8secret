@@ -43,8 +43,11 @@ struct EventsFeedView: View {
             } else {
                 List(shown) { event in
                     EventFeedRow(event: event)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparatorTint(Theme.line)
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
         }
         .navigationTitle("Events")

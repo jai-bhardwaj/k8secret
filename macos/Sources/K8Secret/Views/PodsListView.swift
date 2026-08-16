@@ -59,6 +59,7 @@ struct PodsListView: View {
             PodRow(pod: pod, metrics: state.metrics(for: pod.name),
                    showNamespace: state.allNamespaces)
                 .vnextRow(isSelected: state.selectedPod?.id == pod.id, hoverKey: pod.name)
+                .onTapGesture { state.selectedPod = pod }
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.line)
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))

@@ -74,12 +74,17 @@ struct IngressDetailView: View {
         if let ing = state.selectedIngress {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 6) {
+                    DetailBreadcrumb(type: "ingresses")
                     HStack(spacing: 10) {
                         Text(ing.name)
-                            .font(.title2.weight(.bold))
+                            .font(.system(.title2, design: .monospaced, weight: .bold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                         StatusPill(text: ing.tls ? "TLS terminated" : "no TLS",
                                    color: ing.tls ? Theme.ok : Theme.warn)
                         Spacer()
+                    }
                     }
 
                     section("Routing") {

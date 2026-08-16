@@ -143,41 +143,58 @@ struct DeploymentDetailView: View {
     // MARK: - Sections
 
     private func headerSection(_ dep: K8sDeployment) -> some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(dep.name)
-                    .font(.system(.title2, design: .monospaced, weight: .bold))
-                HStack(spacing: 12) {
-                    statusBadge(dep)
-                    Label(dep.strategy, systemImage: "arrow.triangle.swap")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Label(dep.age, systemImage: "clock")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                headerInfo(dep)
+                Spacer(minLength: 12)
+                headerActions(dep)
             }
-
-            Spacer()
-
-            Button {
-                Task { await state.refreshCurrentResource() }
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
+            VStack(alignment: .leading, spacing: 10) {
+                headerInfo(dep)
+                HStack(spacing: 8) { headerActions(dep) }
             }
-            .buttonStyle(Theme.SoftPill())
-            .help("Refresh")
-            Button("Restart") { showRestartAlert = true }
-                .buttonStyle(Theme.SoftPill())
-                .help("Rolling restart — recreates every pod")
-            if dep.replicas > 0 {
-                Button("Stop") { state.requestScale(dep, to: 0) }
-                    .buttonStyle(Theme.DangerPill())
-                    .disabled(state.scaling)
-                    .help("Scale to 0 — stops every pod for this deployment")
-            }
-            liveTailButton(dep)
         }
+    }
+
+    private func headerInfo(_ dep: K8sDeployment) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(dep.name)
+                .font(.system(.title2, design: .monospaced, weight: .bold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            HStack(spacing: 12) {
+                statusBadge(dep)
+                Label(dep.strategy, systemImage: "arrow.triangle.swap")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                Label(dep.age, systemImage: "clock")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headerActions(_ dep: K8sDeployment) -> some View {
+        Button {
+            Task { await state.refreshCurrentResource() }
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Refresh")
+        Button("Restart") { showRestartAlert = true }
+            .buttonStyle(Theme.SoftPill())
+            .help("Rolling restart — recreates every pod")
+        if dep.replicas > 0 {
+            Button("Stop") { state.requestScale(dep, to: 0) }
+                .buttonStyle(Theme.DangerPill())
+                .disabled(state.scaling)
+                .help("Scale to 0 — stops every pod for this deployment")
+        }
+        liveTailButton(dep)
     }
 
     private func liveTailButton(_ dep: K8sDeployment) -> some View {

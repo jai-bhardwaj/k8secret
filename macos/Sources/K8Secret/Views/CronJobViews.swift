@@ -115,22 +115,45 @@ struct CronJobDetailView: View {
     }
 
     private func header(_ cj: K8sCronJob) -> some View {
-        HStack(spacing: 10) {
-            Text(cj.name)
-                .font(.title2.weight(.bold))
-                .lineLimit(1)
-            if cj.suspended { StatusPill(text: "Suspended", color: Theme.warn) }
-            Spacer()
-            Button(cj.suspended ? "Resume" : "Suspend") {
-                toggleSuspend(cj)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                headerInfo(cj)
+                Spacer(minLength: 12)
+                headerActions(cj)
             }
-            Button("Run now") {
-                runNow(cj)
+            VStack(alignment: .leading, spacing: 10) {
+                headerInfo(cj)
+                HStack(spacing: 8) { headerActions(cj) }
             }
-            .buttonStyle(Theme.PrimaryPill())
-            .disabled(cj.suspended)
-            .help(cj.suspended ? "Resume the schedule before running" : "Start a job outside the schedule")
         }
+    }
+
+    private func headerInfo(_ cj: K8sCronJob) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            DetailBreadcrumb(type: "cronjobs")
+                .padding(.bottom, 2)
+            HStack(spacing: 10) {
+                Text(cj.name)
+                    .font(.system(.title2, design: .monospaced, weight: .bold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if cj.suspended { StatusPill(text: "Suspended", color: Theme.warn) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headerActions(_ cj: K8sCronJob) -> some View {
+        Button(cj.suspended ? "Resume" : "Suspend") {
+            toggleSuspend(cj)
+        }
+        .buttonStyle(Theme.SoftPill())
+        Button("Run now") {
+            runNow(cj)
+        }
+        .buttonStyle(Theme.PrimaryPill())
+        .disabled(cj.suspended)
+        .help(cj.suspended ? "Resume the schedule before running" : "Start a job outside the schedule")
     }
 
     private func statGrid(_ cj: K8sCronJob) -> some View {

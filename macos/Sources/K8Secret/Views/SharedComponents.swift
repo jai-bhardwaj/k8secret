@@ -25,7 +25,9 @@ struct StatusPill: View {
                 .opacity(pulses && dim ? 0.35 : 1)
             Text(text)
                 .font(.system(size: 10.5, weight: .semibold))
+                .lineLimit(1)
         }
+        .fixedSize()
         .foregroundStyle(color)
         .padding(.horizontal, 8)
         .padding(.vertical, 2.5)
@@ -56,6 +58,7 @@ struct MetricChip: View {
                 .font(.system(size: 9))
             Text(text)
                 .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
             if let pressure {
                 Text("R\(pressure)%")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -65,6 +68,7 @@ struct MetricChip: View {
                     .background(Theme.soft(Theme.pressure(pressure)), in: RoundedRectangle(cornerRadius: 4))
             }
         }
+        .fixedSize()
         .foregroundStyle(hue ?? Color.secondary)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)

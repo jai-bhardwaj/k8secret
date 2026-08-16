@@ -103,45 +103,63 @@ struct PodDetailView: View {
     // MARK: - Sections
 
     private func headerSection(_ pod: K8sPod) -> some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(pod.name)
-                    .font(.system(.title2, design: .monospaced, weight: .bold))
-                    .lineLimit(1)
-
-                HStack(spacing: 12) {
-                    phaseBadge(pod)
-
-                    Label(pod.ready + " ready", systemImage: "checkmark.circle")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-
-                    if pod.restarts > 0 {
-                        Label("\(pod.restarts) restarts", systemImage: "arrow.clockwise")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(pod.restarts > 5 ? .red : .orange)
-                    }
-
-                    Label(pod.age, systemImage: "clock")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                headerInfo(pod)
+                Spacer(minLength: 12)
+                headerActions(pod)
             }
-            Spacer()
-
-            // Actions live here, in the detail header — the prototype's
-            // grammar. The titlebar belongs to scope and search alone.
-            Button {
-                Task { await state.refreshCurrentResource() }
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
+            VStack(alignment: .leading, spacing: 10) {
+                headerInfo(pod)
+                HStack(spacing: 8) { headerActions(pod) }
             }
-            .buttonStyle(Theme.SoftPill())
-            .help("Refresh")
-            Button("Delete") { showDeleteAlert = true }
-                .buttonStyle(Theme.DangerPill())
-                .help("Delete pod")
         }
+    }
+
+    private func headerInfo(_ pod: K8sPod) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(pod.name)
+                .font(.system(.title2, design: .monospaced, weight: .bold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            HStack(spacing: 12) {
+                phaseBadge(pod)
+
+                Label(pod.ready + " ready", systemImage: "checkmark.circle")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+
+                if pod.restarts > 0 {
+                    Label("\(pod.restarts) restarts", systemImage: "arrow.clockwise")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(pod.restarts > 5 ? .red : .orange)
+                        .fixedSize()
+                }
+
+                Label(pod.age, systemImage: "clock")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headerActions(_ pod: K8sPod) -> some View {
+        // Actions live here, in the detail header — the prototype's
+        // grammar. The titlebar belongs to scope and search alone.
+        Button {
+            Task { await state.refreshCurrentResource() }
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Refresh")
+        Button("Delete") { showDeleteAlert = true }
+            .buttonStyle(Theme.DangerPill())
+            .help("Delete pod")
     }
 
     private func phaseBadge(_ pod: K8sPod) -> some View {

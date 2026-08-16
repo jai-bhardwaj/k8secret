@@ -120,6 +120,30 @@ enum UITestTour {
             await state.selectResourceType(.pods)
             await settle(1.6); mark("13-all-namespaces")
 
+            // 13b–13e. The remaining destinations, each with a selection,
+            // so every nav item's list + detail is screenshot-verified.
+            await state.selectNamespaceScope(all: false)
+            if let target = state.namespaces.first(where: { $0.name == ns }) {
+                state.selectedNamespace = target
+                await state.selectNamespace(target)
+            }
+            await state.selectResourceType(.services)
+            if let svc = state.services.first { state.selectedService = svc; await state.selectService(svc) }
+            await settle(1.4); mark("13b-services")
+
+            await state.selectResourceType(.ingresses)
+            if let ing = state.ingresses.first { state.selectedIngress = ing }
+            await settle(1.4); mark("13c-ingresses")
+
+            await state.selectResourceType(.configmaps)
+            if let cm = state.configMaps.first { state.selectedConfigMap = cm; await state.selectConfigMap(cm) }
+            await settle(1.4); mark("13d-configmaps")
+
+            await state.selectDestination(.events)
+            await settle(1.6); mark("13e-events")
+            await state.selectDestination(.resource(.pods))
+            await settle(0.6)
+
             // 14. Collapsed rail: the dimensional icons ARE the rail.
             state.sidebarCollapsed = true
             await settle(1.2); mark("14-collapsed-rail")

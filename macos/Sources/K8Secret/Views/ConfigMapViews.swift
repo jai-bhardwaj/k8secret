@@ -82,8 +82,11 @@ struct ConfigMapDetailView: View {
                 } else {
                     List(state.configMapData) { kv in
                         row(cm, kv)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparatorTint(Theme.line)
                     }
                     .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle(cm.name)
@@ -109,7 +112,12 @@ struct ConfigMapDetailView: View {
     private func header(_ cm: K8sConfigMap) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(cm.name).font(.title3.weight(.bold))
+                DetailBreadcrumb(type: "configmaps")
+                    .padding(.bottom, 2)
+                Text(cm.name)
+                    .font(.system(.title3, design: .monospaced, weight: .bold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text("\(state.configMapData.count) keys · created \(cm.age) ago")
                     .font(.caption)
                     .foregroundStyle(.tertiary)

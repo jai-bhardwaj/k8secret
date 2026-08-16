@@ -65,49 +65,65 @@ struct ServiceDetailView: View {
     }
 
     private func headerSection(_ svc: K8sService) -> some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                DetailBreadcrumb(type: "services")
-                    .padding(.bottom, 2)
-                Text(svc.name)
-                    .font(.system(.title2, design: .monospaced, weight: .bold))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                headerInfo(svc)
+                Spacer(minLength: 12)
+                headerActions(svc)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                headerInfo(svc)
+                HStack(spacing: 8) { headerActions(svc) }
+            }
+        }
+    }
 
-                HStack(spacing: 12) {
-                    // Type badge
-                    HStack(spacing: 4) {
-                        Circle().fill(typeColor(svc)).frame(width: 6, height: 6)
-                        Text(svc.type)
-                            .font(.system(.caption, design: .monospaced, weight: .semibold))
-                    }
-                    .foregroundStyle(typeColor(svc))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(typeColor(svc).opacity(0.12), in: Capsule())
+    private func headerInfo(_ svc: K8sService) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            DetailBreadcrumb(type: "services")
+                .padding(.bottom, 2)
+            Text(svc.name)
+                .font(.system(.title2, design: .monospaced, weight: .bold))
+                .lineLimit(1)
+                .truncationMode(.middle)
 
-                    Label("\(svc.ports.count) port\(svc.ports.count == 1 ? "" : "s")", systemImage: "arrow.left.arrow.right")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-
-                    Label(svc.age, systemImage: "clock")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                HStack(spacing: 4) {
+                    Circle().fill(typeColor(svc)).frame(width: 6, height: 6)
+                    Text(svc.type)
+                        .font(.system(.caption, design: .monospaced, weight: .semibold))
                 }
-            }
+                .foregroundStyle(typeColor(svc))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(typeColor(svc).opacity(0.12), in: Capsule())
+                .fixedSize()
 
-            Spacer()
+                Label("\(svc.ports.count) port\(svc.ports.count == 1 ? "" : "s")", systemImage: "arrow.left.arrow.right")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
 
-            Button {
-                Task { await state.refreshCurrentResource() }
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
+                Label(svc.age, systemImage: "clock")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
             }
-            .buttonStyle(Theme.SoftPill())
-            .help("Refresh")
+        }
+    }
 
-            // Port forward button — forward the first port
-            if let firstPort = svc.ports.first {
-                portForwardButton(svc, port: firstPort)
-            }
+    @ViewBuilder
+    private func headerActions(_ svc: K8sService) -> some View {
+        Button {
+            Task { await state.refreshCurrentResource() }
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Refresh")
+
+        if let firstPort = svc.ports.first {
+            portForwardButton(svc, port: firstPort)
         }
     }
 
