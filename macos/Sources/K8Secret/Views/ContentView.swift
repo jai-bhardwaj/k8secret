@@ -117,6 +117,12 @@ struct ContentView: View {
         .motion(Motion.panel, value: state.clusterSwitcherOpen)
         .task {
             UITestTour.startIfRequested(state: state)
+            // Debug-only: hold the boot sequence on screen long enough to
+            // capture it (same contract as the tour — inert normally).
+            if let hold = ProcessInfo.processInfo.environment["K8SECRET_UITEST_BOOT"],
+               let seconds = Double(hold) {
+                try? await Task.sleep(for: .seconds(seconds))
+            }
             await state.connect()
             await UpdateChecker.shared.checkForUpdates()
         }
@@ -132,14 +138,7 @@ struct ContentView: View {
     }
 
     private var connectingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Connecting to cluster...")
-                .foregroundStyle(.secondary)
-                .font(.body)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        BootView(context: state.context)
     }
 
     /// Overview gets the brighter hero canvas, like the prototype.
