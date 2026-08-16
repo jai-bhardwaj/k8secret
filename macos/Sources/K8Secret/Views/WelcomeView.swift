@@ -170,23 +170,49 @@ struct WhatsNewView: View {
 /// The app's mark, drawn at any size: three nodes around a bright core.
 struct ClusterMark: View {
     var size: CGFloat = 64
+    /// 0 = the three nodes are still out on their own axes, 1 = locked
+    /// together around the core. Only the launch drives this; everywhere the
+    /// mark is just an icon it stays assembled.
+    var assembly: Double = 1
 
     var body: some View {
         ZStack {
             ForEach(0..<3, id: \.self) { i in
                 let angle = Double(i) * 120 - 90
+                let radians = angle * .pi / 180
+                let progress = nodeProgress(i)
+                // Each node travels in along the axis it will settle on, so
+                // the mark builds itself out of three arrivals instead of
+                // growing as one piece.
+                let travel = (1 - progress) * size * 0.85
                 MarkCube()
                     .fill(LinearGradient(colors: colors(i), startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: size * 0.40, height: size * 0.44)
-                    .offset(x: cos(angle * .pi / 180) * size * 0.26,
-                            y: sin(angle * .pi / 180) * size * 0.24)
+                    .rotationEffect(.degrees((1 - progress) * -18))
+                    .offset(x: cos(radians) * (size * 0.26 + travel),
+                            y: sin(radians) * (size * 0.24 + travel))
+                    .opacity(progress)
+                    .blur(radius: (1 - progress) * size * 0.03)
             }
+            // The core lights last: the moment the three lock together.
             MarkCube()
                 .fill(LinearGradient(colors: [.white, Color(hex: 0xC2C8D8)],
                                      startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: size * 0.34, height: size * 0.38)
+                .scaleEffect(0.55 + 0.45 * coreProgress)
+                .opacity(coreProgress)
         }
         .frame(width: size, height: size)
+    }
+
+    /// Staggered, so the nodes arrive one after another rather than together.
+    private func nodeProgress(_ i: Int) -> Double {
+        let delay = Double(i) * 0.14
+        return min(1, max(0, (assembly - delay) / (1 - delay)))
+    }
+
+    private var coreProgress: Double {
+        min(1, max(0, (assembly - 0.45) / 0.55))
     }
 
     private func colors(_ i: Int) -> [Color] {

@@ -368,17 +368,17 @@ struct ContentView: View {
             // Falling back to the launch slot keeps a disconnected window —
             // which has no rail — from flinging the mark to the origin.
             if !markLanded, let target = markHandedOff ? (rail ?? launch) : launch {
-                ClusterMark(size: Self.markSize)
-                    .scaleEffect((markAssembled ? 1 : 0.42) * target.width / Self.markSize)
-                    .opacity(markAssembled ? 1 : 0)
-                    .blur(radius: markAssembled ? 0 : 7)
+                ClusterMark(size: Self.markSize, assembly: markAssembled ? 1 : 0)
+                    .scaleEffect((markAssembled ? 1 : 0.92) * target.width / Self.markSize)
                     .shadow(color: .black.opacity(markHandedOff ? 0 : 0.45), radius: 22, y: 16)
                     .position(x: target.midX, y: target.midY)
             }
         }
         .allowsHitTesting(false)
         .onAppear {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.68)) { markAssembled = true }
+            withAnimation(.spring(response: 0.7 * Motion.scale, dampingFraction: 0.68)) {
+                markAssembled = true
+            }
         }
     }
 
