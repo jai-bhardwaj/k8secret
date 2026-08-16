@@ -211,6 +211,16 @@ final class AppState {
 
     init(initialContext: String? = nil) {
         self.initialContext = initialContext
+        // The canvas has to be this cluster's color on the very first frame.
+        // Which cluster we are about to reach is already known from disk, so
+        // its tint is too — waiting for connect() to resolve the context meant
+        // the window opened in the default blue and then changed color while
+        // the launch was still playing.
+        let known = initialContext ?? UserDefaults.standard.string(forKey: Self.lastContextKey)
+        if let known, !known.isEmpty {
+            context = known
+            loadClusterTint()
+        }
     }
 
     struct ConfirmAction: Identifiable {

@@ -41,7 +41,10 @@ struct ContentView: View {
             // destination actually changes (identity-keyed).
             Theme.CanvasBackground(
                 tint: state.clusterTint,
-                hero: heroCanvasActive
+                // The launch is the hero moment: it gets the full canvas from
+                // the first frame, rather than the flatter connecting-state
+                // one that then bloomed into a gradient once connect returned.
+                hero: heroCanvasActive || !appVisible
             )
             ModuleWashView(moduleKey: state.selectedDestination.moduleKey)
 
@@ -70,6 +73,12 @@ struct ContentView: View {
                     BootView(context: state.context,
                              phase: state.launchPhase,
                              copyGone: launchCopyGone)
+                        // Centred in the window, not inside the app's chrome.
+                        // SwiftUI installs the NSToolbar a frame or two after
+                        // the first layout, which grows the top safe area by
+                        // the toolbar's height — and a composition centred in
+                        // that area visibly slid down when it arrived.
+                        .ignoresSafeArea()
                         .transition(.opacity)
                         .zIndex(2)
                 }
@@ -282,6 +291,27 @@ struct ContentView: View {
             case "nsmenu": state.namespaceMenuOpen = true
             case "switcher": state.clusterSwitcherOpen = true
             case "settings": state.settingsOpen = true
+            case "show":
+                // Debug-only: land on a resource type with its first row
+                // selected, so any pane can be screenshot-verified.
+                if let raw = ProcessInfo.processInfo.environment["K8SECRET_UITEST_SHOW"],
+                   let type = ResourceType(rawValue: raw) {
+                    await state.selectNamespaceScope(all: true)
+                    await state.selectResourceType(type)
+                    try? await Task.sleep(for: .milliseconds(700))
+                    switch type {
+                    case .deployments: state.selectedDeployment = state.deployments.first
+                    case .pods: state.selectedPod = state.pods.first
+                    case .services: state.selectedService = state.services.first
+                    case .configmaps: state.selectedConfigMap = state.configMaps.first
+                    case .cronjobs: state.selectedCronJob = state.cronJobs.first
+                    case .ingresses: state.selectedIngress = state.ingresses.first
+                    case .secrets: if let hit = state.secrets.first {
+                        state.selectedSecret = hit
+                        await state.selectSecret(hit)
+                    }
+                    }
+                }
             case "closetest":
                 // Debug-only: open each layer and close it again, so the
                 // closing animation can be captured (pair with SLOWMO).

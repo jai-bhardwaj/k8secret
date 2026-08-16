@@ -120,9 +120,13 @@ final class NavigationModelTests: XCTestCase {
 
 final class PressureThresholdTests: XCTestCase {
 
+    /// Healthy pressure carries no color at all. Painting it green made the
+    /// one number on the canvas that read as "green text on a green theme",
+    /// and "nothing is wrong" was never worth a color.
     func testQuietWhileHealthy() {
-        XCTAssertEqual(Theme.pressure(0), Theme.ok)
-        XCTAssertEqual(Theme.pressure(60), Theme.ok)
+        XCTAssertEqual(Theme.pressure(0), Theme.text)
+        XCTAssertEqual(Theme.pressure(60), Theme.text)
+        XCTAssertNotEqual(Theme.pressure(0), Theme.ok)
     }
 
     func testWarnsAboveSixty() {
@@ -319,6 +323,21 @@ final class DestinationStateTests: XCTestCase {
 
         // Unvisited types have no stamp at all.
         XCTAssertNil(state.sidebarCount(for: .pods))
+    }
+
+    /// The window must open in its cluster's color. The tint used to arrive
+    /// with `connect()`, so the launch played in the default blue and then
+    /// changed color underneath itself.
+    func testCanvasWearsTheClusterColorBeforeConnecting() {
+        let ctx = "tint-boot-\(UUID().uuidString)"
+        let key = "clusterTint.\(ctx)"
+        UserDefaults.standard.set(Theme.ClusterTint.rose.rawValue, forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+
+        let state = AppState(initialContext: ctx)
+        XCTAssertEqual(state.context, ctx)
+        XCTAssertEqual(state.clusterTint, .rose,
+                       "a window opens in its cluster's color, never in the default")
     }
 
     func testClusterTintRoundTripsPerContext() {

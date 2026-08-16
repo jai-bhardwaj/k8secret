@@ -85,6 +85,9 @@ enum Theme {
             }
             .ignoresSafeArea()
             .animation(easeOut, value: tint)
+            // The hero canvas fades rather than snapping, so handing the window
+            // from the launch to the app is one continuous surface.
+            .animation(.easeInOut(duration: 0.45), value: hero)
         }
     }
 
@@ -128,9 +131,13 @@ enum Theme {
 
     // MARK: - Semantic
 
-    static let ok = dynamic(light: 0x1F9D5B, dark: 0x34C77B)
-    static let warn = dynamic(light: 0xB27E19, dark: 0xE5A93D)
-    static let bad = dynamic(light: 0xC6423B, dark: 0xE5564F)
+    // In dark mode these sit on a saturated canvas that can share their hue —
+    // green on the mint cluster, amber on amber, rose on rose. They carry
+    // enough lightness to separate from the canvas by value even when the hue
+    // matches, so a status never disappears into the theme it is drawn on.
+    static let ok = dynamic(light: 0x14824A, dark: 0x7CEFB4)
+    static let warn = dynamic(light: 0x9A6B10, dark: 0xF7CE78)
+    static let bad = dynamic(light: 0xB63831, dark: 0xFF9089)
 
     /// Soft backgrounds behind pills and badges: the hue at chip opacity.
     static func soft(_ color: Color) -> Color { color.opacity(0.14) }
@@ -337,8 +344,11 @@ enum Theme {
     /// Color for a usage-vs-request percentage: quiet while healthy, amber
     /// above 60, red above 85. The number carries the value; the color carries
     /// whether to care.
+    /// Pressure only earns a color when it is worth looking at. A healthy
+    /// number in green was the one thing on the canvas that read as "green
+    /// text on a green theme" — and "nothing is wrong" is not news.
     static func pressure(_ percent: Int) -> Color {
-        percent > 85 ? bad : (percent > 60 ? warn : ok)
+        percent > 85 ? bad : (percent > 60 ? warn : text)
     }
 
     // MARK: - Motion (extends Motion.swift's vocabulary)
