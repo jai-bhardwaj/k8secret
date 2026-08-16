@@ -92,6 +92,7 @@ struct DeploymentsListView: View {
 }
 
 struct DeploymentRow: View {
+    @Environment(\.clusterAccent) private var accent
     @Environment(AppState.self) private var state
     let deployment: K8sDeployment
     var showNamespace = false
@@ -153,7 +154,7 @@ struct DeploymentRow: View {
     private var statusPill: some View {
         switch deployment.status {
         case .running: StatusPill(text: "Running", color: Theme.ok)
-        case .updating: StatusPill(text: "Rolling", color: Theme.accent, pulses: true)
+        case .updating: StatusPill(text: "Rolling", color: accent, pulses: true)
         case .scaled: StatusPill(text: "Stopped", color: Theme.warn)
         case .degraded: StatusPill(text: "Degraded", color: Theme.bad)
         }

@@ -9,6 +9,7 @@ import SwiftUI
 /// hit can move scope, type, and selection in one keystroke.
 struct CommandPaletteView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.clusterAccent) private var accent
     @State private var query = ""
     @State private var highlighted = 0
     @FocusState private var fieldFocused: Bool
@@ -153,7 +154,7 @@ struct CommandPaletteView: View {
             Image(systemName: item.icon)
                 .font(.system(size: 13))
                 .frame(width: 20)
-                .foregroundStyle(isHighlighted ? Theme.accent : Color.secondary)
+                .foregroundStyle(isHighlighted ? accent : Color.secondary)
             Text(item.title)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -169,7 +170,7 @@ struct CommandPaletteView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(isHighlighted ? Theme.soft(Theme.accent) : Color.clear,
+        .background(isHighlighted ? Theme.soft(accent) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
     }

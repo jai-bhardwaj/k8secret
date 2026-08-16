@@ -51,6 +51,7 @@ enum Welcome {
 /// First launch: the mark, what the app is, and the contexts it can see —
 /// the prototype's first-run screen, connecting straight from a card.
 struct FirstRunView: View {
+    @Environment(\.clusterAccent) private var accent
     let contexts: [String]
     let onPick: (String) -> Void
     let onSkip: () -> Void
@@ -118,6 +119,7 @@ struct FirstRunView: View {
 
 /// After an update: what changed, in three lines, dismissed forever.
 struct WhatsNewView: View {
+    @Environment(\.clusterAccent) private var accent
     let onDone: () -> Void
 
     var body: some View {
@@ -138,7 +140,7 @@ struct WhatsNewView: View {
                 ForEach(Welcome.highlights, id: \.0) { item in
                     HStack(alignment: .top, spacing: 10) {
                         Circle()
-                            .fill(Theme.accent)
+                            .fill(accent)
                             .frame(width: 6, height: 6)
                             .padding(.top, 6)
                         VStack(alignment: .leading, spacing: 2) {

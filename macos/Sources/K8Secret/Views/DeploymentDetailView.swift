@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct DeploymentDetailView: View {
+    @Environment(\.clusterAccent) private var accent
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
     @State private var showRestartAlert = false
@@ -305,7 +306,7 @@ struct DeploymentDetailView: View {
                             // Focus lights the field itself rather than ringing
                             // it — a ring inside the capsule reads as a second
                             // control.
-                            .background(replicaFieldFocused ? Theme.soft(Theme.accent) : Color.clear)
+                            .background(replicaFieldFocused ? Theme.soft(accent) : Color.clear)
                             .focused($replicaFieldFocused)
                             .disabled(state.scaling)
                             .opacity(state.scaling ? 0.25 : 1)

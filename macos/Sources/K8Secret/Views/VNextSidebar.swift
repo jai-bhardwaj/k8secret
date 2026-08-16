@@ -391,16 +391,21 @@ struct VNextSidebar: View {
         }
         .frame(width: 216)
         .frame(maxHeight: .infinity)
-        .floatGlass(radius: 16)
+        // Square where it meets the window's left edge, rounded where it
+        // floats over the content — the prototype's `0 16px 16px 0`.
+        .floatGlass(shape: Self.flyoutShape)
         .overlay(alignment: .trailing) {
             // Edge ring as an inner line, not a border (Retina seam rule).
             UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                                    bottomTrailingRadius: 16, topTrailingRadius: 16)
                 .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
         }
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
-                                          bottomTrailingRadius: 16, topTrailingRadius: 16))
+        .clipShape(Self.flyoutShape)
     }
+
+    private static let flyoutShape = UnevenRoundedRectangle(
+        topLeadingRadius: 0, bottomLeadingRadius: 0,
+        bottomTrailingRadius: 16, topTrailingRadius: 16, style: .continuous)
 
     private func count(for destination: AppDestination) -> Int? {
         guard case .resource(let t) = destination else { return nil }

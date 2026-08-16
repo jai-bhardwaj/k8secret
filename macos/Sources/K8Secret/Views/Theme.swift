@@ -191,6 +191,25 @@ enum Theme {
 
     /// Flyout / structural glass (the sidebar's floating panel): a neutral
     /// dark veil in dark mode so the canvas tint shows through the frost.
+    struct FloatGlassShape<S: Shape>: ViewModifier {
+        let shape: S
+        @Environment(\.colorScheme) private var scheme
+        func body(content: Content) -> some View {
+            content
+                .background {
+                    shape
+                        .fill(.clear)
+                        .background(LiveMaterial().clipShape(shape))
+                        .overlay(
+                            shape.fill(scheme == .dark
+                                       ? Color.black.opacity(0.24)
+                                       : Color.white.opacity(0.45))
+                        )
+                        .shadow(color: .black.opacity(0.28), radius: 24, y: 10)
+                }
+        }
+    }
+
     struct FloatGlass: ViewModifier {
         var radius: CGFloat = 16
         @Environment(\.colorScheme) private var scheme
@@ -328,6 +347,25 @@ enum Theme {
             }
         }
 
+        /// The accent this cluster's canvas wears: focus, selection, the tab
+        /// underline, anything the eye is meant to jump to.
+        ///
+        /// The prototype fixes one magenta for every canvas, which is where
+        /// the app's violet-on-blue focus came from. These follow the tint
+        /// instead — each one hand-picked a step brighter (or, in light mode,
+        /// deeper) than its own canvas, so "follows the theme" doesn't turn
+        /// into blue on blue.
+        func accent(_ scheme: ColorScheme) -> Color {
+            let dark = scheme == .dark
+            switch self {
+            case .ocean:  return Color(hex: dark ? 0x62B6FF : 0x1466C4)
+            case .violet: return Color(hex: dark ? 0xE24BE0 : 0xA32BC9)
+            case .mint:   return Color(hex: dark ? 0x5BF0CB : 0x0B8F72)
+            case .amber:  return Color(hex: dark ? 0xFFC969 : 0xA96F0C)
+            case .rose:   return Color(hex: dark ? 0xFF7BA4 : 0xBC2C55)
+            }
+        }
+
         var label: String {
             switch self {
             case .ocean: return "Ocean — default"
@@ -419,6 +457,11 @@ extension View {
     func floatGlass(radius: CGFloat = 16) -> some View {
         modifier(Theme.FloatGlass(radius: radius))
     }
+    /// The same glass on a shape of your own — the flyout is square where it
+    /// meets the window's edge.
+    func floatGlass<S: Shape>(shape: S) -> some View {
+        modifier(Theme.FloatGlassShape(shape: shape))
+    }
 }
 
 extension Color {
@@ -482,5 +525,22 @@ struct LiveMaterial: NSViewRepresentable {
         view.material = material
         view.blendingMode = .withinWindow
         view.state = .active
+    }
+}
+
+
+/// The active cluster's accent, published down the view tree.
+///
+/// This is an environment value rather than a static so that two windows onto
+/// two clusters can each wear their own — a static would give whichever window
+/// rendered last the final say.
+private struct ClusterAccentKey: EnvironmentKey {
+    static let defaultValue: Color = Theme.accent
+}
+
+extension EnvironmentValues {
+    var clusterAccent: Color {
+        get { self[ClusterAccentKey.self] }
+        set { self[ClusterAccentKey.self] = newValue }
     }
 }

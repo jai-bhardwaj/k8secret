@@ -178,6 +178,7 @@ extension PaneHeader where Trailing == EmptyView {
 
 /// The in-pane filter input — an inset well, not a toolbar item.
 struct FilterField: View {
+    @Environment(\.clusterAccent) private var accent
     let prompt: String
     @Binding var text: String
     @FocusState private var focused: Bool
@@ -191,7 +192,7 @@ struct FilterField: View {
             .background(Theme.inset, in: RoundedRectangle(cornerRadius: 7))
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
-                    .strokeBorder(focused ? Theme.accent : Theme.line, lineWidth: 1)
+                    .strokeBorder(focused ? accent : Theme.line, lineWidth: 1)
             )
             .focused($focused)
             .padding(.horizontal, 16)
@@ -331,6 +332,7 @@ struct UnderlineTabBar<Tab: Hashable>: View {
     }
 
     private struct TabButton: View {
+        @Environment(\.clusterAccent) private var accent
         let label: String
         let isActive: Bool
         let namespace: Namespace.ID
@@ -347,7 +349,7 @@ struct UnderlineTabBar<Tab: Hashable>: View {
                     .padding(.bottom, 9)
                     .overlay(alignment: .bottom) {
                         if isActive {
-                            Theme.accent
+                            accent
                                 .frame(height: 2)
                                 .matchedGeometryEffect(id: "underline", in: namespace)
                         }

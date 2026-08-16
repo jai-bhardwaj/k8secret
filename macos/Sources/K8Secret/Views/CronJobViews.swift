@@ -39,6 +39,7 @@ struct CronJobsListView: View {
 }
 
 struct CronJobRow: View {
+    @Environment(\.clusterAccent) private var accent
     let cronJob: K8sCronJob
     var showNamespace = false
 
@@ -79,7 +80,7 @@ struct CronJobRow: View {
         if cronJob.suspended {
             StatusPill(text: "Suspended", color: Theme.warn)
         } else if cronJob.active > 0 {
-            StatusPill(text: "Running", color: Theme.accent, pulses: true)
+            StatusPill(text: "Running", color: accent, pulses: true)
         } else if cronJob.lastRunSucceeded {
             StatusPill(text: "Idle", color: Theme.ok)
         } else {

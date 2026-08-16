@@ -21,6 +21,7 @@ struct BootView: View {
 
     @State private var assembled = false
     @State private var lit = false
+    @Environment(\.clusterAccent) private var accent
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let steps = ["Reading kubeconfig", "Verifying API server", "Fetching namespaces"]
@@ -30,7 +31,7 @@ struct BootView: View {
             ZStack {
                 // Atmosphere: a deep bloom and two soft lights, no ring.
                 Circle()
-                    .fill(RadialGradient(colors: [Color(hex: 0x8E6BFF).opacity(lit ? 0.22 : 0.10), .clear],
+                    .fill(RadialGradient(colors: [accent.opacity(lit ? 0.22 : 0.10), .clear],
                                          center: .center, startRadius: 6, endRadius: 210))
                     .frame(width: 420, height: 420)
                     .blur(radius: 10)
@@ -56,7 +57,7 @@ struct BootView: View {
                             ZStack {
                                 Circle()
                                     .strokeBorder(phase > i ? Color(hex: 0x3FD9B4)
-                                                  : (phase == i ? Color(hex: 0x8E6BFF) : Theme.line),
+                                                  : (phase == i ? accent : Theme.line),
                                                   lineWidth: 1.5)
                                     .background(Circle().fill(phase > i ? Color(hex: 0x3FD9B4) : .clear))
                                     .frame(width: 13, height: 13)

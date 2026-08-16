@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DisconnectedView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.clusterAccent) private var accent
     let message: String
 
     var body: some View {
@@ -86,7 +87,7 @@ struct DisconnectedView: View {
             }
             .buttonStyle(Theme.PrimaryPill())
             .controlSize(.large)
-            .tint(Theme.accent)
+            .tint(accent)
 
             Spacer()
         }

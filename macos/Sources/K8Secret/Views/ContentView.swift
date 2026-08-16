@@ -26,6 +26,7 @@ struct ContentView: View {
     /// Live content width, driving the prototype's breakpoints: <1120 narrows
     /// the list column, <980 auto-collapses the rail, <780 goes single-pane.
     @State private var contentWidth: CGFloat = 1200
+    @Environment(\.colorScheme) private var scheme
     /// This window, so the namespace menu can measure the toolbar pill it
     /// hangs from — AppKit knows where toolbar items are, SwiftUI does not.
     @State private var hostWindow: NSWindow?
@@ -231,6 +232,8 @@ struct ContentView: View {
             .ignoresSafeArea()
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
+        // Every accent in this window follows its cluster's canvas.
+        .environment(\.clusterAccent, state.clusterTint.accent(scheme))
         .background {
             // Invisible per-window shortcuts: ⌘K palette, ⌘, settings.
             Button("") { state.paletteOpen.toggle() }
@@ -732,9 +735,9 @@ struct NamespaceMenuPanel: View {
     @State private var highlighted = 0
     @FocusState private var searchFocused: Bool
 
-    /// Search appears once the list stops fitting in a glance — the same rule
-    /// the cluster switcher follows.
-    private var searchable: Bool { state.filteredNamespaces.count > 6 }
+    /// Always present, as in the prototype: a cluster's namespace list is the
+    /// one menu you arrive at knowing what you want.
+    private let searchable = true
 
     private static let maxRows: CGFloat = 260
     private var estimatedRows: CGFloat { CGFloat(matches.count) * 29 }
