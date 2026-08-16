@@ -296,6 +296,31 @@ final class DestinationStateTests: XCTestCase {
         XCTAssertFalse(state.allNamespaces)
     }
 
+    /// Sidebar counts must describe the scope on screen. Arrays keep the last
+    /// scope's rows until that type is revisited, so counting them blindly
+    /// claimed 6 deployments in a namespace holding 2.
+    func testSidebarCountIsNilForStaleScope() {
+        let state = AppState()
+        state.context = "ctx"
+        state.selectedNamespace = K8sNamespace(id: "a", name: "alpha", status: "Active")
+        state.deployments = [
+            K8sDeployment(id: "alpha/one", name: "one", namespace: "alpha", replicas: 1,
+                          readyReplicas: 1, availableReplicas: 1, updatedReplicas: 1,
+                          images: [], strategy: "RollingUpdate", createdAt: Date(),
+                          labels: [:], conditions: []),
+        ]
+        state.listScopeStamp[.deployments] = state.currentScopeKey
+        XCTAssertEqual(state.sidebarCount(for: .deployments), 1)
+
+        // Switching namespace invalidates the stamp: no number beats a wrong one.
+        state.selectedNamespace = K8sNamespace(id: "b", name: "beta", status: "Active")
+        XCTAssertNil(state.sidebarCount(for: .deployments),
+                     "count must not describe a namespace the user left")
+
+        // Unvisited types have no stamp at all.
+        XCTAssertNil(state.sidebarCount(for: .pods))
+    }
+
     func testClusterTintRoundTripsPerContext() {
         let state = AppState()
         state.context = "test-ctx-\(UUID().uuidString)"

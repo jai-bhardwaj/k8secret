@@ -64,6 +64,31 @@ final class AppState {
     var cronJobs: [K8sCronJob] = []
     /// Recent Jobs in scope, keyed to their owning CronJob for run history.
     var cronJobRuns: [K8sJob] = []
+    /// The scope each list was last loaded for ("context|namespace"). The
+    /// sidebar counts are only true for the *current* scope: after a namespace
+    /// switch the untouched arrays still hold the old namespace's rows, and
+    /// showing their length claimed 6 deployments in a namespace with 2.
+    var listScopeStamp: [ResourceType: String] = [:]
+
+    /// The scope key lists are stamped with.
+    var currentScopeKey: String {
+        "\(context)|\(allNamespaces ? "*" : (selectedNamespace?.name ?? "—"))"
+    }
+
+    /// Count for the sidebar: the loaded length when that list belongs to the
+    /// scope on screen, otherwise nil so the badge stays empty rather than lying.
+    func sidebarCount(for type: ResourceType) -> Int? {
+        guard listScopeStamp[type] == currentScopeKey else { return nil }
+        switch type {
+        case .deployments: return deployments.count
+        case .pods: return pods.count
+        case .cronjobs: return cronJobs.count
+        case .services: return services.count
+        case .ingresses: return ingresses.count
+        case .secrets: return secrets.count
+        case .configmaps: return configMaps.count
+        }
+    }
     var ingresses: [K8sIngress] = []
     var clusterEvents: [K8sEvent] = []
     var configMapData: [K8sKeyValue] = []
@@ -616,17 +641,21 @@ final class AppState {
         func stillCurrent() -> Bool {
             wasAll ? allNamespaces : (!allNamespaces && selectedNamespace?.name == ns.name)
         }
+        /// Stamp the freshly-loaded list with the scope it belongs to.
+        func stamp() {
+            listScopeStamp[selectedResourceType] = currentScopeKey
+        }
         switch selectedResourceType {
         case .secrets:
             loadingSecrets = true
             do { let listed = try await listScoped { [client] in try await client.listSecrets(namespace: $0) }
-                 if stillCurrent() { secrets = listed } }
+                 if stillCurrent() { secrets = listed; stamp() } }
             catch { showToast("Failed to load secrets: \(error.localizedDescription)", isError: true) }
             loadingSecrets = false
         case .deployments:
             loadingDeployments = true
             do { let listed = try await listScoped { [client] in try await client.listDeployments(namespace: $0) }
-                 if stillCurrent() { deployments = listed } }
+                 if stillCurrent() { deployments = listed; stamp() } }
             catch { showToast("Failed to load deployments: \(error.localizedDescription)", isError: true) }
             loadingDeployments = false
         case .pods:
@@ -638,7 +667,7 @@ final class AppState {
                 stopMetricsPolling()
                 do {
                     let listed = try await listScoped { [client] in try await client.listPods(namespace: $0) }
-                    if stillCurrent() { pods = listed }
+                    if stillCurrent() { pods = listed; stamp() }
                     var merged: [String: PodMetrics] = [:]
                     for name in scopedNamespaceNames {
                         if let metrics = try? await client.getPodMetrics(namespace: name) {
@@ -655,7 +684,7 @@ final class AppState {
                     // one here and hand it straight to the watcher rather than listing
                     // the namespace twice on every selection.
                     let page = try await client.listPodsWithVersion(namespace: ns.name)
-                    if stillCurrent() { pods = page.pods }
+                    if stillCurrent() { pods = page.pods; stamp() }
                     if let metrics = try? await client.getPodMetrics(namespace: ns.name), stillCurrent() {
                         podMetrics = Dictionary(uniqueKeysWithValues: metrics.map { ($0.name, $0) })
                     }
@@ -670,19 +699,19 @@ final class AppState {
             stopMetricsPolling()
             loadingServices = true
             do { let listed = try await listScoped { [client] in try await client.listServices(namespace: $0) }
-                 if stillCurrent() { services = listed } }
+                 if stillCurrent() { services = listed; stamp() } }
             catch { showToast("Failed to load services: \(error.localizedDescription)", isError: true) }
             loadingServices = false
         case .configmaps:
             loadingConfigMaps = true
             do { let listed = try await listScoped { [client] in try await client.listConfigMaps(namespace: $0) }
-                 if stillCurrent() { configMaps = listed } }
+                 if stillCurrent() { configMaps = listed; stamp() } }
             catch { showToast("Failed to load configmaps: \(error.localizedDescription)", isError: true) }
             loadingConfigMaps = false
         case .cronjobs:
             loadingCronJobs = true
             do { let listed = try await listScoped { [client] in try await client.listCronJobs(namespace: $0) }
-                 if stillCurrent() { cronJobs = listed } }
+                 if stillCurrent() { cronJobs = listed; stamp() } }
             catch { showToast("Failed to load cronjobs: \(error.localizedDescription)", isError: true) }
             // Run history rides along: recent Jobs, matched to owners in the view.
             if let runs = try? await listScoped({ [client] in try await client.listJobs(namespace: $0) }),
@@ -693,7 +722,7 @@ final class AppState {
         case .ingresses:
             loadingIngresses = true
             do { let listed = try await listScoped { [client] in try await client.listIngresses(namespace: $0) }
-                 if stillCurrent() { ingresses = listed } }
+                 if stillCurrent() { ingresses = listed; stamp() } }
             catch { showToast("Failed to load ingresses: \(error.localizedDescription)", isError: true) }
             loadingIngresses = false
         }

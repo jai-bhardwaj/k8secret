@@ -394,15 +394,7 @@ struct VNextSidebar: View {
 
     private func count(for destination: AppDestination) -> Int? {
         guard case .resource(let t) = destination else { return nil }
-        switch t {
-        case .deployments: return state.deployments.count
-        case .pods: return state.pods.count
-        case .cronjobs: return state.cronJobs.count
-        case .services: return state.services.count
-        case .ingresses: return state.ingresses.count
-        case .secrets: return state.secrets.count
-        case .configmaps: return state.configMaps.count
-        }
+        return state.sidebarCount(for: t)
     }
 }
 
