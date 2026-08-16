@@ -23,6 +23,8 @@ struct SettingsView: View {
                 Text("Cluster color — \(state.context)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text("Paints this whole window's canvas — rose for prod means prod is unmistakable from across the room. Saved per context.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.text2)

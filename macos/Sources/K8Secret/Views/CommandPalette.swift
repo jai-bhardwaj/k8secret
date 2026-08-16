@@ -162,6 +162,9 @@ struct CommandPaletteView: View {
                 Text(item.subtitle)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .layoutPriority(-1)
             }
         }
         .padding(.horizontal, 12)

@@ -62,7 +62,7 @@ struct CronJobRow: View {
                     .monospacedDigit()
             }
             HStack(spacing: 6) {
-                MetricChip(icon: "clock", text: cronJob.schedule, hue: nil)
+                MetricChip(icon: "clock", text: cronJob.schedule, hue: nil, truncates: true)
                 Spacer(minLength: 4)
                 Text("last \(cronJob.lastRun)")
                     .font(.caption)

@@ -51,6 +51,9 @@ struct MetricChip: View {
     /// nil = neutral chip (schedules, hosts); otherwise the metric's hue.
     let hue: Color?
     var pressure: Int? = nil
+    /// For unbounded dynamic strings (hostnames, cron schedules): the chip
+    /// yields and middle-truncates instead of refusing compression.
+    var truncates = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -59,6 +62,7 @@ struct MetricChip: View {
             Text(text)
                 .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                 .lineLimit(1)
+                .truncationMode(truncates ? .middle : .tail)
             if let pressure {
                 Text("R\(pressure)%")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -68,7 +72,7 @@ struct MetricChip: View {
                     .background(Theme.soft(Theme.pressure(pressure)), in: RoundedRectangle(cornerRadius: 4))
             }
         }
-        .fixedSize()
+        .fixedSize(horizontal: !truncates, vertical: true)
         .foregroundStyle(hue ?? Color.secondary)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
@@ -142,9 +146,12 @@ struct PaneHeader<Trailing: View>: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .bold))
+                .lineLimit(1)
             Text(subtitle)
                 .font(.system(size: 11.5))
                 .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer(minLength: 4)
             trailing
         }
@@ -380,6 +387,8 @@ struct KVDetailRow: View {
             Text(value)
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.middle)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

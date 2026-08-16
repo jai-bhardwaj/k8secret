@@ -70,6 +70,8 @@ struct OverviewView: View {
                  : "In \(state.selectedNamespace?.name ?? "—") on \(state.context).")
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
             if !needsAttention.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(needsAttention.prefix(3)) { item in

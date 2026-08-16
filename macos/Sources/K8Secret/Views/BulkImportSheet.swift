@@ -100,7 +100,9 @@ struct BulkImportSheet: View {
                                     Text(key)
                                         .font(.system(.caption, design: .monospaced, weight: .semibold))
                                         .foregroundStyle(.blue)
-                                        .frame(minWidth: 120, alignment: .leading)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .frame(minWidth: 120, maxWidth: 260, alignment: .leading)
                                     Text("=")
                                         .foregroundStyle(.tertiary)
                                     Text(value.prefix(80) + (value.count > 80 ? "..." : ""))
@@ -134,7 +136,7 @@ struct BulkImportSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 680)
+        .frame(minWidth: 540, idealWidth: 640, maxWidth: 640)
         .background(Theme.CanvasBackground(tint: .ocean, hero: false))
     }
 

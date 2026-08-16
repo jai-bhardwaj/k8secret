@@ -228,6 +228,8 @@ struct PodDetailView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(container.name)
                     .font(.system(.callout, design: .monospaced, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(container.image)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -278,62 +280,74 @@ struct PodDetailView: View {
     }
 
     private func logsHeader(_ pod: K8sPod) -> some View {
-        HStack {
-            Label("Logs", systemImage: "text.alignleft")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
-
-            Spacer()
-
-            if pod.containers.count > 1 {
-                Picker("Container", selection: Binding(
-                    get: { selectedLogContainer ?? pod.containers.first?.name ?? "" },
-                    set: { selectedLogContainer = $0 }
-                )) {
-                    ForEach(pod.containers, id: \.name) { c in
-                        Text(c.name).tag(c.name)
-                    }
-                }
-                .frame(maxWidth: 200)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                logsTitle(pod)
+                Spacer(minLength: 8)
+                logsActions(pod)
             }
+            VStack(alignment: .leading, spacing: 8) {
+                logsTitle(pod)
+                HStack(spacing: 8) { logsActions(pod) }
+            }
+        }
+    }
 
-            Button {
-                Task {
-                    await state.loadPodLogs(container: selectedLogContainer ?? pod.containers.first?.name)
+    @ViewBuilder
+    private func logsTitle(_ pod: K8sPod) -> some View {
+        Label("Logs", systemImage: "text.alignleft")
+            .font(.system(.headline, design: .monospaced, weight: .semibold))
+        if pod.containers.count > 1 {
+            Picker("Container", selection: Binding(
+                get: { selectedLogContainer ?? pod.containers.first?.name ?? "" },
+                set: { selectedLogContainer = $0 }
+            )) {
+                ForEach(pod.containers, id: \.name) { c in
+                    Text(c.name).tag(c.name)
                 }
+            }
+            .frame(maxWidth: 200)
+        }
+    }
+
+    @ViewBuilder
+    private func logsActions(_ pod: K8sPod) -> some View {
+        Button {
+            Task {
+                await state.loadPodLogs(container: selectedLogContainer ?? pod.containers.first?.name)
+            }
+        } label: {
+            Label(state.podLogs.isEmpty ? "Load Logs" : "Refresh", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(state.loadingLogs)
+
+        Button {
+            let container = selectedLogContainer ?? pod.containers.first?.name ?? ""
+            let logID = LogStreamID(
+                context: state.context,
+                namespace: pod.namespace,
+                pod: pod.name,
+                container: container
+            )
+            openWindow(id: "log-stream", value: logID)
+        } label: {
+            Label("Live Tail", systemImage: "play.circle")
+        }
+        .buttonStyle(Theme.PrimaryPill())
+        .controlSize(.small)
+
+        if !state.podLogs.isEmpty {
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(state.podLogs, forType: .string)
+                state.showToast("Logs copied")
             } label: {
-                Label(state.podLogs.isEmpty ? "Load Logs" : "Refresh", systemImage: "arrow.clockwise")
+                Label("Copy", systemImage: "doc.on.doc")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(state.loadingLogs)
-
-            Button {
-                let container = selectedLogContainer ?? pod.containers.first?.name ?? ""
-                let logID = LogStreamID(
-                    context: state.context,
-                    namespace: pod.namespace,
-                    pod: pod.name,
-                    container: container
-                )
-                openWindow(id: "log-stream", value: logID)
-            } label: {
-                Label("Live Tail", systemImage: "play.circle")
-            }
-            .buttonStyle(Theme.PrimaryPill())
-            .controlSize(.small)
-            .tint(.green)
-
-            if !state.podLogs.isEmpty {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(state.podLogs, forType: .string)
-                    state.showToast("Logs copied")
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
         }
     }
 

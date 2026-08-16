@@ -106,46 +106,17 @@ struct SecretDetailView: View {
                 changeSummaryBar
             }
 
-            // KV search bar — always visible, prominent
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search keys & values...", text: $state.kvSearch)
-                    .textFieldStyle(.plain)
-                    .font(.system(.body, design: .monospaced))
-                if !state.kvSearch.isEmpty {
-                    Button {
-                        state.kvSearch = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear search")
-
-                    Text(verbatim: "\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+            // KV search bar — always visible; at narrow widths the actions
+            // drop to their own row instead of crushing the field.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    kvSearchField
+                    kvActions
                 }
-
-                // Whole-secret actions, in the pane they act on — the
-                // titlebar belongs to scope and search alone.
-                Button { state.showBulkImport = true } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) { kvSearchField }
+                    HStack(spacing: 8) { kvActions }
                 }
-                .buttonStyle(Theme.SoftPill())
-                .help("Bulk-import keys from a .env file")
-                Button { state.secretExportOpen = true } label: {
-                    Label("Export .env", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(Theme.SoftPill())
-                .disabled(state.secretData.isEmpty && state.additions.isEmpty)
-                .help("Export every key as a .env file")
-                Button { state.showYAMLEditor = true } label: {
-                    Label("YAML", systemImage: "doc.text")
-                }
-                .buttonStyle(Theme.SoftPill())
-                .help("Edit raw YAML")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -213,48 +184,78 @@ struct SecretDetailView: View {
         }
     }
 
-    private var changeSummaryBar: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "pencil.circle.fill")
-                .foregroundStyle(.orange)
-
-            Text(verbatim: "\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
-                .font(.system(.callout, design: .default, weight: .medium))
-
-            if !state.modifications.isEmpty {
-                badge("~\(state.modifications.count)", color: .orange)
-            }
-            if !state.additions.isEmpty {
-                badge("+\(state.additions.count)", color: .green)
-            }
-            if !state.deletions.isEmpty {
-                badge("-\(state.deletions.count)", color: .red)
-            }
-
-            Spacer()
-
-            Button("Discard") {
-                state.discardChanges()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
+    @ViewBuilder
+    private var kvSearchField: some View {
+        @Bindable var state = state
+        Image(systemName: "magnifyingglass")
+            .foregroundStyle(.secondary)
+        TextField("Search keys & values...", text: $state.kvSearch)
+            .textFieldStyle(.plain)
+            .font(.system(.body, design: .monospaced))
+        if !state.kvSearch.isEmpty {
             Button {
-                state.requestSaveChanges()
+                state.kvSearch = ""
             } label: {
-                if state.saving {
-                    HStack(spacing: 5) {
-                        ProgressView().controlSize(.small)
-                        Text("Saving…")
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Clear search")
+
+            Text(verbatim: "\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private var kvActions: some View {
+        // Whole-secret actions, in the pane they act on — the titlebar
+        // belongs to scope and search alone.
+        Button { state.showBulkImport = true } label: {
+            Label("Import", systemImage: "square.and.arrow.down")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Bulk-import keys from a .env file")
+        Button { state.secretExportOpen = true } label: {
+            Label("Export .env", systemImage: "square.and.arrow.up")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .disabled(state.secretData.isEmpty && state.additions.isEmpty)
+        .help("Export every key as a .env file")
+        Button { state.showYAMLEditor = true } label: {
+            Label("YAML", systemImage: "doc.text")
+        }
+        .buttonStyle(Theme.SoftPill())
+        .help("Edit raw YAML")
+    }
+
+    private var changeSummaryBar: some View {
+        ViewThatFits(in: .horizontal) {
+            changeBarRow(stacked: false)
+            changeBarRow(stacked: true)
+        }
+    }
+
+    @ViewBuilder
+    private func changeBarRow(stacked: Bool) -> some View {
+        Group {
+            if stacked {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) { changeStatus }
+                    HStack(spacing: 10) {
+                        Spacer()
+                        changeActions
                     }
-                } else {
-                    Text("Save All")
+                }
+            } else {
+                HStack(spacing: 16) {
+                    changeStatus
+                    Spacer()
+                    changeActions
                 }
             }
-            .buttonStyle(Theme.PrimaryPill())
-            .controlSize(.small)
-            .disabled(state.saving)
-            .animation(.easeOut(duration: 0.15), value: state.saving)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
@@ -262,6 +263,52 @@ struct SecretDetailView: View {
         .overlay(alignment: .bottom) {
             Divider()
         }
+    }
+
+    @ViewBuilder
+    private var changeStatus: some View {
+        Image(systemName: "pencil.circle.fill")
+            .foregroundStyle(.orange)
+
+        Text(verbatim: "\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
+            .font(.system(.callout, design: .default, weight: .medium))
+            .lineLimit(1)
+
+        if !state.modifications.isEmpty {
+            badge("~\(state.modifications.count)", color: .orange)
+        }
+        if !state.additions.isEmpty {
+            badge("+\(state.additions.count)", color: .green)
+        }
+        if !state.deletions.isEmpty {
+            badge("-\(state.deletions.count)", color: .red)
+        }
+    }
+
+    @ViewBuilder
+    private var changeActions: some View {
+        Button("Discard") {
+            state.discardChanges()
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+
+        Button {
+            state.requestSaveChanges()
+        } label: {
+            if state.saving {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.small)
+                    Text("Saving…")
+                }
+            } else {
+                Text("Save All")
+            }
+        }
+        .buttonStyle(Theme.PrimaryPill())
+        .controlSize(.small)
+        .disabled(state.saving)
+        .animation(.easeOut(duration: 0.15), value: state.saving)
     }
 
     private func badge(_ text: String, color: Color) -> some View {

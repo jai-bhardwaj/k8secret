@@ -28,6 +28,15 @@ struct StatusBarView: View {
     @State private var hoveringCluster = false
 
     private var leftSection: some View {
+        // Drop-order under width pressure: freshness and K8s version go
+        // first; connection and watch state always survive.
+        ViewThatFits(in: .horizontal) {
+            leftRow(full: true)
+            leftRow(full: false)
+        }
+    }
+
+    private func leftRow(full: Bool) -> some View {
         HStack(spacing: 12) {
             // The prototype leads with what matters live: connection, then the
             // watch, then freshness. App version moves to the right edge.
@@ -42,6 +51,9 @@ struct StatusBarView: View {
                         .frame(width: 6, height: 6)
                     Text(state.connectionState == .connected ? "Connected · \(state.context)" : "Not connected")
                         .foregroundStyle(hoveringCluster ? Theme.text : Theme.text2)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 240, alignment: .leading)
                     Image(systemName: "chevron.up")
                         .font(.system(size: 7, weight: .semibold))
                         .foregroundStyle(Theme.text3)
@@ -64,7 +76,7 @@ struct StatusBarView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(state.liveUpdatesInterrupted ? Theme.warn : Color.secondary)
 
-            if let updated = state.lastUpdated {
+            if full, let updated = state.lastUpdated {
                 statusDivider
                 Text("refreshed \(formatAge(updated)) ago")
                     .font(.system(size: 11))
@@ -72,11 +84,12 @@ struct StatusBarView: View {
                     .monospacedDigit()
             }
 
-            if !state.k8sVersion.isEmpty {
+            if full, !state.k8sVersion.isEmpty {
                 statusDivider
                 Text("K8s \(state.k8sVersion)")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
     }

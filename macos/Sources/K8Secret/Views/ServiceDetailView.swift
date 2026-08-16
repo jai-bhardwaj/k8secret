@@ -271,6 +271,8 @@ struct ServiceDetailView: View {
                     .foregroundStyle(.secondary)
                 Text(value)
                     .font(.system(.callout, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .textSelection(.enabled)
             }
 
@@ -299,44 +301,57 @@ struct ServiceDetailView: View {
                 .font(.system(.headline, design: .monospaced, weight: .semibold))
 
             ForEach(svc.ports, id: \.self) { port in
-                HStack(spacing: 16) {
-                    if !port.name.isEmpty {
-                        Text(port.name)
-                            .font(.system(.callout, design: .monospaced, weight: .medium))
-                            .frame(minWidth: 80, alignment: .leading)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        portIdentity(port)
+                        Spacer()
+                        portActions(svc, port)
                     }
-
-                    HStack(spacing: 6) {
-                        portChip("\(port.port)", color: .blue, label: "Port")
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                        portChip(port.targetPort, color: .green, label: "Target")
-
-                        if let np = port.nodePort {
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
-                            portChip("\(np)", color: .orange, label: "Node")
-                        }
+                    VStack(alignment: .leading, spacing: 8) {
+                        portIdentity(port)
+                        HStack(spacing: 10) { portActions(svc, port) }
                     }
-
-                    Spacer()
-
-                    // Per-port forward button
-                    portForwardMiniButton(svc, port: port)
-
-                    Text(port.protocol_)
-                        .font(.system(.caption, design: .monospaced, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .padding(10)
                 .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
             }
         }
+    }
+
+    @ViewBuilder
+    private func portIdentity(_ port: ServicePort) -> some View {
+        if !port.name.isEmpty {
+            Text(port.name)
+                .font(.system(.callout, design: .monospaced, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 80, maxWidth: 140, alignment: .leading)
+        }
+        HStack(spacing: 6) {
+            portChip("\(port.port)", color: .blue, label: "Port")
+            Image(systemName: "arrow.right")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            portChip(port.targetPort, color: .green, label: "Target")
+            if let np = port.nodePort {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                portChip("\(np)", color: .orange, label: "Node")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func portActions(_ svc: K8sService, _ port: ServicePort) -> some View {
+        portForwardMiniButton(svc, port: port)
+        Text(port.protocol_)
+            .font(.system(.caption, design: .monospaced, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func portChip(_ value: String, color: Color, label: String) -> some View {
@@ -503,8 +518,11 @@ struct ServiceDetailView: View {
                                 Text(pod.podIP.isEmpty ? "—" : pod.podIP)
                                     .font(.system(.caption2, design: .monospaced))
                                     .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                                 Text(pod.ready)
                                     .font(.system(.caption2, design: .monospaced))
+                                    .lineLimit(1)
                                     .foregroundStyle(pod.readyCount == pod.totalCount ? Theme.ok : Theme.warn)
                             }
                             .padding(.horizontal, 8)

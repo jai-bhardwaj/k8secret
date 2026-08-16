@@ -57,7 +57,7 @@ struct IngressRow: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
-            MetricChip(icon: "globe", text: ingress.primaryHost, hue: nil)
+            MetricChip(icon: "globe", text: ingress.primaryHost, hue: nil, truncates: true)
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
@@ -134,6 +134,8 @@ struct IngressDetailView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Text(rule.path)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                         .font(.system(.caption, design: .monospaced, weight: .semibold))
                     Spacer()
                     // The backend service is a link, not a label: routing
@@ -143,6 +145,8 @@ struct IngressDetailView: View {
                     } label: {
                         Text("\(rule.serviceName):\(String(rule.servicePort))")
                             .font(.system(.caption, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

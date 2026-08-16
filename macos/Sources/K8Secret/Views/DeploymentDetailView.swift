@@ -502,12 +502,18 @@ func labelsSection(_ labels: [String: String]) -> some View {
                 HStack(spacing: 4) {
                     Text(key)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     Text("=")
                         .foregroundStyle(.tertiary)
                     Text(value)
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
                 .font(.system(.caption, design: .monospaced))
+                .frame(maxWidth: 280)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))

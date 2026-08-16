@@ -121,27 +121,25 @@ struct PodRow: View {
 
             // Row 2: metrics chips (only for running pods with metrics)
             if let m = metrics, pod.phase.lowercased() == "running" {
-                HStack(spacing: 12) {
-                    metricsChip(
-                        icon: "cpu",
-                        color: Theme.cpu,
-                        usage: m.totalCPU,
-                        requestPct: m.cpuPercent(pod: pod),
-                        limitPct: m.cpuLimitPercent(pod: pod)
-                    )
-
-                    metricsChip(
-                        icon: "memorychip",
-                        color: Theme.memory,
-                        usage: m.totalMemory,
-                        requestPct: m.memPercent(pod: pod),
-                        limitPct: m.memLimitPercent(pod: pod)
-                    )
-
-                    Spacer()
-
-                    // Ready + restarts + containers inline
-                    podInfoChips
+                // Degrade predictably in the 280pt column: drop the R/L
+                // badges before anything can crush or wrap.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        metricsChip(icon: "cpu", color: Theme.cpu, usage: m.totalCPU,
+                                    requestPct: m.cpuPercent(pod: pod),
+                                    limitPct: m.cpuLimitPercent(pod: pod))
+                        metricsChip(icon: "memorychip", color: Theme.memory, usage: m.totalMemory,
+                                    requestPct: m.memPercent(pod: pod),
+                                    limitPct: m.memLimitPercent(pod: pod))
+                        Spacer(minLength: 8)
+                        podInfoChips
+                    }
+                    HStack(spacing: 10) {
+                        compactChip(icon: "cpu", color: Theme.cpu, usage: m.totalCPU)
+                        compactChip(icon: "memorychip", color: Theme.memory, usage: m.totalMemory)
+                        Spacer(minLength: 8)
+                        podInfoChips
+                    }
                 }
             } else {
                 // No metrics — still show ready/restarts/containers
@@ -200,6 +198,7 @@ struct PodRow: View {
             // Usage value
             Text(usage)
                 .font(.system(.caption2, design: .monospaced, weight: .semibold))
+                .lineLimit(1)
                 .foregroundStyle(color)
 
             // Percentage badges: req% / lim%
@@ -215,15 +214,22 @@ struct PodRow: View {
                     }
                 }
                 .font(.system(.caption2, design: .monospaced, weight: .bold))
+                .lineLimit(1)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 3))
             }
         }
         .font(.system(.caption2, design: .monospaced))
+        .fixedSize()
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(color.opacity(0.05), in: RoundedRectangle(cornerRadius: 5))
+    }
+
+    /// The chip without its R/L badges — the narrow fallback.
+    private func compactChip(icon: String, color: Color, usage: String) -> some View {
+        metricsChip(icon: icon, color: color, usage: usage, requestPct: nil, limitPct: nil)
     }
 
     private func pctColor(_ p: Int) -> Color { Theme.pressure(p) }
