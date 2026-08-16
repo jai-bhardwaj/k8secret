@@ -181,9 +181,9 @@ struct SecretDetailView: View {
                         .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut("n", modifiers: .command)
-                .help("Add Key (⌘N)")
-                .accessibilityLabel("Add Key (⌘N)")
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .help("Add Key (⌥⌘N)")
+                .accessibilityLabel("Add Key (⌥⌘N)")
                 .padding(20)
             }
         }

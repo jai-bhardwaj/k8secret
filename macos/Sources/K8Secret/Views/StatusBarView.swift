@@ -119,6 +119,7 @@ struct StatusBarView: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .onHover { hoveringCluster = $0 }
             .help("Switch cluster context")
             .font(.system(size: 11))

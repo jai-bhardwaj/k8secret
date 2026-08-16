@@ -339,3 +339,48 @@ struct UnderlineTabBar<Tab: Hashable>: View {
         }
     }
 }
+
+// MARK: - Detail chrome (the prototype's breadcrumb + SPEC grammar)
+
+/// The line above every detail pane: `ctx / namespace / type` — where am I,
+/// answered before the name.
+struct DetailBreadcrumb: View {
+    @Environment(AppState.self) private var state
+    let type: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(state.context)
+            Text("/").foregroundStyle(Theme.text3)
+            Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—"))
+            Text("/").foregroundStyle(Theme.text3)
+            Text(type)
+        }
+        .font(.system(size: 11.5))
+        .foregroundStyle(Theme.text2)
+        .lineLimit(1)
+    }
+}
+
+/// The prototype's SPEC/PLACEMENT row: muted label column, mono value.
+struct KVDetailRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.text2)
+                .frame(width: 130, alignment: .leading)
+            Text(value)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Theme.text)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(value)")
+    }
+}

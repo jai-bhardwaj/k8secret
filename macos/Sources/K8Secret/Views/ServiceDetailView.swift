@@ -66,16 +66,9 @@ struct ServiceDetailView: View {
 
     private func headerSection(_ svc: K8sService) -> some View {
         HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(typeColor(svc).opacity(0.15))
-                    .frame(width: 48, height: 48)
-                Image(systemName: typeIcon(svc))
-                    .font(.system(size: 20))
-                    .foregroundStyle(typeColor(svc))
-            }
-
             VStack(alignment: .leading, spacing: 4) {
+                DetailBreadcrumb(type: "services")
+                    .padding(.bottom, 2)
                 Text(svc.name)
                     .font(.system(.title2, design: .monospaced, weight: .bold))
 

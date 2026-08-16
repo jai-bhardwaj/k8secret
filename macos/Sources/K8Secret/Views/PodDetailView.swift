@@ -34,6 +34,13 @@ struct PodDetailView: View {
     @ViewBuilder
     private func podDetail(_ pod: K8sPod) -> some View {
         VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                DetailBreadcrumb(type: "pods")
+                headerSection(pod)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+
             UnderlineTabBar(
                 tabs: DetailTab.allCases.map { ($0, $0.rawValue) },
                 selection: Binding(get: { state.podDetailTab }, set: { state.podDetailTab = $0 })
@@ -44,11 +51,7 @@ struct PodDetailView: View {
             case .overview:
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        headerSection(pod)
-                        if let m = state.metrics(for: pod.name) {
-                            metricsSection(m)
-                        }
-                        Divider()
+                        statTiles(pod)
                         infoSection(pod)
                         Divider()
                         containersSection(pod)
@@ -101,15 +104,6 @@ struct PodDetailView: View {
 
     private func headerSection(_ pod: K8sPod) -> some View {
         HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(phaseColor(pod).opacity(0.15))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "circle.hexagongrid.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(phaseColor(pod))
-            }
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(pod.name)
                     .font(.system(.title2, design: .monospaced, weight: .bold))
@@ -163,20 +157,31 @@ struct PodDetailView: View {
         .background(color.opacity(0.12), in: Capsule())
     }
 
-    private func infoSection(_ pod: K8sPod) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Info", systemImage: "info.circle")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
-
-            LazyVGrid(columns: [
-                GridItem(.flexible(), alignment: .leading),
-                GridItem(.flexible(), alignment: .leading),
-            ], spacing: 10) {
-                infoRow("Node", pod.nodeName.isEmpty ? "—" : pod.nodeName)
-                infoRow("Pod IP", pod.podIP.isEmpty ? "—" : pod.podIP)
-                infoRow("Host IP", pod.hostIP.isEmpty ? "—" : pod.hostIP)
-                infoRow("Owner", pod.ownerKind.isEmpty ? "—" : "\(pod.ownerKind)/\(pod.ownerName)")
+    /// The prototype's stat-card row: the numbers that matter, big, first.
+    private func statTiles(_ pod: K8sPod) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
+            StatCard(label: "Ready", value: pod.ready, mono: true)
+            StatCard(label: "Restarts", value: "\(pod.restarts)",
+                     valueColor: pod.restarts > 5 ? Theme.bad : (pod.restarts > 0 ? Theme.warn : nil))
+            if let m = state.metrics(for: pod.name) {
+                StatCard(label: "CPU", value: m.totalCPU, mono: true, valueColor: Theme.cpu)
+                StatCard(label: "Memory", value: m.totalMemory, mono: true, valueColor: Theme.memory)
             }
+            StatCard(label: "Age", value: pod.age, mono: true)
+        }
+    }
+
+    private func infoSection(_ pod: K8sPod) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("PLACEMENT")
+                .font(.system(size: 10, weight: .semibold))
+                .kerning(0.8)
+                .foregroundStyle(Theme.text3)
+                .padding(.bottom, 4)
+            KVDetailRow(label: "Node", value: pod.nodeName.isEmpty ? "—" : pod.nodeName)
+            KVDetailRow(label: "Pod IP", value: pod.podIP.isEmpty ? "—" : pod.podIP)
+            KVDetailRow(label: "Host IP", value: pod.hostIP.isEmpty ? "—" : pod.hostIP)
+            KVDetailRow(label: "Controlled by", value: pod.ownerKind.isEmpty ? "—" : "\(pod.ownerKind)/\(pod.ownerName)")
         }
     }
 

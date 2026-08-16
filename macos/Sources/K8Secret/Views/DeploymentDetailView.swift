@@ -37,6 +37,13 @@ struct DeploymentDetailView: View {
     @ViewBuilder
     private func deploymentDetail(_ dep: K8sDeployment) -> some View {
         VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                DetailBreadcrumb(type: "deployments")
+                headerSection(dep)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+
             // The rollout banner stays above the tabs: an in-flight write is
             // never allowed to hide behind a tab the user isn't on.
             if state.showsRolloutBanner {
@@ -55,8 +62,7 @@ struct DeploymentDetailView: View {
             case .overview:
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        headerSection(dep)
-                        Divider()
+                        statTiles(dep)
                         scaleSection(dep)
                         Divider()
                         imagesSection(dep)
@@ -147,15 +153,6 @@ struct DeploymentDetailView: View {
 
     private func headerSection(_ dep: K8sDeployment) -> some View {
         HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(statusColor(dep).opacity(0.15))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(statusColor(dep))
-            }
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(dep.name)
                     .font(.system(.title2, design: .monospaced, weight: .bold))
@@ -239,6 +236,16 @@ struct DeploymentDetailView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(info.1.opacity(0.12), in: Capsule())
+    }
+
+    private func statTiles(_ dep: K8sDeployment) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
+            StatCard(label: "Ready", value: "\(dep.readyReplicas) / \(dep.replicas)",
+                     valueColor: dep.readyReplicas < dep.replicas ? Theme.warn : nil)
+            StatCard(label: "Updated", value: "\(dep.updatedReplicas)")
+            StatCard(label: "Available", value: "\(dep.availableReplicas)")
+            StatCard(label: "Age", value: dep.age, mono: true)
+        }
     }
 
     private func scaleSection(_ dep: K8sDeployment) -> some View {
