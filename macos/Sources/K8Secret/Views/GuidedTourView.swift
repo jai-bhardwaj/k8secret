@@ -8,7 +8,7 @@ import SwiftUI
 /// A stop whose control isn't on screen (rail collapsed, window compact) is
 /// simply skipped rather than pointing at nothing.
 enum TourSpot: Hashable, CaseIterable {
-    case rail, namespaceScope, search, secrets, clusterChip
+    case rail, namespaceScope, search, secrets, clusterSwitcher
 }
 
 struct TourSpotKey: PreferenceKey {
@@ -42,6 +42,10 @@ struct TourStep {
     /// parks under the control's side of the titlebar instead of pretending to
     /// know a rectangle it can't see.
     var titlebar: HorizontalEdge? = nil
+    /// A stop that opens the thing it is describing. Talking about switching
+    /// clusters while the switcher is shut teaches nothing — the tour opens it,
+    /// spotlights the real panel, and closes it again on the way out.
+    var opensClusterSwitcher = false
 }
 
 let tourSteps: [TourStep] = [
@@ -59,9 +63,10 @@ let tourSteps: [TourStep] = [
     TourStep(spot: .secrets,
              title: "Secrets stay covered",
              body: "Values are masked until you ask for them, and nothing leaves the window without you saying so."),
-    TourStep(spot: .clusterChip,
+    TourStep(spot: .clusterSwitcher,
              title: "Every window is one cluster",
-             body: "Switch clusters here — the color follows the cluster — or press ⌘N to open another one beside this."),
+             body: "This is the switcher, opened from the status bar. Pick a cluster to move this window, or ⌘N to open another cluster in a window of its own.",
+             opensClusterSwitcher: true),
 ]
 
 /// The overlay itself. Sits above the app, dims everything except the control
@@ -72,11 +77,14 @@ struct GuidedTourView: View {
     let proxy: GeometryProxy
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(AppState.self) private var state
 
     /// Stops that can be shown here: either their control was measured, or
     /// they live in the titlebar and don't need to be.
     private var visibleSteps: [TourStep] {
-        let usable = tourSteps.filter { spots[$0.spot] != nil || $0.titlebar != nil }
+        let usable = tourSteps.filter {
+            spots[$0.spot] != nil || $0.titlebar != nil || $0.opensClusterSwitcher
+        }
         return usable.isEmpty ? tourSteps : usable
     }
 
@@ -123,6 +131,12 @@ struct GuidedTourView: View {
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: step)
         .onExitCommand { finish() }
+        .onChange(of: step, initial: true) { _, _ in
+            let wanted = current?.opensClusterSwitcher ?? false
+            if state.clusterSwitcherOpen != wanted {
+                withAnimation(Motion.panel) { state.clusterSwitcherOpen = wanted }
+            }
+        }
     }
 
     private func card(_ stepModel: TourStep) -> some View {
@@ -207,6 +221,9 @@ struct GuidedTourView: View {
 
     private func finish() {
         Welcome.completeTour()
+        if state.clusterSwitcherOpen {
+            withAnimation(Motion.panel) { state.clusterSwitcherOpen = false }
+        }
         withAnimation(Theme.easeOut) { step = nil }
     }
 }

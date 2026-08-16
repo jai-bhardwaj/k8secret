@@ -742,6 +742,7 @@ struct ClusterSwitcherPanel: View {
         .frame(width: 300)
         .floatGlass(radius: 14)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .tourSpot(.clusterSwitcher)
     }
 
     private func tint(for ctx: String) -> Theme.ClusterTint {

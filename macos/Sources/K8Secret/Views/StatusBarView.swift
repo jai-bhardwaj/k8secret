@@ -68,7 +68,6 @@ struct StatusBarView: View {
             .focusEffectDisabled()
             .onHover { hoveringCluster = $0 }
             .help("Switch cluster context")
-            .tourSpot(.clusterChip)
             .font(.system(size: 11))
 
             statusDivider

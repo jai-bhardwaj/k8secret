@@ -358,7 +358,7 @@ final class GuidedTourTests: XCTestCase {
         XCTAssertEqual(tourSteps.count, 5)
         for step in tourSteps {
             let measurable = step.spot != .namespaceScope && step.spot != .search
-            XCTAssertTrue(measurable || step.titlebar != nil,
+            XCTAssertTrue(measurable || step.titlebar != nil || step.opensClusterSwitcher,
                           "\(step.spot) can be neither measured nor placed")
             XCTAssertFalse(step.title.isEmpty)
             XCTAssertFalse(step.body.isEmpty)
