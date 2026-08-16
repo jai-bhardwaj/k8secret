@@ -65,8 +65,8 @@ struct EventFeedRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(event.lastSeen.map { formatAge($0) + " ago" } ?? "—")
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(Theme.text3)
                 .frame(width: 64, alignment: .leading)
                 .padding(.top, 1)
 
@@ -77,9 +77,9 @@ struct EventFeedRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(event.reason.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
-                        .kerning(0.5)
-                        .foregroundStyle(isWarning ? Theme.warn : Color.secondary)
+                        .font(.system(size: 11, weight: .semibold))
+                        .kerning(0.55)
+                        .foregroundStyle(isWarning ? Theme.warn : Theme.text3)
                     if event.count > 1 {
                         Text("×\(event.count)")
                             .font(.system(size: 10, design: .monospaced))
@@ -94,12 +94,12 @@ struct EventFeedRow: View {
                     }
                 }
                 Text(event.message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.text2)
                     .textSelection(.enabled)
             }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 9)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(isWarning ? "Warning" : "Event"): \(event.reason), \(event.message)")
     }

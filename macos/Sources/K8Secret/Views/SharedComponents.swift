@@ -64,12 +64,16 @@ struct MetricChip: View {
                 .lineLimit(1)
                 .truncationMode(truncates ? .middle : .tail)
             if let pressure {
+                // Inside its own soft badge, "comfortably below requests" is
+                // worth saying in green — unlike a bare number on the canvas,
+                // which is where colouring the healthy case went wrong.
+                let level = pressure > 85 ? Theme.bad : (pressure > 60 ? Theme.warn : Theme.ok)
                 Text("R\(pressure)%")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 0.5)
-                    .foregroundStyle(Theme.pressure(pressure))
-                    .background(Theme.soft(Theme.pressure(pressure)), in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(level)
+                    .background(Theme.soft(level), in: RoundedRectangle(cornerRadius: 4))
             }
         }
         .fixedSize(horizontal: !truncates, vertical: true)
@@ -151,22 +155,44 @@ struct PaneHeader<Trailing: View>: View {
     let subtitle: String
     @ViewBuilder var trailing: Trailing
 
+    private var titleText: some View {
+        Text(title)
+            .font(.system(size: 26, weight: .medium))
+            .kerning(-0.39)
+            .foregroundStyle(Theme.text)
+            .lineLimit(1)
+    }
+
+    private var subtitleText: some View {
+        Text(subtitle)
+            .font(.system(size: 13))
+            .foregroundStyle(Theme.text3)
+            .lineLimit(1)
+            .truncationMode(.middle)
+    }
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .font(.system(size: 14, weight: .bold))
-                .lineLimit(1)
-            Text(subtitle)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
-            trailing
+        // The prototype's `.listhead`: the pane's name is a heading, not a
+        // label — 26px at medium weight, with the count beside it.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                titleText
+                subtitleText
+                Spacer(minLength: 4)
+                trailing
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    titleText
+                    Spacer(minLength: 4)
+                    trailing
+                }
+                subtitleText
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 13)
-        .padding(.bottom, 9)
+        .padding(.horizontal, 18)
+        .padding(.top, 20)
+        .padding(.bottom, 10)
     }
 }
 
@@ -218,7 +244,7 @@ struct VNextRow: ViewModifier {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 2)
+            .padding(.vertical, 7)
             .background {
                 // Prototype selection grammar: sel-row fill + theme-aware
                 // ring; hover is the recessed wash. Rounded 12 like the

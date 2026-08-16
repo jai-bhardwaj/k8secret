@@ -11,9 +11,16 @@ enum Welcome {
 
     /// What this build should announce after an update.
     static let highlights: [(String, String)] = [
-        ("A new world", "One luminous canvas per cluster — the color you pick paints the whole window, so prod is unmistakable."),
-        ("Overview that answers first", "A health ring, what needs attention, and the busiest pods, before you drill in."),
-        ("⌘N picks the cluster", "New Window opens a chooser; the status bar switches context in place."),
+        ("A window per cluster",
+         "Every window is one cluster, painted in its own color — ⌘N opens as many as you need, each with its own namespace, scope and selection."),
+        ("It opens like an app",
+         "A launch that assembles and hands the window over, a first run that asks which cluster, and a guided tour that points at the real controls rather than pictures of them."),
+        ("YAML, a tab away",
+         "Every resource shows its live manifest from the API server. Secret values stay covered there — opening a tab is not asking to see them."),
+        ("Search wherever you pick",
+         "Filter clusters and namespaces by name, with counts beside them and the ones you actually use on top. ⌘K still jumps anywhere in the cluster."),
+        ("Fixed: browsing all namespaces",
+         "Scoped to every namespace, the app was discarding what it had already fetched — secrets read as empty, logs never arrived, and saving a secret did nothing at all. It works."),
     ]
 
     static var needsFirstRun: Bool {

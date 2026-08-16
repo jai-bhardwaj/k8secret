@@ -270,7 +270,11 @@ struct HealthRing: View {
     /// directly. Mirroring the value into @State went stale whenever
     /// ViewThatFits swapped hero layouts — the ring kept saying 100%.
     @State private var appeared = false
+    /// The sheen's angle. It turns once every 5.5 seconds, forever, like the
+    /// prototype's conic highlight.
+    @State private var sheen = false
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shown: Int { appeared ? percent : 0 }
 
@@ -292,6 +296,22 @@ struct HealthRing: View {
                     style: StrokeStyle(lineWidth: 13, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .shadow(color: tierColors[0].opacity(0.55), radius: 12)
+            // The prototype's slow highlight travelling around the band: a
+            // narrow white wedge in a conic gradient, turning once every 5.5s.
+            Circle()
+                .strokeBorder(
+                    AngularGradient(
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .clear, location: 0.78),
+                            .init(color: .white.opacity(scheme == .dark ? 0.20 : 0.34), location: 0.88),
+                            .init(color: .clear, location: 0.96),
+                            .init(color: .clear, location: 1),
+                        ],
+                        center: .center),
+                    lineWidth: 13)
+                .rotationEffect(.degrees(sheen ? 360 : 0))
+                .allowsHitTesting(false)
             VStack(spacing: 2) {
                 Text("\(shown)%")
                     .font(.system(size: 44, weight: .light))
@@ -305,6 +325,10 @@ struct HealthRing: View {
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.9)) { appeared = true }
+            guard !reduceMotion else { return }
+            withAnimation(.linear(duration: 5.5 * Motion.scale).repeatForever(autoreverses: false)) {
+                sheen = true
+            }
         }
         .animation(Theme.easeOut, value: percent)
         .accessibilityLabel("Cluster health \(percent) percent")
