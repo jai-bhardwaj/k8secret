@@ -139,12 +139,15 @@ struct DeploymentRow: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Theme.inset)
-                        Capsule().fill(Theme.warn)
+                        Capsule().fill(accent)
                             .frame(width: geo.size.width * CGFloat(deployment.readyReplicas) / CGFloat(deployment.replicas))
                     }
                 }
                 .frame(height: 3)
                 .padding(.top, 2)
+                // The prototype's `transition: width .5s ease` — a poll's step
+                // becomes a move, not a jump.
+                .animation(.easeInOut(duration: 0.5), value: deployment.readyReplicas)
             }
         }
         .padding(.vertical, 3)

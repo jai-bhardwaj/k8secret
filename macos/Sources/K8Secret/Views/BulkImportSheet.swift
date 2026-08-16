@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct BulkImportSheet: View {
+    @Environment(\.clusterAccent) private var accent
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
 
@@ -25,7 +26,7 @@ struct BulkImportSheet: View {
             // Header
             HStack {
                 Image(systemName: "square.and.arrow.down")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(accent)
                 Text("Bulk Import")
                     .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
@@ -99,7 +100,7 @@ struct BulkImportSheet: View {
                                 HStack {
                                     Text(key)
                                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(accent)
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                         .frame(minWidth: 120, maxWidth: 260, alignment: .leading)

@@ -118,53 +118,23 @@ struct DeploymentDetailView: View {
         }
     }
 
-    /// The prototype's rollout banner for rollouts the app didn't start:
-    /// progress ring + "N of M replicas ready".
+    /// A rollout the cluster is doing on its own — same banner, nothing to
+    /// dismiss, because the app isn't holding a poll open for it.
     private func passiveRolloutBanner(_ dep: K8sDeployment) -> some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text("Rolling update — \(dep.readyReplicas) of \(dep.replicas) replicas ready")
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .lineLimit(1)
-            Spacer()
-            Text("\(dep.replicas > 0 ? Int(Double(dep.readyReplicas) / Double(dep.replicas) * 100) : 0)%")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundStyle(Theme.warn)
-        }
-        .padding(12)
-        .background(Theme.soft(Theme.warn), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.warn.opacity(0.4), lineWidth: 1))
+        RolloutBanner(name: dep.name, ready: dep.readyReplicas, total: dep.replicas)
     }
 
+    /// A rollout this window started: the same banner, with a way to stop
+    /// watching if the cluster stalls.
+    @ViewBuilder
     private var rolloutBanner: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Rollout in progress")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                Text(state.rolloutProgress)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button {
+        if let dep = state.selectedDeployment {
+            RolloutBanner(name: dep.name,
+                          ready: dep.readyReplicas,
+                          total: dep.replicas) {
                 state.stopRolloutPolling()
-            } label: {
-                Text("Dismiss")
-                    .font(.system(size: 11, design: .monospaced))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
-        .padding(12)
-        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.blue.opacity(0.2), lineWidth: 1))
-        .animation(.easeInOut, value: state.rolloutProgress)
     }
 
     // MARK: - Sections
@@ -252,11 +222,11 @@ struct DeploymentDetailView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.blue.opacity(0.25), lineWidth: 1))
+            .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accent.opacity(0.3), lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.blue)
+        .foregroundStyle(accent)
     }
 
     private func statusBadge(_ dep: K8sDeployment) -> some View {

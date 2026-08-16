@@ -362,6 +362,86 @@ struct UnderlineTabBar<Tab: Hashable>: View {
     }
 }
 
+/// The prototype's rollout ring: a determinate arc, not a spinner. A rollout
+/// has a number — showing a spinner instead throws it away.
+struct ProgressRing: View {
+    let fraction: Double
+    var size: CGFloat = 16
+    var lineWidth: CGFloat = 3
+    @Environment(\.clusterAccent) private var accent
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Theme.soft(accent), lineWidth: lineWidth)
+            Circle()
+                // A sliver even at zero, so the ring reads as "started".
+                .trim(from: 0, to: max(0.03, min(1, fraction)))
+                .stroke(accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size, height: size)
+        .animation(.easeInOut(duration: 0.5), value: fraction)
+        .accessibilityHidden(true)
+    }
+}
+
+/// "**api** rolling out — 197 of 300 replicas ready … 62%", to the prototype's
+/// `.banner` spec: accent ring, accent border, accent-soft fill.
+struct RolloutBanner: View {
+    let name: String
+    let ready: Int
+    let total: Int
+    var onDismiss: (() -> Void)? = nil
+    @Environment(\.clusterAccent) private var accent
+
+    private var fraction: Double { total > 0 ? Double(ready) / Double(total) : 0 }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressRing(fraction: fraction)
+
+            (Text(name).bold() + Text(" rolling out — \(ready) of \(total) replicas ready"))
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer(minLength: 8)
+
+            Text("\(Int((fraction * 100).rounded()))%")
+                .font(.system(size: 12.5, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(accent)
+                .contentTransition(.numericText())
+
+            if let onDismiss {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.text3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Stop watching this rollout")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(Theme.soft(accent), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(accent, lineWidth: 1)
+        )
+        // Replica counts arrive in steps from the poll; the banner moves
+        // between them rather than snapping.
+        .animation(.easeInOut(duration: 0.5), value: ready)
+        .animation(.easeInOut(duration: 0.5), value: total)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name) rolling out, \(ready) of \(total) replicas ready")
+    }
+}
+
 // MARK: - Detail chrome (the prototype's breadcrumb + SPEC grammar)
 
 /// The line above every detail pane: `ctx / namespace / type` — where am I,

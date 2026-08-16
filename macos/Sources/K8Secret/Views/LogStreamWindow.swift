@@ -1,7 +1,15 @@
 import SwiftUI
 
 struct LogStreamWindow: View {
+    @Environment(\.colorScheme) private var scheme
     let logID: LogStreamID
+
+    /// Its own window, so nothing hands it the cluster accent — it reads the
+    /// tint saved for the context whose logs it is streaming.
+    private var accent: Color {
+        let raw = UserDefaults.standard.string(forKey: "clusterTint.\(logID.context)") ?? ""
+        return (Theme.ClusterTint(rawValue: raw) ?? .default).accent(scheme)
+    }
     @State private var state: LogStreamState
 
     init(logID: LogStreamID) {
@@ -113,7 +121,7 @@ struct LogStreamWindow: View {
                 } label: {
                     Image(systemName: "arrow.down.to.line")
                         .font(.system(size: 12))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(accent)
                 }
                 .buttonStyle(.plain)
                 .help("Jump to bottom")
