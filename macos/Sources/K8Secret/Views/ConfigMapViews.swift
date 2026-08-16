@@ -173,7 +173,7 @@ struct ConfigMapDetailView: View {
                             namespace: cm.namespace, name: cm.name, key: kv.key, value: newValue)
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(Theme.PrimaryPill())
                 .disabled(editValue == kv.value)
             }
         }

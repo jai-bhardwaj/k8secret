@@ -81,7 +81,7 @@ struct SecretDetailView: View {
             Button("Show values") {
                 Task { await state.unlockSecrets() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(Theme.PrimaryPill())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -175,10 +175,10 @@ struct SecretDetailView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(hex: 0x231646))
                         .frame(width: 48, height: 48)
-                        .background(.green.gradient, in: Circle())
-                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+                        .background(.white, in: Circle())
+                        .shadow(color: .black.opacity(0.32), radius: 9, y: 4)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("n", modifiers: [.command, .option])
@@ -246,8 +246,7 @@ struct SecretDetailView: View {
                     Text("Save All")
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .buttonStyle(Theme.PrimaryPill())
             .controlSize(.small)
             .disabled(state.saving)
             .animation(.easeOut(duration: 0.15), value: state.saving)
@@ -548,7 +547,7 @@ struct EditSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(Theme.PrimaryPill())
                 .disabled(value == initialValue)
             }
         }
@@ -640,8 +639,7 @@ struct AddKeySheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .buttonStyle(Theme.PrimaryPill())
                 .disabled(!canAdd)
             }
         }

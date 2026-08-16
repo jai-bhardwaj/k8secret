@@ -43,7 +43,7 @@ struct UpdateBannerView: View {
                         Button("Update") {
                             Task { await checker.downloadAndInstall() }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(Theme.PrimaryPill())
                         .controlSize(.small)
 
                         Button {
@@ -150,7 +150,7 @@ struct UpdateSheetView: View {
                         Button("Download & Install") {
                             Task { await checker.downloadAndInstall() }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(Theme.PrimaryPill())
                         .disabled(checker.downloading)
                         .keyboardShortcut(.defaultAction)
                     }
@@ -182,5 +182,6 @@ struct UpdateSheetView: View {
         }
         .padding(24)
         .frame(width: 400)
+        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
     }
 }

@@ -164,13 +164,13 @@ struct FeedbackSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Open GitHub issue") { send() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
+                    .buttonStyle(Theme.PrimaryPill())
                     .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(20)
         .frame(minWidth: 460)
+        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
     }
 
     private func send() {

@@ -127,8 +127,7 @@ struct CronJobDetailView: View {
             Button("Run now") {
                 runNow(cj)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
+            .buttonStyle(Theme.PrimaryPill())
             .disabled(cj.suspended)
             .help(cj.suspended ? "Resume the schedule before running" : "Start a job outside the schedule")
         }

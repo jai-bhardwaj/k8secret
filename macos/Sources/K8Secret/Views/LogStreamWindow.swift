@@ -17,6 +17,7 @@ struct LogStreamWindow: View {
             Divider()
             statusBar
         }
+        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
         .overlay {
             if let toast = copyToast {
                 VStack {
@@ -156,7 +157,7 @@ struct LogStreamWindow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(Theme.inset)
     }
 
     // MARK: - Level filters
@@ -282,7 +283,7 @@ struct LogStreamWindow: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 24)
-        .background(.bar)
+        .background(Theme.inset)
     }
 }
 

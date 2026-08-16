@@ -66,12 +66,12 @@ struct EnvExportSheet: View {
                 Button("Cancel") { dismiss() }
                 Button("Save to file…") { saveToFile() }
                 Button("Copy to clipboard") { copyAll() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
+                    .buttonStyle(Theme.PrimaryPill())
             }
         }
         .padding(20)
         .frame(minWidth: 460)
+        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
     }
 
     private func copyAll() {

@@ -129,12 +129,13 @@ struct BulkImportSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(Theme.PrimaryPill())
                 .disabled(parsedPairs.isEmpty)
             }
         }
         .padding(24)
         .frame(width: 680)
+        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
     }
 
     private func parseInput() {
@@ -244,10 +245,11 @@ struct ExportSheet: View {
                     state.showToast("Copied — clipboard clears in \(Int(SecretPasteboard.clearAfter))s")
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(Theme.PrimaryPill())
             }
         }
         .padding(24)
         .frame(width: 600)
+        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
     }
 }

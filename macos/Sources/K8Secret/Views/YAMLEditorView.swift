@@ -38,13 +38,12 @@ struct YAMLEditorView: View {
                         dismiss()
                         state.requestApplyRawYAML()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .buttonStyle(Theme.PrimaryPill())
                     .disabled(state.saving)
                 }
             }
             .padding(16)
-            .background(.bar)
+            .background(Theme.inset)
             .overlay(alignment: .bottom) { Divider() }
 
             // Editor
@@ -67,6 +66,7 @@ struct YAMLEditorView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 500)
+        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
         .onAppear {
             editedYAML = state.rawYAML
         }

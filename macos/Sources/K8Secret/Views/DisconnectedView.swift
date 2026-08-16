@@ -84,7 +84,7 @@ struct DisconnectedView: View {
                 Label("Retry", systemImage: "arrow.clockwise")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(Theme.PrimaryPill())
             .controlSize(.large)
             .tint(Theme.accent)
 
