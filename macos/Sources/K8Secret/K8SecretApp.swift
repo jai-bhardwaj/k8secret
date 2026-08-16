@@ -3,7 +3,6 @@ import SwiftUI
 @main
 struct K8SecretApp: App {
     @Environment(\.openWindow) private var openWindow
-    @State private var showUpdateSheet = false
 
     init() {
         SettingsView.apply(
@@ -43,9 +42,6 @@ struct K8SecretApp: App {
         WindowGroup(id: "cluster") {
             ClusterWindow(initialContext: nil)
                 .frame(minWidth: 660, minHeight: 520)
-                .sheet(isPresented: $showUpdateSheet) {
-                    UpdateSheetView(checker: UpdateChecker.shared)
-                }
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
@@ -64,7 +60,7 @@ struct K8SecretApp: App {
                 Button("Check for Updates...") {
                     Task {
                         await UpdateChecker.shared.checkForUpdates()
-                        showUpdateSheet = true
+                        UpdateChecker.shared.sheetRequested = true
                     }
                 }
             }

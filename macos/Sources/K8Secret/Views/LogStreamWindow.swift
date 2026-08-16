@@ -9,6 +9,13 @@ struct LogStreamWindow: View {
         self._state = State(initialValue: LogStreamState(id: logID))
     }
 
+    /// The saved tint of the cluster this stream belongs to, so this window
+    /// wears the same canvas as its parent — no per-theme code.
+    private var contextTint: Theme.ClusterTint {
+        let raw = UserDefaults.standard.string(forKey: "clusterTint.\(logID.context)") ?? ""
+        return Theme.ClusterTint(rawValue: raw) ?? .default
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -17,7 +24,7 @@ struct LogStreamWindow: View {
             Divider()
             statusBar
         }
-        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
+        .background(Theme.CanvasBackground(tint: contextTint, hero: false))
         .overlay {
             if let toast = copyToast {
                 VStack {

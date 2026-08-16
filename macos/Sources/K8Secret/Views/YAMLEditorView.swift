@@ -66,7 +66,7 @@ struct YAMLEditorView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 500)
-        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
+        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
         .onAppear {
             editedYAML = state.rawYAML
         }

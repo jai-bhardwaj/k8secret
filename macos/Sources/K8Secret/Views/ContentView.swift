@@ -104,6 +104,13 @@ struct ContentView: View {
                 .keyboardShortcut(",", modifiers: .command)
                 .hidden()
         }
+        .sheet(isPresented: Binding(
+            get: { UpdateChecker.shared.sheetRequested },
+            set: { UpdateChecker.shared.sheetRequested = $0 }
+        )) {
+            UpdateSheetView(checker: UpdateChecker.shared)
+                .environment(state)
+        }
         .motion(Motion.panel, value: state.paletteOpen)
         .motion(Motion.panel, value: state.settingsOpen)
         .motion(Motion.panel, value: state.confirmAction != nil)

@@ -19,6 +19,9 @@ struct AppRelease: Codable {
 final class UpdateChecker {
     var latestRelease: AppRelease?
     var updateAvailable = false
+    /// Set from the app menu; the frontmost cluster window presents the
+    /// sheet so it can wear that window's canvas tint.
+    var sheetRequested = false
     var checking = false
     var downloadProgress: Double = 0
     var downloading = false

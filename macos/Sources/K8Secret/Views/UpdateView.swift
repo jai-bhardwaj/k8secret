@@ -102,6 +102,7 @@ struct UpdateBannerView: View {
 }
 
 struct UpdateSheetView: View {
+    @Environment(AppState.self) private var state
     @Bindable var checker: UpdateChecker
     @Environment(\.dismiss) private var dismiss
 
@@ -182,6 +183,6 @@ struct UpdateSheetView: View {
         }
         .padding(24)
         .frame(width: 400)
-        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
+        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
     }
 }

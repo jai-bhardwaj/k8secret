@@ -172,7 +172,7 @@ struct FeedbackSheet: View {
         }
         .padding(20)
         .frame(minWidth: 460)
-        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
+        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
     }
 
     private func send() {

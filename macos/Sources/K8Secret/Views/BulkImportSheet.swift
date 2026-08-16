@@ -137,7 +137,7 @@ struct BulkImportSheet: View {
         }
         .padding(24)
         .frame(minWidth: 540, idealWidth: 640, maxWidth: 640)
-        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
+        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
     }
 
     private func parseInput() {
@@ -252,6 +252,6 @@ struct ExportSheet: View {
         }
         .padding(24)
         .frame(width: 600)
-        .background(Theme.CanvasBackground(tint: .ocean, hero: false))
+        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
     }
 }
