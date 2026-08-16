@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.openWindow) private var openWindow
 
 
     var body: some View {
@@ -141,6 +142,47 @@ struct ContentView: View {
     /// per row; selecting any row scopes back into its own namespace.
     @ToolbarContentBuilder
     private var scopeToolbar: some ToolbarContent {
+        // The prototype's titlebar order: context pill first (beside the
+        // traffic lights), then the namespace scope — cluster before filter.
+        ToolbarItem(placement: .navigation) {
+            Menu {
+                ForEach(state.availableContexts, id: \.self) { ctx in
+                    Button {
+                        Task { await state.switchContext(ctx) }
+                    } label: {
+                        HStack {
+                            Text(ctx)
+                            if ctx == state.context { Spacer(); Image(systemName: "checkmark") }
+                        }
+                    }
+                    .disabled(ctx == state.context)
+                }
+                Divider()
+                Menu("Open in New Window") {
+                    ForEach(state.availableContexts, id: \.self) { ctx in
+                        Button {
+                            openWindow(id: "cluster-ctx", value: ctx)
+                        } label: {
+                            Label(ctx, systemImage: "macwindow.badge.plus")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(state.clusterTint.color)
+                        .frame(width: 7, height: 7)
+                    Text(state.context)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .help("Kubeconfig context — the dot is this cluster's tint from Settings")
+        }
         ToolbarItem(placement: .automatic) {
             // The prototype's search field: the ⌘K affordance lives in the
             // toolbar so the palette is discoverable, not a secret handshake.

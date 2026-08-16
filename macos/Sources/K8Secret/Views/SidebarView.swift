@@ -11,11 +11,6 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            contextSwitcher
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(NavGroup.all) { group in
@@ -95,56 +90,6 @@ struct SidebarView: View {
         }
     }
 
-    private var contextSwitcher: some View {
-        Menu {
-            ForEach(state.availableContexts, id: \.self) { ctx in
-                Button {
-                    Task { await state.switchContext(ctx) }
-                } label: {
-                    HStack {
-                        Text(ctx)
-                        if ctx == state.context {
-                            Spacer()
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-                .disabled(ctx == state.context)
-            }
-
-            Divider()
-
-            Menu("Open in New Window") {
-                ForEach(state.availableContexts, id: \.self) { ctx in
-                    Button {
-                        openWindow(id: "cluster-ctx", value: ctx)
-                    } label: {
-                        Label(ctx, systemImage: "macwindow.badge.plus")
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(state.clusterTint.color)
-                    .frame(width: 7, height: 7)
-                Text(state.context)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.line, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .help("Kubeconfig context — the dot color is this cluster's tint from Settings")
-    }
 }
 
 /// One sidebar destination, with the prototype's three states: rest, hover

@@ -12,7 +12,7 @@ struct ConfigMapsListView: View {
             title: "ConfigMaps",
             subtitle: "\(state.configMaps.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter configmaps…", text: $state.configMapSearch)
-        List(state.filteredConfigMaps, selection: $state.selectedConfigMap) { cm in
+        List(state.filteredConfigMaps) { cm in
             HStack(spacing: 8) {
                 Text(cm.name)
                     .font(.system(.body, weight: .semibold))
@@ -29,12 +29,13 @@ struct ConfigMapsListView: View {
                     .monospacedDigit()
             }
             .padding(.vertical, 3)
-            .tag(cm)
             .vnextRow(isSelected: state.selectedConfigMap?.id == cm.id)
+            .onTapGesture { state.selectedConfigMap = cm }
             .listRowBackground(Color.clear)
             .listRowSeparatorTint(Theme.line)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
+        .vnextKeyboardSelection(items: state.filteredConfigMaps, selection: $state.selectedConfigMap)
         .overlay {
             if state.isInitialLoad {
                 ProgressView()

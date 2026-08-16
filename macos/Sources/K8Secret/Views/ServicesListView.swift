@@ -55,14 +55,15 @@ struct ServicesListView: View {
             title: "Services",
             subtitle: "\(state.services.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter services…", text: $state.serviceSearch)
-        List(state.filteredServices, selection: $state.selectedService) { svc in
+        List(state.filteredServices) { svc in
             ServiceRow(service: svc)
-                .tag(svc)
                 .vnextRow(isSelected: state.selectedService?.id == svc.id)
+                .onTapGesture { state.selectedService = svc }
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.line)
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
+        .vnextKeyboardSelection(items: state.filteredServices, selection: $state.selectedService)
         .overlay {
             if state.services.isEmpty {
                 // An empty namespace is a dead end unless it says where to go

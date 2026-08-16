@@ -12,14 +12,15 @@ struct IngressesListView: View {
             title: "Ingresses",
             subtitle: "\(state.ingresses.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter ingresses…", text: $state.ingressSearch)
-        List(state.filteredIngresses, selection: $state.selectedIngress) { ing in
+        List(state.filteredIngresses) { ing in
             IngressRow(ingress: ing, showNamespace: state.allNamespaces)
-                .tag(ing)
                 .vnextRow(isSelected: state.selectedIngress?.id == ing.id)
+                .onTapGesture { state.selectedIngress = ing }
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.line)
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
+        .vnextKeyboardSelection(items: state.filteredIngresses, selection: $state.selectedIngress)
         .overlay {
             if state.isInitialLoad {
                 ProgressView()

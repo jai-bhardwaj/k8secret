@@ -57,6 +57,14 @@ struct OverviewView: View {
                              valueColor: podsRunning < pods.count ? Theme.warn : nil)
                     StatCard(label: "Namespaces", value: "\(state.namespaces.count)")
                     StatCard(label: "Kubernetes", value: state.k8sVersion.isEmpty ? "—" : state.k8sVersion, mono: true)
+                    if state.clusterCPUPercent > 0 {
+                        StatCard(label: "Cluster CPU", value: "\(state.clusterCPUPercent)%",
+                                 valueColor: Theme.pressure(state.clusterCPUPercent))
+                    }
+                    if state.clusterMemPercent > 0 {
+                        StatCard(label: "Cluster memory", value: "\(state.clusterMemPercent)%",
+                                 valueColor: Theme.pressure(state.clusterMemPercent))
+                    }
                 }
 
                 section("Needs attention") {

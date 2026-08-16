@@ -129,32 +129,10 @@ struct StatusBarView: View {
     // MARK: - Right
 
     private var rightSection: some View {
+        // The design's right edge: forwards, then version. Cluster CPU/MEM
+        // moved to Overview's stat cards where capacity questions belong; the
+        // legacy status-bar theme picker is superseded by cluster tints.
         HStack(spacing: 12) {
-            if !state.namespaces.isEmpty {
-                statusItem(
-                    icon: "folder.fill",
-                    text: "\(state.namespaces.count) namespaces"
-                )
-                statusDivider
-            }
-
-            if state.clusterCPUPercent > 0 || state.clusterMemPercent > 0 {
-                miniGauge(
-                    label: "CPU",
-                    percent: state.clusterCPUPercent,
-                    detail: state.clusterCPUUsed.isEmpty ? nil : "\(state.clusterCPUUsed)/\(state.clusterCPUTotal)"
-                )
-
-                miniGauge(
-                    label: "MEM",
-                    percent: state.clusterMemPercent,
-                    detail: state.clusterMemUsed.isEmpty ? nil : "\(state.clusterMemUsed)/\(state.clusterMemTotal)"
-                )
-
-                statusDivider
-            }
-
-            // Active port forwards
             portForwardsMenu
 
             statusDivider
@@ -163,9 +141,6 @@ struct StatusBarView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
-
-            // Theme picker
-            themeMenu
         }
     }
 

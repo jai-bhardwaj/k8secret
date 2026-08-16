@@ -12,14 +12,15 @@ struct CronJobsListView: View {
             title: "CronJobs",
             subtitle: "\(state.cronJobs.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter cronjobs…", text: $state.cronJobSearch)
-        List(state.filteredCronJobs, selection: $state.selectedCronJob) { cj in
+        List(state.filteredCronJobs) { cj in
             CronJobRow(cronJob: cj, showNamespace: state.allNamespaces)
-                .tag(cj)
                 .vnextRow(isSelected: state.selectedCronJob?.id == cj.id)
+                .onTapGesture { state.selectedCronJob = cj }
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.line)
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
+        .vnextKeyboardSelection(items: state.filteredCronJobs, selection: $state.selectedCronJob)
         .overlay {
             if state.isInitialLoad {
                 ProgressView()

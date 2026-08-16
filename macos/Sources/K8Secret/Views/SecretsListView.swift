@@ -55,14 +55,15 @@ struct SecretsListView: View {
             title: "Secrets",
             subtitle: "\(state.secrets.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter secrets…", text: $state.secretSearch)
-        List(state.filteredSecrets, selection: $state.selectedSecret) { secret in
+        List(state.filteredSecrets) { secret in
             SecretRow(secret: secret)
-                .tag(secret)
                 .vnextRow(isSelected: state.selectedSecret?.id == secret.id)
+                .onTapGesture { state.selectedSecret = secret }
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.line)
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
+        .vnextKeyboardSelection(items: state.filteredSecrets, selection: $state.selectedSecret)
         .overlay {
             if state.secrets.isEmpty {
                 EmptyPane(icon: "lock.slash", title: "No Secrets",

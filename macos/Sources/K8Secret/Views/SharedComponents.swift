@@ -213,6 +213,33 @@ extension View {
         modifier(VNextRow(isSelected: isSelected, hoverKey: hoverKey))
     }
 
+    /// Arrow-key selection for the custom lists. The native List selection is
+    /// deliberately unused — its focused state paints the system accent over
+    /// the row, which is exactly the look the design forbids — so the pane
+    /// takes focus itself and moves selection with ↑↓.
+    func vnextKeyboardSelection<Item: Identifiable & Equatable>(
+        items: @escaping @autoclosure () -> [Item],
+        selection: Binding<Item?>
+    ) -> some View {
+        self
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.downArrow) {
+                let list = items()
+                guard !list.isEmpty else { return .ignored }
+                let i = list.firstIndex { $0.id == selection.wrappedValue?.id }
+                selection.wrappedValue = list[min(list.count - 1, (i ?? -1) + 1)]
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                let list = items()
+                guard !list.isEmpty else { return .ignored }
+                let i = list.firstIndex { $0.id == selection.wrappedValue?.id }
+                selection.wrappedValue = list[max(0, (i ?? 1) - 1)]
+                return .handled
+            }
+    }
+
     /// The pane-level styling every vNext list column shares.
     func vnextListPane() -> some View {
         self

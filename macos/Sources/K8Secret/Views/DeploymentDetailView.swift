@@ -285,10 +285,13 @@ struct DeploymentDetailView: View {
                         }
                     } label: {
                         Image(systemName: "minus")
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 32, height: 32)
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .background(Theme.panel, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.line, lineWidth: 1))
                     .accessibilityLabel("Scale down one replica")
                     .disabled(displayedReplicas(dep) <= 0 || state.scaling)
 
@@ -340,10 +343,13 @@ struct DeploymentDetailView: View {
                         state.requestScale(dep, to: displayedReplicas(dep) + 1)
                     } label: {
                         Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 32, height: 32)
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .background(Theme.panel, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.line, lineWidth: 1))
                     .accessibilityLabel("Scale up one replica")
                     .disabled(state.scaling)
 

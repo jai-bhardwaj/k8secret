@@ -55,15 +55,15 @@ struct PodsListView: View {
             title: "Pods",
             subtitle: "\(state.pods.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter pods…", text: $state.podSearch)
-        List(state.filteredPods, selection: $state.selectedPod) { pod in
+        List(state.filteredPods) { pod in
             PodRow(pod: pod, metrics: state.metrics(for: pod.name),
                    showNamespace: state.allNamespaces)
-                .tag(pod)
                 .vnextRow(isSelected: state.selectedPod?.id == pod.id, hoverKey: pod.name)
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Theme.line)
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
         }
+        .vnextKeyboardSelection(items: state.filteredPods, selection: $state.selectedPod)
         .overlay {
             if state.pods.isEmpty {
                 // An empty namespace is a dead end unless it says where to go
