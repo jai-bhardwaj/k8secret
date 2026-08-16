@@ -7,7 +7,10 @@ import SwiftUI
 /// it's even opened.
 struct LauncherView: View {
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismiss) private var dismiss
+    // dismissWindow, not dismiss: plain dismiss is the presentation action
+    // (sheets, popovers) and silently does nothing in a window root — the
+    // launcher stayed open after picking a cluster.
+    @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.colorScheme) private var scheme
 
     @State private var contexts: [ContextCard] = []
@@ -56,7 +59,7 @@ struct LauncherView: View {
                                     isCurrent: ctx.id == currentContext
                                 ) {
                                     openWindow(id: "cluster-ctx", value: ctx.id)
-                                    dismiss()
+                                    dismissWindow(id: "launcher")
                                 }
                             }
                         }
