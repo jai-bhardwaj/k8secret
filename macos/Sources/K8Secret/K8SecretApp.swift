@@ -70,12 +70,27 @@ struct K8SecretApp: App {
             }
 
             CommandGroup(replacing: .newItem) {
-                Button("New Window") {
-                    openWindow(id: "cluster")
+                // ⌘N is a cluster chooser (the Postico/Terminal model): pick
+                // the context first, then get a window bound to it. ⇧⌘N keeps
+                // the old "clone this window's context" behavior.
+                Button("New Window…") {
+                    openWindow(id: "launcher")
                 }
                 .keyboardShortcut("n", modifiers: .command)
+                Button("New Window with Current Context") {
+                    openWindow(id: "cluster")
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             }
         }
+
+        // ⌘N cluster chooser — a small fixed launcher listing every context.
+        WindowGroup(id: "launcher") {
+            LauncherView()
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
 
         // Context-specific window — opened via openWindow(id:value:)
         WindowGroup(id: "cluster-ctx", for: String.self) { $ctx in
@@ -104,6 +119,7 @@ struct K8SecretApp: App {
 /// Each window owns its own AppState, so multiple windows = multiple independent clusters.
 struct ClusterWindow: View {
     let initialContext: String?
+    @Environment(\.openWindow) private var openWindow
     @State private var state: AppState
 
     init(initialContext: String?) {
@@ -116,6 +132,13 @@ struct ClusterWindow: View {
             .environment(state)
             .navigationTitle(windowTitle)
             .background(WindowConfigurator())
+            .task {
+                // Debug-only (same contract as UITestTour): surface the ⌘N
+                // launcher so it can be screenshot-verified without input.
+                if ProcessInfo.processInfo.environment["K8SECRET_UITEST_LAUNCHER"] == "1" {
+                    openWindow(id: "launcher")
+                }
+            }
     }
 
     private var windowTitle: String {
