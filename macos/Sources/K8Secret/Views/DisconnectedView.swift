@@ -31,7 +31,7 @@ struct DisconnectedView: View {
             if !state.availableContexts.isEmpty {
                 VStack(spacing: 10) {
                     Text("Select a context to connect")
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
 
                     VStack(spacing: 4) {
@@ -46,7 +46,7 @@ struct DisconnectedView: View {
                                         .frame(width: 20)
 
                                     Text(ctx)
-                                        .font(.system(.callout, design: .monospaced, weight: .medium))
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                                         .lineLimit(1)
                                         .truncationMode(.middle)
 
@@ -100,7 +100,7 @@ struct DisconnectedView: View {
                 .frame(width: 20)
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.system(.callout, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
         }

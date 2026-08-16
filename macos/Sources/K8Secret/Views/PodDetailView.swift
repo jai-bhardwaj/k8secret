@@ -30,7 +30,7 @@ struct PodDetailView: View {
 
     /// Tabs instead of one long scroll: Logs get the full pane height they
     /// deserve, and Events stop living below three screens of sections.
-    enum DetailTab: String, CaseIterable { case overview = "Overview", logs = "Logs", events = "Events" }
+    enum DetailTab: String, CaseIterable { case overview = "Overview", logs = "Logs", events = "Events", yaml = "YAML" }
 
     @ViewBuilder
     private func podDetail(_ pod: K8sPod) -> some View {
@@ -74,6 +74,8 @@ struct PodDetailView: View {
                     }
                     .padding(24)
                 }
+            case .yaml:
+                ResourceYAMLView(type: .pods, namespace: pod.namespace, name: pod.name)
             }
         }
         .navigationTitle(pod.name)
@@ -123,7 +125,8 @@ struct PodDetailView: View {
     private func headerInfo(_ pod: K8sPod) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(pod.name)
-                .font(.system(.title2, design: .monospaced, weight: .bold))
+                .font(.system(size: 14.5, weight: .bold, design: .monospaced))
+                .kerning(-0.2)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
@@ -131,19 +134,19 @@ struct PodDetailView: View {
                 phaseBadge(pod)
 
                 Label(pod.ready + " ready", systemImage: "checkmark.circle")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .fixedSize()
 
                 if pod.restarts > 0 {
                     Label("\(pod.restarts) restarts", systemImage: "arrow.clockwise")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(pod.restarts > 5 ? .red : .orange)
                         .fixedSize()
                 }
 
                 Label(pod.age, systemImage: "clock")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .fixedSize()
             }
@@ -172,7 +175,7 @@ struct PodDetailView: View {
             Image(systemName: "exclamationmark.octagon.fill")
                 .foregroundStyle(Theme.bad)
             Text("Crash-looping — \(pod.restarts) restart\(pod.restarts == 1 ? "" : "s"). Kubernetes is backing off before the next attempt.")
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Theme.bad)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
@@ -187,7 +190,7 @@ struct PodDetailView: View {
         return HStack(spacing: 4) {
             Circle().fill(color).frame(width: 6, height: 6)
             Text(pod.isCrashLooping ? "CrashLoop" : pod.phase)
-                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
         }
         .foregroundStyle(color)
         .padding(.horizontal, 8)
@@ -225,7 +228,7 @@ struct PodDetailView: View {
     private func containersSection(_ pod: K8sPod) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Containers (\(pod.containers.count))", systemImage: "square.stack.3d.down.right")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
             ForEach(pod.containers, id: \.self) { container in
                 containerRow(container)
@@ -246,11 +249,11 @@ struct PodDetailView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(container.name)
-                    .font(.system(.callout, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(container.image)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -261,7 +264,7 @@ struct PodDetailView: View {
                 containerStateBadge(container)
                 if container.restarts > 0 {
                     Text(verbatim: "\(container.restarts) restarts")
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(container.restarts > 3 ? .red : .orange)
                 }
             }
@@ -273,7 +276,7 @@ struct PodDetailView: View {
     private func containerStateBadge(_ c: ContainerInfo) -> some View {
         let info = containerStateInfo(c)
         return Text(info.0)
-            .font(.system(.caption2, design: .monospaced, weight: .medium))
+            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
             .foregroundStyle(info.1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -322,7 +325,7 @@ struct PodDetailView: View {
     @ViewBuilder
     private func logsTitle(_ pod: K8sPod) -> some View {
         Label("Logs", systemImage: "text.alignleft")
-            .font(.system(.headline, design: .monospaced, weight: .semibold))
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
         Picker("Range", selection: $logRange) {
             ForEach(LogRange.allCases, id: \.self) { r in
                 Text(r.rawValue).tag(r)
@@ -391,14 +394,14 @@ struct PodDetailView: View {
             HStack {
                 ProgressView().controlSize(.small)
                 Text("Loading logs...")
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
             .padding(12)
         } else if !state.podLogs.isEmpty {
             ScrollView(.vertical) {
                 Text(state.podLogs)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
@@ -411,7 +414,7 @@ struct PodDetailView: View {
                 Image(systemName: "text.alignleft")
                     .foregroundStyle(.tertiary)
                 Text("Click \"Load Logs\" to view container output")
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
             .padding(12)

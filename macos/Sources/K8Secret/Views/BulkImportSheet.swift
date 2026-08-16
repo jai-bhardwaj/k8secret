@@ -27,7 +27,7 @@ struct BulkImportSheet: View {
                 Image(systemName: "square.and.arrow.down")
                     .foregroundStyle(.blue)
                 Text("Bulk Import")
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
             }
 
@@ -52,7 +52,7 @@ struct BulkImportSheet: View {
                 Spacer()
 
                 Text(mode == .merge ? "Add/overwrite existing keys" : "Replace all keys")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
 
@@ -60,17 +60,17 @@ struct BulkImportSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("PASTE DATA")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
                     if !input.isEmpty {
                         Text(verbatim: "\(input.components(separatedBy: "\n").count) lines")
-                            .font(.system(.caption2, design: .monospaced))
+                            .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
                 }
                 TextEditor(text: $input)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .frame(minHeight: 160)
                     .padding(4)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
@@ -82,7 +82,7 @@ struct BulkImportSheet: View {
             // Parse error
             if let error = parseError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.red)
             }
 
@@ -90,7 +90,7 @@ struct BulkImportSheet: View {
             if !parsedPairs.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: "PREVIEW (\(parsedPairs.count) keys)")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
 
                     ScrollView {
@@ -98,7 +98,7 @@ struct BulkImportSheet: View {
                             ForEach(parsedPairs, id: \.0) { key, value in
                                 HStack {
                                     Text(key)
-                                        .font(.system(.caption, design: .monospaced, weight: .semibold))
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                         .foregroundStyle(.blue)
                                         .lineLimit(1)
                                         .truncationMode(.tail)
@@ -106,7 +106,7 @@ struct BulkImportSheet: View {
                                     Text("=")
                                         .foregroundStyle(.tertiary)
                                     Text(value.prefix(80) + (value.count > 80 ? "..." : ""))
-                                        .font(.system(.caption, design: .monospaced))
+                                        .font(.system(size: 11, design: .monospaced))
                                         .foregroundStyle(.primary)
                                         .lineLimit(1)
                                     Spacer()
@@ -213,7 +213,7 @@ struct ExportSheet: View {
                 Image(systemName: "square.and.arrow.up")
                     .foregroundStyle(.green)
                 Text("Export")
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
             }
 
@@ -229,7 +229,7 @@ struct ExportSheet: View {
 
             ScrollView {
                 Text(content)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)

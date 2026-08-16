@@ -144,7 +144,7 @@ struct OverviewView: View {
                 section("Needs attention") {
                     if needsAttention.isEmpty {
                         Label("Everything is running.", systemImage: "checkmark.circle")
-                            .font(.callout)
+                            .font(.system(size: 12))
                             .foregroundStyle(Theme.ok)
                     } else {
                         VStack(spacing: 6) {
@@ -201,7 +201,7 @@ struct OverviewView: View {
             HStack(spacing: 9) {
                 Circle().fill(Theme.bad).frame(width: 8, height: 8)
                 Text(item.name)
-                    .font(.system(.callout, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
                 StatusPill(text: item.why, color: Theme.bad)
                 Spacer()
@@ -226,7 +226,7 @@ struct OverviewView: View {
                     .fill(pod.phase == "Running" ? Theme.ok : Theme.bad)
                     .frame(width: 7, height: 7)
                 Text(pod.name)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 MetricChip(icon: "cpu", text: "\(cpu)m", hue: Theme.cpu)

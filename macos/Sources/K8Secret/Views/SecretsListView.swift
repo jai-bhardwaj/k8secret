@@ -22,7 +22,7 @@ struct SecretsListView: View {
                     ProgressView()
                     Text("Loading secrets...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -99,13 +99,13 @@ struct SecretRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(secret.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                     .lineLimit(1)
 
                 Text(secret.keyCount > 0
                      ? "\(secret.type) · \(secret.keyCount) key\(secret.keyCount == 1 ? "" : "s")"
                      : secret.type)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -113,7 +113,7 @@ struct SecretRow: View {
             Spacer()
 
             Text(secret.age)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)

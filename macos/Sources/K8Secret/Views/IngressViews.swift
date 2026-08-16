@@ -46,14 +46,14 @@ struct IngressRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Text(ingress.name)
-                    .font(.system(.body, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
                 if showNamespace { NamespaceBadge(name: ingress.namespace) }
                 Spacer(minLength: 4)
                 StatusPill(text: ingress.tls ? "TLS" : "no TLS",
                            color: ingress.tls ? Theme.ok : Theme.warn)
                 Text(ingress.age)
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
@@ -70,23 +70,38 @@ struct IngressRow: View {
 struct IngressDetailView: View {
     @Environment(AppState.self) private var state
 
+    enum DetailTab: String, CaseIterable { case overview = "Overview", yaml = "YAML" }
+    @State private var tab = DetailTab.overview
+
     var body: some View {
         if let ing = state.selectedIngress {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 6) {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
                     DetailBreadcrumb(type: "ingresses")
                     HStack(spacing: 10) {
                         Text(ing.name)
-                            .font(.system(.title2, design: .monospaced, weight: .bold))
+                            .font(.system(size: 17, weight: .bold, design: .monospaced))
+                            .kerning(-0.25)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         StatusPill(text: ing.tls ? "TLS terminated" : "no TLS",
                                    color: ing.tls ? Theme.ok : Theme.warn)
                         Spacer()
                     }
-                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
 
+                UnderlineTabBar(tabs: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
+                    .padding(.top, 6)
+
+                switch tab {
+                case .yaml:
+                    ResourceYAMLView(type: .ingresses, namespace: ing.namespace, name: ing.name)
+                case .overview:
+                    ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
                     section("Routing") {
                         KVGrid(rows: [
                             ("Host", ing.primaryHost, true),
@@ -102,6 +117,8 @@ struct IngressDetailView: View {
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
             .navigationTitle(ing.name)
         } else {
@@ -139,13 +156,13 @@ struct IngressDetailView: View {
                 if i > 0 { Divider() }
                 HStack(spacing: 12) {
                     Text(rule.host)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Text(rule.path)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .font(.system(.caption, design: .monospaced, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     Spacer()
                     // The backend service is a link, not a label: routing
                     // questions end at the service, so take the user there.
@@ -153,7 +170,7 @@ struct IngressDetailView: View {
                         jumpToService(rule.serviceName)
                     } label: {
                         Text("\(rule.serviceName):\(String(rule.servicePort))")
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -165,7 +182,7 @@ struct IngressDetailView: View {
             }
             if ing.rules.isEmpty {
                 Text("No rules — this ingress routes nothing.")
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(Theme.warn)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 7)
@@ -194,7 +211,7 @@ struct KVGrid: View {
                 GridRow {
                     Text(row.0)
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                         .gridColumnAlignment(.leading)
                     Text(row.1)
                         .font(row.2 ? .system(.callout, design: .monospaced) : .callout)

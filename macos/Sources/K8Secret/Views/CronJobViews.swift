@@ -49,7 +49,7 @@ struct CronJobRow: View {
                     .fill(cronJob.suspended ? Theme.warn : (cronJob.lastRunSucceeded ? Theme.ok : Theme.bad))
                     .frame(width: 8, height: 8)
                 Text(cronJob.name)
-                    .font(.system(.body, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
                 if showNamespace {
                     NamespaceBadge(name: cronJob.namespace)
@@ -57,7 +57,7 @@ struct CronJobRow: View {
                 Spacer(minLength: 4)
                 statusPill
                 Text(cronJob.age)
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
@@ -65,7 +65,7 @@ struct CronJobRow: View {
                 MetricChip(icon: "clock", text: cronJob.schedule, hue: nil, truncates: true)
                 Spacer(minLength: 4)
                 Text("last \(cronJob.lastRun)")
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
         }
@@ -93,17 +93,31 @@ struct CronJobRow: View {
 struct CronJobDetailView: View {
     @Environment(AppState.self) private var state
 
+    enum DetailTab: String, CaseIterable { case overview = "Overview", yaml = "YAML" }
+    @State private var tab = DetailTab.overview
+
     var body: some View {
         if let cj = state.selectedCronJob {
-            ScrollView {
+            VStack(spacing: 0) {
+                header(cj)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                UnderlineTabBar(tabs: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
+                    .padding(.top, 6)
+                switch tab {
+                case .yaml:
+                    ResourceYAMLView(type: .cronjobs, namespace: cj.namespace, name: cj.name)
+                case .overview:
+                    ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    header(cj)
                     statGrid(cj)
                     scheduleNote(cj)
                     recentRuns(cj)
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
             .navigationTitle(cj.name)
         } else {
@@ -135,7 +149,8 @@ struct CronJobDetailView: View {
                 .padding(.bottom, 2)
             HStack(spacing: 10) {
                 Text(cj.name)
-                    .font(.system(.title2, design: .monospaced, weight: .bold))
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .kerning(-0.25)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if cj.suspended { StatusPill(text: "Suspended", color: Theme.warn) }
@@ -221,7 +236,7 @@ struct CronJobDetailView: View {
         Text(cj.suspended
              ? "Suspended — scheduled runs are skipped until you resume. Anything already running finishes normally."
              : "Run now starts a job outside the schedule; the scheduled runs are unaffected.")
-            .font(.caption)
+            .font(.system(size: 11))
             .foregroundStyle(.tertiary)
     }
 

@@ -301,7 +301,11 @@ struct ContentView: View {
                     try? await Task.sleep(for: .milliseconds(700))
                     switch type {
                     case .deployments: state.selectedDeployment = state.deployments.first
-                    case .pods: state.selectedPod = state.pods.first
+                    case .pods:
+                        state.selectedPod = state.pods.first
+                        if ProcessInfo.processInfo.environment["K8SECRET_UITEST_TAB"] == "yaml" {
+                            state.podDetailTab = .yaml
+                        }
                     case .services: state.selectedService = state.services.first
                     case .configmaps: state.selectedConfigMap = state.configMaps.first
                     case .cronjobs: state.selectedCronJob = state.cronJobs.first

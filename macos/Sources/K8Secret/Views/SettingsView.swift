@@ -157,13 +157,13 @@ struct FeedbackSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Send feedback").font(.headline)
+            Text("Send feedback").font(.system(size: 13, weight: .semibold))
             Text("What's broken, confusing, or missing? This opens a GitHub issue with your text prefilled.")
-                .font(.caption)
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
             TextEditor(text: $message)
-                .font(.body)
+                .font(.system(size: 12.5))
                 .frame(minHeight: 110)
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
 
@@ -171,7 +171,7 @@ struct FeedbackSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Include diagnostics")
                     Text("App version, macOS version, context count. Never secret values, kubeconfig contents, or cluster names.")
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
             }

@@ -154,7 +154,7 @@ struct StatusBarView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.green)
                     Text(verbatim: "\(activeCount)")
-                        .font(.system(.caption2, design: .monospaced, weight: .bold))
+                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                         .foregroundStyle(.green)
                 }
             }
@@ -168,7 +168,7 @@ struct StatusBarView: View {
     private func miniGauge(label: String, percent: Int, detail: String?) -> some View {
         HStack(spacing: 5) {
             Text(label)
-                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                 .foregroundStyle(.secondary)
 
             ZStack(alignment: .leading) {
@@ -181,7 +181,7 @@ struct StatusBarView: View {
             }
 
             Text(verbatim: "\(percent)%")
-                .font(.system(.caption2, design: .monospaced, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(gaugeColor(percent))
                 .frame(width: 28, alignment: .trailing)
         }
@@ -208,7 +208,7 @@ struct StatusBarView: View {
                     .foregroundStyle(.secondary)
             }
             Text(text)
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
     }

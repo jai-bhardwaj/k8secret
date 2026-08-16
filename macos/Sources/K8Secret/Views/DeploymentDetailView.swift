@@ -32,7 +32,7 @@ struct DeploymentDetailView: View {
         }
     }
 
-    enum DetailTab: String, CaseIterable { case overview = "Overview", events = "Events" }
+    enum DetailTab: String, CaseIterable { case overview = "Overview", events = "Events", yaml = "YAML" }
 
     @ViewBuilder
     private func deploymentDetail(_ dep: K8sDeployment) -> some View {
@@ -82,6 +82,8 @@ struct DeploymentDetailView: View {
                     }
                     .padding(24)
                 }
+            case .yaml:
+                ResourceYAMLView(type: .deployments, namespace: dep.namespace, name: dep.name)
             }
         }
         .onDisappear {
@@ -122,11 +124,11 @@ struct DeploymentDetailView: View {
             ProgressView()
                 .controlSize(.small)
             Text("Rolling update — \(dep.readyReplicas) of \(dep.replicas) replicas ready")
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .lineLimit(1)
             Spacer()
             Text("\(dep.replicas > 0 ? Int(Double(dep.readyReplicas) / Double(dep.replicas) * 100) : 0)%")
-                .font(.system(.callout, design: .monospaced, weight: .bold))
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(Theme.warn)
         }
         .padding(12)
@@ -141,9 +143,9 @@ struct DeploymentDetailView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Rollout in progress")
-                    .font(.system(.callout, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 Text(state.rolloutProgress)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
 
@@ -153,7 +155,7 @@ struct DeploymentDetailView: View {
                 state.stopRolloutPolling()
             } label: {
                 Text("Dismiss")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -183,7 +185,8 @@ struct DeploymentDetailView: View {
     private func headerInfo(_ dep: K8sDeployment) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(dep.name)
-                .font(.system(.title2, design: .monospaced, weight: .bold))
+                .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .kerning(-0.25)
                 .lineLimit(1)
                 .truncationMode(.middle)
             HStack(spacing: 12) {
@@ -244,7 +247,7 @@ struct DeploymentDetailView: View {
                 Image(systemName: "text.line.last.and.arrowtriangle.forward")
                     .font(.system(size: 12))
                 Text("Live Tail")
-                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
@@ -260,7 +263,7 @@ struct DeploymentDetailView: View {
         return HStack(spacing: 4) {
             Circle().fill(info.1).frame(width: 6, height: 6)
             Text(info.0)
-                .font(.system(.caption, design: .monospaced, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
         }
         .foregroundStyle(info.1)
         .padding(.horizontal, 8)
@@ -513,7 +516,7 @@ struct DeploymentDetailView: View {
 func labelsSection(_ labels: [String: String]) -> some View {
     VStack(alignment: .leading, spacing: 8) {
         Label("Labels", systemImage: "tag")
-            .font(.system(.headline, design: .monospaced, weight: .semibold))
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
         FlowLayout(spacing: 6) {
             ForEach(labels.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
@@ -529,7 +532,7 @@ func labelsSection(_ labels: [String: String]) -> some View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .frame(maxWidth: 280)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8)
@@ -550,7 +553,7 @@ struct EventsSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Events (\(state.events.count))", systemImage: "list.bullet.rectangle")
-                .font(.system(.headline, design: .monospaced, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
 
             ForEach(state.events) { event in
                 eventRow(event)
@@ -568,15 +571,15 @@ struct EventsSectionView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(event.reason)
-                        .font(.system(.callout, design: .monospaced, weight: .medium))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                     if event.count > 1 {
                         Text(verbatim: "×\(event.count)")
-                            .font(.system(.caption, design: .monospaced, weight: .bold))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundStyle(.orange)
                     }
                 }
                 Text(event.message)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
@@ -585,7 +588,7 @@ struct EventsSectionView: View {
 
             if let last = event.lastSeen {
                 Text(formatAge(last))
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
         }

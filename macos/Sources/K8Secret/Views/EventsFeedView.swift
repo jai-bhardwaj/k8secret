@@ -17,7 +17,7 @@ struct EventsFeedView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Events").font(.title3.weight(.bold))
                     Text("\(state.context) · all namespaces · newest first")
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
@@ -65,7 +65,7 @@ struct EventFeedRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(event.lastSeen.map { formatAge($0) + " ago" } ?? "—")
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 64, alignment: .leading)
                 .padding(.top, 1)
@@ -94,7 +94,7 @@ struct EventFeedRow: View {
                     }
                 }
                 Text(event.message)
-                    .font(.callout)
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }

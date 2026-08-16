@@ -111,7 +111,7 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             TextField("Search resources, namespaces and actions…", text: $query)
                 .textFieldStyle(.plain)
-                .font(.title3)
+                .font(.system(size: 15, weight: .semibold))
                 .padding(16)
                 .focused($fieldFocused)
                 .onSubmit { runHighlighted() }
@@ -160,7 +160,7 @@ struct CommandPaletteView: View {
             Spacer()
             if !item.subtitle.isEmpty {
                 Text(item.subtitle)
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)

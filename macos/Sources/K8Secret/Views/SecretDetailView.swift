@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SecretDetailView: View {
     @Environment(AppState.self) private var state
+    @State private var tab = DetailTab.overview
 
     /// What the user is looking at: cluster values with staged edits applied,
     /// staged additions included, staged deletions excluded — the export must
@@ -44,7 +45,7 @@ struct SecretDetailView: View {
                     ProgressView()
                     Text("Loading secret data...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if state.isLocked {
@@ -92,6 +93,8 @@ struct SecretDetailView: View {
         return state.secretData.first(where: { $0.key == key })?.value ?? ""
     }
 
+    enum DetailTab: String, CaseIterable { case overview = "Overview", yaml = "YAML" }
+
     private var detailContent: some View {
         @Bindable var state = state
 
@@ -99,7 +102,8 @@ struct SecretDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 DetailBreadcrumb(type: "secrets")
                 Text(state.selectedSecret?.name ?? "")
-                    .font(.system(.title2, design: .monospaced, weight: .bold))
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .kerning(-0.25)
                     .foregroundStyle(Theme.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -114,6 +118,13 @@ struct SecretDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 6)
+
+            UnderlineTabBar(tabs: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
+                .padding(.bottom, 2)
+
+            if tab == .yaml, let secret = state.selectedSecret {
+                ResourceYAMLView(type: .secrets, namespace: secret.namespace, name: secret.name)
+            } else {
             // Change summary bar
             if state.hasChanges {
                 changeSummaryBar
@@ -175,6 +186,7 @@ struct SecretDetailView: View {
                 .accessibilityLabel("Add Key (⌥⌘N)")
                 .padding(20)
             }
+            }
         }
         .navigationTitle(state.selectedSecret?.name ?? "")
         .sheet(isPresented: $state.secretExportOpen) {
@@ -204,7 +216,7 @@ struct SecretDetailView: View {
             .foregroundStyle(.secondary)
         TextField("Search keys & values...", text: $state.kvSearch)
             .textFieldStyle(.plain)
-            .font(.system(.body, design: .monospaced))
+            .font(.system(size: 12.5, design: .monospaced))
         if !state.kvSearch.isEmpty {
             Button {
                 state.kvSearch = ""
@@ -216,7 +228,7 @@ struct SecretDetailView: View {
             .accessibilityLabel("Clear search")
 
             Text(verbatim: "\(state.displayedKVs.count) result\(state.displayedKVs.count == 1 ? "" : "s")")
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
@@ -297,7 +309,7 @@ struct SecretDetailView: View {
             .foregroundStyle(.orange)
 
         Text(verbatim: "\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
-            .font(.system(.callout, design: .default, weight: .medium))
+            .font(.system(size: 12, weight: .medium, design: .default))
             .lineLimit(1)
 
         if !state.modifications.isEmpty {
@@ -339,7 +351,7 @@ struct SecretDetailView: View {
 
     private func badge(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.system(.caption, design: .monospaced, weight: .bold))
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -379,7 +391,7 @@ struct KVRow: View {
                 statusIcon
 
                 Text(kv.key)
-                    .font(.system(.body, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(keyColor)
                     .lineLimit(1)
                     .textSelection(.enabled)
@@ -430,7 +442,7 @@ struct KVRow: View {
             HStack(spacing: 0) {
                 if isRevealed {
                     Text(kv.value)
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(kv.status == .deleted ? Color.secondary : Color.primary.opacity(0.7))
                         .strikethrough(kv.status == .deleted)
                         .lineLimit(1)
@@ -439,7 +451,7 @@ struct KVRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text(Self.mask(kv.value))
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .strikethrough(kv.status == .deleted)
                         .lineLimit(1)
@@ -578,16 +590,16 @@ struct EditSheet: View {
                 Image(systemName: "pencil.circle.fill")
                     .foregroundStyle(.orange)
                 Text("Edit Value")
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("KEY")
-                    .font(.system(.caption, design: .monospaced, weight: .bold))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Text(key)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .foregroundStyle(Color.accentColor)
                     .textSelection(.enabled)
             }
@@ -595,15 +607,15 @@ struct EditSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("VALUE")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text(verbatim: "\(value.count) chars")
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
                 TextEditor(text: $value)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .frame(minHeight: 160)
                     .padding(4)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
@@ -614,7 +626,7 @@ struct EditSheet: View {
             HStack {
                 if value != initialValue {
                     Text("Modified")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.orange)
                 }
                 Spacer()
@@ -660,24 +672,24 @@ struct AddKeySheet: View {
                 Image(systemName: "plus.circle.fill")
                     .foregroundStyle(.green)
                 Text("Add Key")
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("KEY")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
                     if isDuplicate {
                         Label("Key already exists", systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.red)
                     }
                 }
                 TextField("e.g. DATABASE_URL, API_KEY", text: $key)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .textFieldStyle(.roundedBorder)
                     .focused($keyFieldFocused)
                     .overlay(
@@ -690,17 +702,17 @@ struct AddKeySheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("VALUE")
-                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Spacer()
                     if !value.isEmpty {
                         Text(verbatim: "\(value.count) chars")
-                            .font(.system(.caption2, design: .monospaced))
+                            .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
                 }
                 TextEditor(text: $value)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .frame(minHeight: 140)
                     .padding(4)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))

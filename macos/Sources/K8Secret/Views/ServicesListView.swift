@@ -22,7 +22,7 @@ struct ServicesListView: View {
                     ProgressView()
                     Text("Loading services...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -103,7 +103,7 @@ struct ServiceRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(service.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -114,7 +114,7 @@ struct ServiceRow: View {
                     // Cluster IP
                     if service.clusterIP != "None" {
                         Text(service.clusterIP)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -123,7 +123,7 @@ struct ServiceRow: View {
                     // Ports summary
                     if !service.ports.isEmpty {
                         Text(service.ports.map { "\($0.port)/\($0.protocol_)" }.joined(separator: ", "))
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
@@ -137,7 +137,7 @@ struct ServiceRow: View {
                 typeBadge
 
                 Text(service.age)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -159,7 +159,7 @@ struct ServiceRow: View {
     private var typeBadge: some View {
         // "ClusterIP" was being hyphenated across two lines as "Clus-terIP".
         Text(service.type)
-            .font(.system(.caption2, design: .monospaced, weight: .medium))
+            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(typeColor)

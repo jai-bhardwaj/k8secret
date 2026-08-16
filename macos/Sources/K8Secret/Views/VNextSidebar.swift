@@ -323,12 +323,12 @@ struct VNextSidebar: View {
                     ForEach(NavGroup.all) { group in
                         if let label = group.label, !collapsed {
                             Text(label.uppercased())
-                                .font(.system(size: 10, weight: .semibold))
-                                .kerning(0.9)
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .kerning(1.05)
                                 .foregroundStyle(Theme.text3)
                                 .padding(.horizontal, 12)
-                                .padding(.top, 12)
-                                .padding(.bottom, 4)
+                                .padding(.top, 14)
+                                .padding(.bottom, 6)
                         }
                         ForEach(group.items, id: \.self) { item in
                             if collapsed {
@@ -351,7 +351,7 @@ struct VNextSidebar: View {
                         }
                     }
                 }
-                .padding(.horizontal, collapsed ? 0 : 8)
+                .padding(.horizontal, collapsed ? 0 : 10)
                 .padding(.top, collapsed ? 14 : 6)
                 .frame(maxWidth: .infinity)
             }
@@ -368,12 +368,12 @@ struct VNextSidebar: View {
                     ForEach(NavGroup.all) { group in
                         if let label = group.label {
                             Text(label.uppercased())
-                                .font(.system(size: 10, weight: .semibold))
-                                .kerning(0.9)
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .kerning(1.05)
                                 .foregroundStyle(Theme.text3)
                                 .padding(.horizontal, 12)
-                                .padding(.top, 12)
-                                .padding(.bottom, 4)
+                                .padding(.top, 14)
+                                .padding(.bottom, 6)
                         }
                         ForEach(group.items, id: \.self) { item in
                             ExpandedNavRow(destination: item,
@@ -423,11 +423,11 @@ struct ExpandedNavRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                markedIcon(size: 20)
+            HStack(spacing: 12) {
+                markedIcon(size: 30)
                     .scaleEffect(hovering && !isSelected ? 1.12 : 1)
                 Text(destination.title)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? Theme.text : Theme.text2)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -435,27 +435,27 @@ struct ExpandedNavRow: View {
                     Text("\(count)")
                         .font(.system(size: 11))
                         .monospacedDigit()
-                        .foregroundStyle(Theme.text3)
+                        .foregroundStyle(isSelected ? Theme.text : Theme.text3)
                         .fixedSize()
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6.5)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(
                             LinearGradient(
                                 colors: [hue.opacity(0.30), Color.white.opacity(scheme == .dark ? 0.11 : 0.40)],
                                 startPoint: .leading, endPoint: .trailing)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .strokeBorder(Theme.selRing, lineWidth: 1)
                         )
                         .shadow(color: .black.opacity(0.25), radius: 11, y: 3)
                 } else if hovering {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(hoverWash)
                 }
             }
@@ -553,30 +553,47 @@ struct CollapsedChip: View {
 }
 
 /// The prototype's sidebar anchor: active forwards always visible.
+/// The rail's foot, to the prototype's `.side-foot` spec: a hairline, the
+/// section label, then one chip per live forward — or a chip-shaped "None
+/// active" so the empty state sits on the same baseline as a real one.
 struct PortForwardsFooter: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
         let mine = PortForwardManager.shared.forwards.filter { $0.context == state.context }
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             Text("PORT FORWARDS")
-                .font(.system(size: 9.5, weight: .semibold))
-                .kerning(0.8)
+                .font(.system(size: 10.5, weight: .semibold))
+                .kerning(1.05)
                 .foregroundStyle(Theme.text3)
                 .padding(.horizontal, 12)
-                .padding(.top, 8)
+                .padding(.bottom, 6)
+
             if mine.isEmpty {
+                // A chip without a chip's furniture: same padding, so "None
+                // active" lines up with the ports that replace it.
                 Text("None active")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.text3)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ForEach(mine) { fwd in
                     PortForwardChip(forward: fwd)
                 }
-                Spacer().frame(height: 8)
             }
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .padding(.horizontal, 10)
+        .overlay(alignment: .top) {
+            // The prototype's border-top: the foot is a section of the rail,
+            // not a floating afterthought.
+            Rectangle()
+                .fill(Theme.line)
+                .frame(height: 1)
         }
     }
 }
@@ -584,17 +601,18 @@ struct PortForwardsFooter: View {
 struct PortForwardChip: View {
     let forward: PortForward
     @State private var hovering = false
+    @State private var stopHovering = false
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             Circle()
                 .fill(forward.status == .active ? Theme.ok : Theme.warn)
                 .frame(width: 6, height: 6)
                 .opacity(pulse ? 0.35 : 1)
-            Text(":\(String(forward.localPort)) → \(forward.displayName)")
-                .font(.system(size: 11, design: .monospaced))
+            Text(":\(String(forward.localPort)) → \(forward.displayName):\(String(forward.remotePort))")
+                .font(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(Theme.text2)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -603,21 +621,26 @@ struct PortForwardChip: View {
                 PortForwardManager.shared.stop(id: forward.id)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(hovering ? Theme.bad : Theme.text3)
+                    .font(.system(size: 9, weight: .bold))
+                    // Reddens on its own hover, not the row's: the row
+                    // highlighting is not a warning about the stop button.
+                    .foregroundStyle(stopHovering ? Theme.bad : Theme.text3)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .onHover { stopHovering = $0 }
             .help("Stop forwarding \(forward.displayName)")
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .background(hovering ? Theme.inset : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-        .padding(.horizontal, 8)
         .onHover { hovering = $0 }
         .onAppear {
             guard forward.status == .active, !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.0).repeatForever()) { pulse = true }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Forwarding localhost \(forward.localPort) to \(forward.displayName)")
     }
 }
 

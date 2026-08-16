@@ -22,7 +22,7 @@ struct DeploymentsListView: View {
                     ProgressView()
                     Text("Loading deployments...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -109,7 +109,7 @@ struct DeploymentRow: View {
                 Spacer(minLength: 4)
                 statusPill
                 Text(deployment.age)
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }

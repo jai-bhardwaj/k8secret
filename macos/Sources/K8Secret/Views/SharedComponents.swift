@@ -113,21 +113,24 @@ struct StatCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .semibold))
-                .kerning(0.7)
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 10, weight: .semibold))
+                .kerning(0.8)
+                .foregroundStyle(Theme.text3)
             Text(value)
-                .font(.system(size: mono ? 14 : 18, weight: .bold, design: mono ? .monospaced : .default))
-                .foregroundStyle(valueColor ?? .primary)
+                .font(.system(size: mono ? 15 : 19, weight: .bold, design: mono ? .monospaced : .default))
+                .kerning(-0.3)
+                .foregroundStyle(valueColor ?? Theme.text)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line, lineWidth: 1))
+        .padding(.horizontal, 19)
+        .padding(.vertical, 17)
+        // No border: the prototype's stat is a raised pane on the canvas, and
+        // a hairline around it turned it into a box.
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.28), radius: 14, y: 8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
     }
@@ -367,8 +370,8 @@ struct DetailBreadcrumb: View {
             Text("/").foregroundStyle(Theme.text3)
             Text(type)
         }
-        .font(.system(size: 11.5))
-        .foregroundStyle(Theme.text2)
+        .font(.system(size: 11))
+        .foregroundStyle(Theme.text3)
         .lineLimit(1)
     }
 }
@@ -381,18 +384,18 @@ struct KVDetailRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.text2)
-                .frame(width: 130, alignment: .leading)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.text3)
+                .frame(width: 170, alignment: .leading)
             Text(value)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: 12.5, design: .monospaced))
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 3.5)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
     }

@@ -14,11 +14,11 @@ struct UpdateBannerView: View {
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Update Available — v\(release.version)")
-                            .font(.system(.caption, design: .monospaced, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
 
                         if let date = release.date {
                             Text(date)
-                                .font(.system(.caption2, design: .monospaced))
+                                .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -29,7 +29,7 @@ struct UpdateBannerView: View {
                         ProgressView(value: checker.downloadProgress)
                             .frame(width: 100)
                         Text(verbatim: "\(Int(checker.downloadProgress * 100))%")
-                            .font(.system(.caption2, design: .monospaced, weight: .medium))
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .frame(width: 32, alignment: .trailing)
                     } else {
@@ -37,7 +37,7 @@ struct UpdateBannerView: View {
                             showDetails.toggle()
                         }
                         .buttonStyle(.plain)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
 
                         Button("Update") {
@@ -63,7 +63,7 @@ struct UpdateBannerView: View {
                     Divider()
                     ScrollView {
                         Text(release.notes)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)
@@ -81,7 +81,7 @@ struct UpdateBannerView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.orange)
                 Text(error)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
@@ -118,17 +118,17 @@ struct UpdateSheetView: View {
                         .foregroundStyle(.blue)
 
                     Text("K8Secret v\(release.version)")
-                        .font(.system(.title2, design: .monospaced, weight: .bold))
+                        .font(.system(size: 17, weight: .bold, design: .monospaced))
 
                     Text("You're on v\(AppConstants.version)")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
 
                     Divider()
 
                     ScrollView {
                         Text(release.notes)
-                            .font(.system(.body, design: .monospaced))
+                            .font(.system(size: 12.5, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxHeight: 200)
@@ -137,7 +137,7 @@ struct UpdateSheetView: View {
                         VStack(spacing: 4) {
                             ProgressView(value: checker.downloadProgress)
                             Text("Downloading... \(Int(checker.downloadProgress * 100))%")
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -163,10 +163,10 @@ struct UpdateSheetView: View {
                         .foregroundStyle(.green)
 
                     Text("You're up to date!")
-                        .font(.system(.title3, design: .monospaced, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold, design: .monospaced))
 
                     Text("K8Secret v\(AppConstants.version) is the latest version.")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
 
                     Button("OK") { dismiss() }
@@ -177,7 +177,7 @@ struct UpdateSheetView: View {
 
             if let error = checker.error {
                 Text(error)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.red)
             }
         }

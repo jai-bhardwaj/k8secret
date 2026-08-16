@@ -29,7 +29,7 @@ struct LogStreamWindow: View {
             if let toast = copyToast {
                 VStack {
                     Text(toast)
-                        .font(.system(.caption, design: .monospaced, weight: .medium))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         // LiveMaterial, not a stock one: a stock material greys
@@ -72,7 +72,7 @@ struct LogStreamWindow: View {
                     set: { state.search = $0 }
                 ))
                 .textFieldStyle(.plain)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
 
                 if !state.search.isEmpty {
                     Button {
@@ -186,10 +186,10 @@ struct LogStreamWindow: View {
                             .fill(level.color)
                             .frame(width: 6, height: 6)
                         Text(level.rawValue)
-                            .font(.system(.caption2, design: .monospaced, weight: .medium))
+                            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                         if count > 0 {
                             Text(verbatim: "\(count)")
-                                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                                 .foregroundStyle(level.color)
                         }
                     }
@@ -241,19 +241,19 @@ struct LogStreamWindow: View {
                     .fill(state.isStreaming ? .green : .red)
                     .frame(width: 6, height: 6)
                 Text(state.isStreaming ? "Streaming" : "Paused")
-                    .font(.system(.caption2, design: .monospaced, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
             }
 
             Rectangle().fill(.quaternary).frame(width: 1, height: 12)
 
             // Line count
             Text(verbatim: "\(state.filteredLines.count) lines")
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.secondary)
 
             if state.filteredLines.count != state.lines.count {
                 Text(verbatim: "(\(state.lines.count) total)")
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
 
@@ -261,7 +261,7 @@ struct LogStreamWindow: View {
             // rather than presenting a truncated view as if it were complete.
             if state.droppedLines > 0 {
                 Text("· \(state.droppedLines) earlier lines dropped")
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .help("The log buffer holds the most recent lines only. Older output is no longer in memory.")
                     .accessibilityLabel("\(state.droppedLines) earlier lines dropped from the buffer")
@@ -276,7 +276,7 @@ struct LogStreamWindow: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.red)
                     Text(err)
-                        .font(.system(.caption2, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(.red)
                         .lineLimit(1)
                 }
@@ -284,11 +284,11 @@ struct LogStreamWindow: View {
 
             // Pod info
             Text("\(logID.namespace)/\(logID.pod)")
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(.tertiary)
 
             Text(logID.container)
-                .font(.system(.caption2, design: .monospaced, weight: .medium))
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)

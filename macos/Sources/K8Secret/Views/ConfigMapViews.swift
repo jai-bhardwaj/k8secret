@@ -24,16 +24,16 @@ struct ConfigMapsListView: View {
         List(state.filteredConfigMaps) { cm in
             HStack(spacing: 8) {
                 Text(cm.name)
-                    .font(.system(.body, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
                 if state.allNamespaces { NamespaceBadge(name: cm.namespace) }
                 Spacer(minLength: 4)
                 Text("\(cm.dataCount)")
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                 Text(cm.age)
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
@@ -80,12 +80,17 @@ struct ConfigMapDetailView: View {
     @State private var newKey = ""
     @State private var newValue = ""
 
+    enum DetailTab: String, CaseIterable { case overview = "Overview", yaml = "YAML" }
+    @State private var tab = DetailTab.overview
+
     var body: some View {
         if let cm = state.selectedConfigMap {
             VStack(alignment: .leading, spacing: 0) {
                 header(cm)
-                Divider()
-                if state.loadingConfigMapData && state.configMapData.isEmpty {
+                UnderlineTabBar(tabs: DetailTab.allCases.map { ($0, $0.rawValue) }, selection: $tab)
+                if tab == .yaml {
+                    ResourceYAMLView(type: .configmaps, namespace: cm.namespace, name: cm.name)
+                } else if state.loadingConfigMapData && state.configMapData.isEmpty {
                     Spacer(); ProgressView().frame(maxWidth: .infinity); Spacer()
                 } else if state.configMapData.isEmpty {
                     ContentUnavailableView {
@@ -130,11 +135,11 @@ struct ConfigMapDetailView: View {
                 DetailBreadcrumb(type: "configmaps")
                     .padding(.bottom, 2)
                 Text(cm.name)
-                    .font(.system(.title3, design: .monospaced, weight: .bold))
+                    .font(.system(size: 15, weight: .bold, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text("\(state.configMapData.count) keys · ConfigMap · created \(cm.age) ago")
-                    .font(.caption)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
             Spacer()
@@ -156,10 +161,10 @@ struct ConfigMapDetailView: View {
                 .foregroundStyle(Theme.text)
             TextField("KEY_NAME", text: $newKey)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: 12.5, design: .monospaced))
             TextField("value", text: $newValue)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: 12.5, design: .monospaced))
             HStack {
                 Spacer()
                 Button("Cancel") { addingKey = false }
@@ -186,11 +191,11 @@ struct ConfigMapDetailView: View {
     private func row(_ cm: K8sConfigMap, _ kv: K8sKeyValue) -> some View {
         HStack(spacing: 10) {
             Text(kv.key)
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .frame(minWidth: 120, maxWidth: 220, alignment: .leading)
                 .lineLimit(1)
             Text(kv.value)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -220,9 +225,9 @@ struct ConfigMapDetailView: View {
 
     private func editSheet(_ cm: K8sConfigMap, _ kv: K8sKeyValue) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Edit \(kv.key)").font(.headline)
+            Text("Edit \(kv.key)").font(.system(size: 13, weight: .semibold))
             TextEditor(text: $editValue)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: 12.5, design: .monospaced))
                 .frame(minHeight: 100)
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
             HStack {

@@ -46,9 +46,9 @@ struct EnvExportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Export \(title) as .env")
-                .font(.headline)
+                .font(.system(size: 13, weight: .semibold))
             Text("\(pairs.count) keys\(stagedNote.map { " — \($0)" } ?? ""). This is plaintext: treat the result like the secrets themselves.")
-                .font(.caption)
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
             Text("PREVIEW")
@@ -58,7 +58,7 @@ struct EnvExportSheet: View {
 
             ScrollView {
                 Text(rendered)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)

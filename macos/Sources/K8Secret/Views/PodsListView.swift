@@ -22,7 +22,7 @@ struct PodsListView: View {
                     ProgressView()
                     Text("Loading pods...")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -105,7 +105,7 @@ struct PodRow: View {
                     .frame(width: 18)
 
                 Text(pod.name)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                     .lineLimit(1)
 
                 if showNamespace { NamespaceBadge(name: pod.namespace) }
@@ -115,7 +115,7 @@ struct PodRow: View {
                 phaseBadge
 
                 Text(pod.age)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
 
@@ -178,7 +178,7 @@ struct PodRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .font(.system(.caption2, design: .monospaced))
+        .font(.system(size: 10.5, design: .monospaced))
     }
 
     // MARK: - Metrics chip
@@ -197,7 +197,7 @@ struct PodRow: View {
 
             // Usage value
             Text(usage)
-                .font(.system(.caption2, design: .monospaced, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                 .lineLimit(1)
                 .foregroundStyle(color)
 
@@ -213,14 +213,14 @@ struct PodRow: View {
                             .foregroundStyle(pctColor(lPct))
                     }
                 }
-                .font(.system(.caption2, design: .monospaced, weight: .bold))
+                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                 .lineLimit(1)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 3))
             }
         }
-        .font(.system(.caption2, design: .monospaced))
+        .font(.system(size: 10.5, design: .monospaced))
         .fixedSize()
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
@@ -266,7 +266,7 @@ struct PodRow: View {
         // Short words like "Running"/"Succeeded" were free to hyphenate in a
         // narrow column, same as the service type badge did.
         Text(pod.isCrashLooping ? "CrashLoop" : pod.phase)
-            .font(.system(.caption2, design: .monospaced, weight: .medium))
+            .font(.system(size: 10.5, weight: .medium, design: .monospaced))
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(pod.isCrashLooping ? Theme.bad : phaseColor)

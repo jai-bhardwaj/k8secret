@@ -879,6 +879,50 @@ final class AppState {
 
     /// Refreshed when the menu opens, and not more than twice a minute: a
     /// count beside a namespace is worth one list call, not a poll.
+    /// The live manifest for a resource, as YAML — the prototype's YAML tab.
+    ///
+    /// `managedFields` is dropped, as kubectl does by default: it is server
+    /// bookkeeping, and it is longer than the object it describes. Secret
+    /// values are redacted unless explicitly asked for — base64 is not
+    /// encryption, and this app's promise is that values appear when you ask
+    /// for them, not because you opened a tab.
+    func manifestYAML(path: String, redactingData: Bool) async throws -> String {
+        let data = try await client.getRawResource(path: path)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw K8sError.parseError("the API server returned something that is not an object")
+        }
+        if var metadata = object["metadata"] as? [String: Any] {
+            metadata.removeValue(forKey: "managedFields")
+            object["metadata"] = metadata
+        }
+        if redactingData {
+            for key in ["data", "stringData"] where object[key] is [String: Any] {
+                let values = object[key] as! [String: Any]
+                object[key] = values.mapValues { _ in "‹hidden — open the key to reveal it›" }
+            }
+        }
+        return YAMLSerializer.serialize(object)
+    }
+
+    /// Where an object lives in the API, for the manifest above.
+    nonisolated static func apiPath(for type: ResourceType, namespace: String, name: String) -> String {
+        let ns = urlEncoded(namespace)
+        let object = urlEncoded(name)
+        switch type {
+        case .pods:       return "/api/v1/namespaces/\(ns)/pods/\(object)"
+        case .services:   return "/api/v1/namespaces/\(ns)/services/\(object)"
+        case .secrets:    return "/api/v1/namespaces/\(ns)/secrets/\(object)"
+        case .configmaps: return "/api/v1/namespaces/\(ns)/configmaps/\(object)"
+        case .deployments: return "/apis/apps/v1/namespaces/\(ns)/deployments/\(object)"
+        case .cronjobs:   return "/apis/batch/v1/namespaces/\(ns)/cronjobs/\(object)"
+        case .ingresses:  return "/apis/networking.k8s.io/v1/namespaces/\(ns)/ingresses/\(object)"
+        }
+    }
+
+    private nonisolated static func urlEncoded(_ segment: String) -> String {
+        segment.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~"))) ?? segment
+    }
+
     func loadNamespacePodCounts() async {
         if let at = namespaceCountsAt, Date().timeIntervalSince(at) < 30 { return }
         let pods = (try? await listAcrossAll { [client] in
