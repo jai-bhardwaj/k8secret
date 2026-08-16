@@ -2,6 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
+    /// The launch sequence owns the window until it has actually played —
+    /// connecting to a local cluster takes ~200ms, which is not a launch
+    /// experience, it's a flicker.
+    @State private var bootDone = false
     @State private var showFirstRun = Welcome.needsFirstRun
     @State private var showWhatsNew = false
     @Environment(\.openWindow) private var openWindow
@@ -28,9 +32,14 @@ struct ContentView: View {
             UpdateBannerView(checker: UpdateChecker.shared)
 
             ZStack {
+                if !bootDone {
+                    BootView(context: state.context)
+                        .transition(.opacity.combined(with: .scale(scale: 1.04)))
+                }
                 switch state.connectionState {
                 case .connecting:
                     connectingView
+                        .opacity(bootDone ? 1 : 0)
                 case .disconnected(let message):
                     DisconnectedView(message: message)
                 case .connected:
@@ -145,11 +154,14 @@ struct ContentView: View {
             UITestTour.startIfRequested(state: state)
             // Debug-only: hold the boot sequence on screen long enough to
             // capture it (same contract as the tour — inert normally).
-            if let hold = ProcessInfo.processInfo.environment["K8SECRET_UITEST_BOOT"],
-               let seconds = Double(hold) {
-                try? await Task.sleep(for: .seconds(seconds))
-            }
+            // Play the launch sequence and connect concurrently; the window
+            // opens when both are done, so the animation is always seen and
+            // never costs the user time on a slow cluster.
+            let hold = Double(ProcessInfo.processInfo.environment["K8SECRET_UITEST_BOOT"] ?? "") ?? 1.9
+            async let played: Void = Task.sleep(for: .seconds(hold))
             await state.connect()
+            try? await played
+            withAnimation(.easeOut(duration: 0.5)) { bootDone = true }
             // Debug-only surfacing, same contract as the tour.
             switch ProcessInfo.processInfo.environment["K8SECRET_UITEST_WELCOME"] {
             case "first": showFirstRun = true
