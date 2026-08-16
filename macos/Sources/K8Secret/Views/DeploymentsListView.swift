@@ -92,6 +92,7 @@ struct DeploymentsListView: View {
 }
 
 struct DeploymentRow: View {
+    @Environment(AppState.self) private var state
     let deployment: K8sDeployment
     var showNamespace = false
 
@@ -113,8 +114,11 @@ struct DeploymentRow: View {
                     .monospacedDigit()
             }
             HStack(spacing: 6) {
-                if let image = deployment.images.first {
-                    MetricChip(icon: "shippingbox", text: shortenImage(image), hue: nil)
+                // The prototype's data line: live CPU + memory, not the image
+                // (that's SPEC's job in the detail pane).
+                if let agg = state.aggregateMetrics(of: deployment) {
+                    MetricChip(icon: "cpu", text: agg.cpu, hue: Theme.cpu)
+                    MetricChip(icon: "memorychip", text: agg.mem, hue: Theme.memory)
                 }
                 Spacer(minLength: 4)
                 HStack(spacing: 3) {

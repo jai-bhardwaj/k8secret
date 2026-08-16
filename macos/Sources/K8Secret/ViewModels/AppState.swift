@@ -1233,6 +1233,32 @@ final class AppState {
     /// people to dismiss the dialog. Taking a workload to zero is a different act
     /// (it stops serving traffic), and so is any scale on a production-looking
     /// context, so those confirm.
+    /// Pods belonging to a deployment (their ReplicaSet is named
+    /// "<deployment>-<hash>"). Powers the detail's PODS table and the
+    /// aggregate metric chips on deployment rows.
+    func pods(of dep: K8sDeployment) -> [K8sPod] {
+        pods.filter { pod in
+            guard pod.namespace == dep.namespace, pod.ownerKind == "ReplicaSet",
+                  pod.ownerName.hasPrefix(dep.name + "-") else { return false }
+            // The remainder must be the ReplicaSet's single hash segment —
+            // otherwise deployment "web" would claim "web-api"'s pods.
+            let rest = pod.ownerName.dropFirst(dep.name.count + 1)
+            return !rest.isEmpty && !rest.contains("-")
+        }
+    }
+
+    /// Summed live CPU/memory across a deployment's pods; nil until metrics
+    /// are known, so the UI can simply omit the chips.
+    func aggregateMetrics(of dep: K8sDeployment) -> (cpu: String, mem: String)? {
+        let ms = pods(of: dep).compactMap { metrics(for: $0.name) }
+        guard !ms.isEmpty else { return nil }
+        let millis = ms.reduce(0) { $0 + $1.cpuMillis }
+        let ki = ms.reduce(0) { $0 + $1.memoryKi }
+        let cpu = millis >= 1000 ? String(format: "%.1f cores", Double(millis) / 1000) : "\(millis)m"
+        let mem = ki >= 1024 * 1024 ? String(format: "%.1fGi", Double(ki) / 1_048_576) : "\(ki / 1024)Mi"
+        return (cpu, mem)
+    }
+
     func requestScale(_ dep: K8sDeployment, to replicas: Int) {
         let takingDown = replicas == 0 && dep.replicas > 0
 
