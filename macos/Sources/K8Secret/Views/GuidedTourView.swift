@@ -46,6 +46,8 @@ struct TourStep {
     /// clusters while the switcher is shut teaches nothing — the tour opens it,
     /// spotlights the real panel, and closes it again on the way out.
     var opensClusterSwitcher = false
+    /// Same, for the namespace menu.
+    var opensNamespaceMenu = false
 }
 
 let tourSteps: [TourStep] = [
@@ -54,8 +56,8 @@ let tourSteps: [TourStep] = [
              body: "Workloads, network and config each keep their own place, and the counts follow whatever scope you're in."),
     TourStep(spot: .namespaceScope,
              title: "One namespace, or all of them",
-             body: "The pill above sets your scope. Everything downstream — lists, counts, events, the health ring — follows it.",
-             titlebar: .leading),
+             body: "This menu sets your scope. Everything downstream — lists, counts, events, the health ring — follows it.",
+             opensNamespaceMenu: true),
     TourStep(spot: .search,
              title: "Jump straight to anything",
              body: "⌘K finds a pod, a secret or a namespace by name, wherever in the cluster it lives, and takes you there.",
@@ -83,7 +85,8 @@ struct GuidedTourView: View {
     /// they live in the titlebar and don't need to be.
     private var visibleSteps: [TourStep] {
         let usable = tourSteps.filter {
-            spots[$0.spot] != nil || $0.titlebar != nil || $0.opensClusterSwitcher
+            spots[$0.spot] != nil || $0.titlebar != nil
+                || $0.opensClusterSwitcher || $0.opensNamespaceMenu
         }
         return usable.isEmpty ? tourSteps : usable
     }
@@ -132,9 +135,13 @@ struct GuidedTourView: View {
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: step)
         .onExitCommand { finish() }
         .onChange(of: step, initial: true) { _, _ in
-            let wanted = current?.opensClusterSwitcher ?? false
-            if state.clusterSwitcherOpen != wanted {
-                withAnimation(Motion.panel) { state.clusterSwitcherOpen = wanted }
+            let switcher = current?.opensClusterSwitcher ?? false
+            let namespaces = current?.opensNamespaceMenu ?? false
+            if state.clusterSwitcherOpen != switcher {
+                withAnimation(Motion.panel) { state.clusterSwitcherOpen = switcher }
+            }
+            if state.namespaceMenuOpen != namespaces {
+                withAnimation(Motion.panel) { state.namespaceMenuOpen = namespaces }
             }
         }
     }
@@ -223,6 +230,9 @@ struct GuidedTourView: View {
         Welcome.completeTour()
         if state.clusterSwitcherOpen {
             withAnimation(Motion.panel) { state.clusterSwitcherOpen = false }
+        }
+        if state.namespaceMenuOpen {
+            withAnimation(Motion.panel) { state.namespaceMenuOpen = false }
         }
         withAnimation(Theme.easeOut) { step = nil }
     }

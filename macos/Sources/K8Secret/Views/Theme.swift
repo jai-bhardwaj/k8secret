@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The vNext design system — every color and metric the redesign uses, in one
@@ -370,4 +371,31 @@ extension Color {
             blue: Double(hex & 0xFF) / 255
         )
     }
+}
+
+/// Where a toolbar control actually is, in SwiftUI's coordinates.
+///
+/// Toolbar items are hosted by NSToolbar, outside SwiftUI's view tree, so a
+/// preference can't measure them — which is why the app's own menus used to
+/// fall back to a native `.popover` anchored by AppKit. AppKit can measure
+/// them exactly, though, and that is all a menu needs to sit under its pill.
+@MainActor
+enum ToolbarGeometry {
+    /// `index` counts only the items SwiftUI hosts a view for, in declaration
+    /// order — the flexible space has no view and is skipped.
+    static func rect(ofHostedItem index: Int, in window: NSWindow?) -> CGRect? {
+        guard let window, let items = window.toolbar?.items else { return nil }
+        let hosted = items.compactMap(\.view)
+        guard hosted.indices.contains(index) else { return nil }
+        let view = hosted[index]
+        let inWindow = view.convert(view.bounds, to: nil)
+        // AppKit measures from the bottom-left, SwiftUI from the top-left.
+        return CGRect(x: inWindow.minX,
+                      y: window.frame.height - inWindow.maxY,
+                      width: inWindow.width,
+                      height: inWindow.height)
+    }
+
+    /// The namespace scope pill: second of the hosted items.
+    static let namespacePill = 1
 }

@@ -43,6 +43,7 @@ final class AppState {
     var settingsOpen = false
     /// Status-bar cluster switcher panel (the VS Code quick-pick pattern).
     var clusterSwitcherOpen = false
+    var namespaceMenuOpen = false
 
     /// The clusters this person actually works in, most recent first. With a
     /// hundred contexts in a merged kubeconfig, alphabetical order buries the

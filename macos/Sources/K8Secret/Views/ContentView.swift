@@ -26,6 +26,9 @@ struct ContentView: View {
     /// Live content width, driving the prototype's breakpoints: <1120 narrows
     /// the list column, <980 auto-collapses the rail, <780 goes single-pane.
     @State private var contentWidth: CGFloat = 1200
+    /// This window, so the namespace menu can measure the toolbar pill it
+    /// hangs from — AppKit knows where toolbar items are, SwiftUI does not.
+    @State private var hostWindow: NSWindow?
 
 
     var body: some View {
@@ -94,6 +97,19 @@ struct ContentView: View {
                     scrim { state.confirmAction = nil }
                     ConfirmDialogView(action: action)
                         .transition(.scale(scale: 0.94).combined(with: .offset(y: 14)).combined(with: .opacity))
+                }
+
+                // Namespace menu — hangs from the toolbar pill, drawn on our
+                // own canvas rather than in a native popover.
+                if state.namespaceMenuOpen {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture { withAnimation(Motion.panel) { state.namespaceMenuOpen = false } }
+                    NamespaceMenuPanel()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .offset(x: namespaceMenuOrigin.x, y: namespaceMenuOrigin.y)
+                        .ignoresSafeArea()
+                        .transition(.scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity))
                 }
 
                 // Cluster switcher — rises from the status bar it was clicked
@@ -201,6 +217,8 @@ struct ContentView: View {
         .motion(Motion.panel, value: state.settingsOpen)
         .motion(Motion.panel, value: state.confirmAction != nil)
         .motion(Motion.panel, value: state.clusterSwitcherOpen)
+        .motion(Motion.panel, value: state.namespaceMenuOpen)
+        .background(WindowReader { hostWindow = $0 })
         .task {
             UITestTour.startIfRequested(state: state)
             // The launch is a first impression, not a per-window tax. Windows
@@ -241,6 +259,7 @@ struct ContentView: View {
             switch ProcessInfo.processInfo.environment["K8SECRET_UITEST_WELCOME"] {
             case "first": showFirstRun = true
             case "whatsnew": showWhatsNew = true
+            case "nsmenu": state.namespaceMenuOpen = true
             case "tour":
                 state.tourStep = Int(ProcessInfo.processInfo.environment["K8SECRET_UITEST_TOURSTEP"] ?? "") ?? 0
             default:
@@ -251,6 +270,16 @@ struct ContentView: View {
             }
             await UpdateChecker.shared.checkForUpdates()
         }
+    }
+
+    /// Where the namespace menu hangs: directly under its pill, measured from
+    /// the live toolbar so it stays put at any window width and never guesses.
+    private var namespaceMenuOrigin: CGPoint {
+        guard let pill = ToolbarGeometry.rect(ofHostedItem: ToolbarGeometry.namespacePill,
+                                              in: hostWindow ?? NSApp.keyWindow) else {
+            return CGPoint(x: 120, y: 46)
+        }
+        return CGPoint(x: pill.minX, y: pill.maxY + 6)
     }
 
     /// The guided tour opens once the app has settled — a coach mark landing
@@ -596,14 +625,10 @@ struct TitlebarPill<Content: View>: View {
 /// "All Namespaces" pinned above a scrolling, clipped list.
 struct NamespaceScopeButton: View {
     @Environment(AppState.self) private var state
-    @State private var open = false
-    @State private var query = ""
-    @FocusState private var filterFocused: Bool
 
     var body: some View {
         Button {
-            query = ""
-            open.toggle()
+            state.namespaceMenuOpen.toggle()
         } label: {
             TitlebarPill(strong: true) {
                 (Text("namespace ").foregroundStyle(Theme.text2)
@@ -617,55 +642,29 @@ struct NamespaceScopeButton: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(Theme.text3)
+                    .rotationEffect(.degrees(state.namespaceMenuOpen ? 180 : 0))
             }
         }
         .buttonStyle(.plain)
         .help("Scope every list to one namespace, or all of them")
-        .popover(isPresented: $open, arrowEdge: .bottom) {
-            VStack(spacing: 6) {
-                TextField("Filter namespaces…", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($filterFocused)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 10)
-
-                scopeRow(name: "All Namespaces",
-                         selected: state.allNamespaces,
-                         count: state.namespaces.count) {
-                    Task { await state.selectNamespaceScope(all: true) }
-                    open = false
-                }
-                Divider().padding(.horizontal, 10)
-
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(matches) { ns in
-                            scopeRow(name: ns.name,
-                                     selected: !state.allNamespaces && state.selectedNamespace?.id == ns.id,
-                                     count: nil) {
-                                Task {
-                                    state.selectedNamespace = ns
-                                    await state.selectNamespace(ns)
-                                }
-                                open = false
-                            }
-                        }
-                        if matches.isEmpty {
-                            Text("No matches")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.tertiary)
-                                .padding(8)
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                }
-                .frame(maxHeight: 260)
-                .padding(.bottom, 6)
-            }
-            .frame(width: 260)
-            .onAppear { filterFocused = true }
-        }
     }
+}
+
+/// The namespace menu: the app's own glass panel, hung under the toolbar pill.
+///
+/// This was the one native `.popover` left in the app. Everything else — the
+/// cluster switcher, the palette, settings, confirmations — is drawn in-window
+/// on the canvas, and the popover was both the odd one out visually and the
+/// one menu whose rows would not take a click.
+struct NamespaceMenuPanel: View {
+    @Environment(AppState.self) private var state
+    @State private var query = ""
+    @State private var highlighted = 0
+    @FocusState private var searchFocused: Bool
+
+    /// Search appears once the list stops fitting in a glance — the same rule
+    /// the cluster switcher follows.
+    private var searchable: Bool { state.filteredNamespaces.count > 6 }
 
     private var matches: [K8sNamespace] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -673,31 +672,180 @@ struct NamespaceScopeButton: View {
         return state.filteredNamespaces.filter { $0.name.lowercased().contains(q) }
     }
 
-    private func scopeRow(name: String, selected: Bool, count: Int?, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .opacity(selected ? 1 : 0)
-                Text(name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("NAMESPACE")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .kerning(0.8)
+                    .foregroundStyle(Theme.text3)
                 Spacer()
-                if let count {
-                    Text("\(count)")
-                        .font(.system(size: 11))
+                if state.filteredNamespaces.count > 1 {
+                    Text(query.isEmpty
+                         ? "\(state.filteredNamespaces.count)"
+                         : "\(matches.count) of \(state.filteredNamespaces.count)")
+                        .font(.system(size: 10))
                         .monospacedDigit()
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Theme.text3)
                 }
             }
-            .font(.system(size: 12.5))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            if searchable {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Theme.text3)
+                    TextField("Filter namespaces…", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12.5))
+                        .focused($searchFocused)
+                        .onSubmit { activate() }
+                        .onChange(of: query) { _, _ in highlighted = 0 }
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Theme.inset, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
+            }
+
+            NamespaceRow(name: "All namespaces",
+                         detail: "\(state.filteredNamespaces.count)",
+                         isCurrent: state.allNamespaces,
+                         isHighlighted: false) {
+                Task { await state.selectNamespaceScope(all: true) }
+                close()
+            }
+
+            Divider().overlay(Theme.line).padding(.vertical, 4)
+
+            if matches.isEmpty {
+                Text("No namespace matches “\(query)”.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.text2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+            } else {
+                ScrollViewReader { scroller in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(matches.enumerated()), id: \.element.id) { index, ns in
+                                NamespaceRow(name: ns.name,
+                                             detail: nil,
+                                             isCurrent: !state.allNamespaces && state.selectedNamespace?.id == ns.id,
+                                             isHighlighted: searchable && index == highlighted) {
+                                    Task {
+                                        state.selectedNamespace = ns
+                                        await state.selectNamespace(ns)
+                                    }
+                                    close()
+                                }
+                                .id(ns.id)
+                            }
+                        }
+                        .background {
+                            GeometryReader { g in
+                                Color.clear.preference(key: RowsHeight.self, value: g.size.height)
+                            }
+                        }
+                    }
+                    // Hugs a short list, scrolls a long one.
+                    .frame(height: min(rowsHeight, 260))
+                    .onPreferenceChange(RowsHeight.self) { rowsHeight = $0 }
+                    .onAppear {
+                        searchFocused = searchable
+                        if let current = state.selectedNamespace?.id {
+                            scroller.scrollTo(current, anchor: .center)
+                        }
+                    }
+                    .onChange(of: highlighted) { _, new in
+                        guard matches.indices.contains(new) else { return }
+                        withAnimation(Motion.stateChange) { scroller.scrollTo(matches[new].id, anchor: .center) }
+                    }
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .background(selected ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
-        .padding(.horizontal, 4)
+        .padding(.bottom, 6)
+        .frame(width: 280)
+        .floatGlass(radius: 14)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .tourSpot(.namespaceScope)
+        .onKeyPress(.downArrow) { move(1); return .handled }
+        .onKeyPress(.upArrow) { move(-1); return .handled }
+        .onExitCommand { close() }
+    }
+
+    @State private var rowsHeight: CGFloat = 260
+
+    private struct RowsHeight: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+
+    private func move(_ delta: Int) {
+        guard !matches.isEmpty else { return }
+        highlighted = min(max(0, highlighted + delta), matches.count - 1)
+    }
+
+    private func activate() {
+        guard matches.indices.contains(highlighted) else { return }
+        let ns = matches[highlighted]
+        Task {
+            state.selectedNamespace = ns
+            await state.selectNamespace(ns)
+        }
+        close()
+    }
+
+    private func close() {
+        withAnimation(Motion.panel) { state.namespaceMenuOpen = false }
+    }
+
+    private struct NamespaceRow: View {
+        let name: String
+        let detail: String?
+        let isCurrent: Bool
+        let isHighlighted: Bool
+        let action: () -> Void
+
+        @State private var hovering = false
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.text2)
+                        .opacity(isCurrent ? 1 : 0)
+                    Text(name)
+                        .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if let detail {
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.text3)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(hovering || isHighlighted
+                            ? Color.white.opacity(scheme == .dark ? 0.09 : 0.45) : .clear)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering = $0 }
+        }
     }
 }
 
@@ -1070,5 +1218,22 @@ struct ToastView: View {
         }
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .accessibilityLabel("\(isError ? "Error" : "Done"): \(message)")
+    }
+}
+
+
+/// Hands the enclosing NSWindow back to SwiftUI. Toolbar items live in AppKit,
+/// so anything that needs to line up with them needs the window to ask.
+struct WindowReader: NSViewRepresentable {
+    let onWindow: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { onWindow(v.window) }
+        return v
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onWindow(nsView.window) }
     }
 }
