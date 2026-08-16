@@ -43,6 +43,19 @@ final class AppState {
     var settingsOpen = false
     /// Status-bar cluster switcher panel (the VS Code quick-pick pattern).
     var clusterSwitcherOpen = false
+
+    /// The clusters this person actually works in, most recent first. With a
+    /// hundred contexts in a merged kubeconfig, alphabetical order buries the
+    /// four that matter.
+    static let recentContextsKey = "cluster.recentContexts"
+    static var recentContexts: [String] {
+        UserDefaults.standard.stringArray(forKey: recentContextsKey) ?? []
+    }
+    static func rememberRecentContext(_ ctx: String) {
+        var list = recentContexts.filter { $0 != ctx }
+        list.insert(ctx, at: 0)
+        UserDefaults.standard.set(Array(list.prefix(8)), forKey: recentContextsKey)
+    }
     /// Which stop of the guided tour is showing, or nil when it isn't running.
     var tourStep: Int?
     /// How far the launch sequence's checklist has got. Driven by `connect`,
@@ -416,6 +429,7 @@ final class AppState {
     func switchContext(_ newContext: String) async {
         guard newContext != context else { return }
         UserDefaults.standard.set(newContext, forKey: Self.lastContextKey)
+        Self.rememberRecentContext(newContext)
 
         // Drop *everything* from the previous cluster before connecting to the new
         // one. Leaving deployments/pods/services behind meant that after switching

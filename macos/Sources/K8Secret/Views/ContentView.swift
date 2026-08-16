@@ -707,26 +707,151 @@ struct NamespaceScopeButton: View {
 struct ClusterSwitcherPanel: View {
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
+    @State private var query = ""
+    @State private var highlighted = 0
+    @State private var rowsHeight: CGFloat = 244
+    @FocusState private var searchFocused: Bool
+
+    private struct RowsHeight: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+
+    /// Search earns its place once the list stops fitting in a glance. Below
+    /// that it would be a field asking you to type the name of the one thing
+    /// already on screen.
+    private var searchable: Bool { state.availableContexts.count > 4 }
+
+    private var matches: [String] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return ordered }
+        return ordered.filter { $0.lowercased().contains(q) }
+    }
+
+    /// Long lists lead with the current cluster and the ones used recently;
+    /// everything else follows in the kubeconfig's own order.
+    private var ordered: [String] {
+        let all = state.availableContexts
+        guard grouped else { return all }
+        var lead = [state.context]
+        lead += AppState.recentContexts.filter { $0 != state.context && all.contains($0) }
+        return lead.filter(all.contains) + all.filter { !lead.contains($0) }
+    }
+
+    /// Where the "recent" divide falls. Below this the whole list is visible
+    /// at a glance and grouping would be ceremony.
+    private var grouped: Bool { state.availableContexts.count > 8 }
+
+    /// How many rows belong to the lead group.
+    private var leadCount: Int {
+        guard grouped, query.isEmpty else { return 0 }
+        let all = state.availableContexts
+        var lead = Set([state.context])
+        lead.formUnion(AppState.recentContexts.filter { all.contains($0) })
+        return min(lead.count, 5)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("CLUSTER")
-                .font(.system(size: 9.5, weight: .semibold))
-                .kerning(0.8)
-                .foregroundStyle(Theme.text3)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("CLUSTER")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .kerning(0.8)
+                    .foregroundStyle(Theme.text3)
+                Spacer()
+                // With a handful of clusters the count is noise; with thirty
+                // it is the difference between scrolling and searching.
+                if state.availableContexts.count > 1 {
+                    Text(query.isEmpty
+                         ? "\(state.availableContexts.count)"
+                         : "\(matches.count) of \(state.availableContexts.count)")
+                        .font(.system(size: 10))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.text3)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
-            ForEach(state.availableContexts, id: \.self) { ctx in
-                SwitcherRow(
-                    name: ctx,
-                    tint: tint(for: ctx),
-                    isCurrent: ctx == state.context
-                ) {
-                    state.clusterSwitcherOpen = false
-                    guard ctx != state.context else { return }
-                    Task { await state.switchContext(ctx) }
+            if searchable {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Theme.text3)
+                    TextField("Filter clusters…", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12.5))
+                        .focused($searchFocused)
+                        .onSubmit { activate() }
+                        .onChange(of: query) { _, _ in highlighted = 0 }
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Theme.inset, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
+            }
+
+            if matches.isEmpty {
+                Text("No cluster matches “\(query)”.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.text2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+            } else {
+                // A rounded shell with the scroller inside it: the scrollbar
+                // can never ride over the panel's corners.
+                ScrollViewReader { scroller in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(matches.enumerated()), id: \.element) { index, ctx in
+                                if leadCount > 0, index == 0 || index == leadCount {
+                                    Text(index == 0 ? "RECENT" : "ALL CLUSTERS")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .kerning(0.8)
+                                        .foregroundStyle(Theme.text3)
+                                        .padding(.horizontal, 12)
+                                        .padding(.top, index == 0 ? 2 : 8)
+                                        .padding(.bottom, 3)
+                                }
+                                SwitcherRow(
+                                    name: ctx,
+                                    tint: tint(for: ctx),
+                                    isCurrent: ctx == state.context,
+                                    isHighlighted: searchable && index == highlighted
+                                ) {
+                                    pick(ctx)
+                                }
+                                .id(ctx)
+                            }
+                        }
+                        .background {
+                            GeometryReader { g in
+                                Color.clear.preference(key: RowsHeight.self, value: g.size.height)
+                            }
+                        }
+                    }
+                    // Hug the rows so one cluster gets a one-row panel, and cap
+                    // it so a hundred get a scroller instead of a window-tall
+                    // wall of names.
+                    .frame(height: min(rowsHeight, 244))
+                    .onPreferenceChange(RowsHeight.self) { rowsHeight = $0 }
+                    .onAppear {
+                        searchFocused = searchable
+                        // Debug-only, same contract as the tour hooks.
+                        if let seeded = ProcessInfo.processInfo.environment["K8SECRET_UITEST_CLUSTERQUERY"] {
+                            query = seeded
+                        }
+                        scroller.scrollTo(state.context, anchor: .center)
+                    }
+                    .onChange(of: highlighted) { _, new in
+                        guard matches.indices.contains(new) else { return }
+                        withAnimation(Motion.stateChange) { scroller.scrollTo(matches[new], anchor: .center) }
+                    }
                 }
             }
 
@@ -743,6 +868,25 @@ struct ClusterSwitcherPanel: View {
         .floatGlass(radius: 14)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .tourSpot(.clusterSwitcher)
+        .onKeyPress(.downArrow) { move(1); return .handled }
+        .onKeyPress(.upArrow) { move(-1); return .handled }
+        .onExitCommand { state.clusterSwitcherOpen = false }
+    }
+
+    private func move(_ delta: Int) {
+        guard !matches.isEmpty else { return }
+        highlighted = min(max(0, highlighted + delta), matches.count - 1)
+    }
+
+    private func activate() {
+        guard matches.indices.contains(highlighted) else { return }
+        pick(matches[highlighted])
+    }
+
+    private func pick(_ ctx: String) {
+        state.clusterSwitcherOpen = false
+        guard ctx != state.context else { return }
+        Task { await state.switchContext(ctx) }
     }
 
     private func tint(for ctx: String) -> Theme.ClusterTint {
@@ -754,6 +898,7 @@ struct ClusterSwitcherPanel: View {
         let name: String
         let tint: Theme.ClusterTint?
         let isCurrent: Bool
+        var isHighlighted = false
         var shortcut: String?
         let action: () -> Void
 
@@ -788,7 +933,8 @@ struct ClusterSwitcherPanel: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(hovering ? Color.white.opacity(scheme == .dark ? 0.09 : 0.45) : .clear)
+                .background(hovering || isHighlighted
+                            ? Color.white.opacity(scheme == .dark ? 0.09 : 0.45) : .clear)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

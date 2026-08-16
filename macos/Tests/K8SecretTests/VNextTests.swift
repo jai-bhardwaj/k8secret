@@ -350,6 +350,31 @@ final class WindowIdentityTests: XCTestCase {
     }
 }
 
+@MainActor
+final class RecentClustersTests: XCTestCase {
+    /// With a hundred contexts in a merged kubeconfig, alphabetical order
+    /// buries the four anyone actually uses — so the switcher leads with the
+    /// most recent, newest first, deduped, and bounded.
+    func testRecentsAreMostRecentFirstAndBounded() {
+        let key = AppState.recentContextsKey
+        let previous = UserDefaults.standard.stringArray(forKey: key)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        UserDefaults.standard.removeObject(forKey: key)
+
+        for i in 1...10 { AppState.rememberRecentContext("ctx-\(i)") }
+        XCTAssertEqual(AppState.recentContexts.first, "ctx-10", "newest first")
+        XCTAssertEqual(AppState.recentContexts.count, 8, "the list stays bounded")
+
+        AppState.rememberRecentContext("ctx-5")
+        XCTAssertEqual(AppState.recentContexts.first, "ctx-5")
+        XCTAssertEqual(AppState.recentContexts.filter { $0 == "ctx-5" }.count, 1,
+                       "switching back must move it, not duplicate it")
+    }
+}
+
 final class GuidedTourTests: XCTestCase {
     /// Toolbar controls are hosted by NSToolbar and cannot publish an anchor.
     /// Every stop must therefore either be measurable in the content or carry
