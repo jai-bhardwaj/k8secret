@@ -78,8 +78,7 @@ struct DeploymentDetailView: View {
             state.stopRolloutPolling()
         }
         .navigationTitle(dep.name)
-        .toolbar { deploymentToolbar(dep) }
-        .alert("Restart Deployment", isPresented: $showRestartAlert) {
+                .alert("Restart Deployment", isPresented: $showRestartAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Restart") {
                 Task { await state.restartDeployment(dep) }
@@ -89,31 +88,6 @@ struct DeploymentDetailView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private func deploymentToolbar(_ dep: K8sDeployment) -> some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            // Carries a text label and a warning tint. Sitting next to Refresh as
-            // a bare circular arrow, this was a rolling restart of a live
-            // deployment one mis-click away from a data refresh.
-            Button {
-                showRestartAlert = true
-            } label: {
-                Label("Restart", systemImage: "arrow.trianglehead.clockwise.rotate.90")
-            }
-            .labelStyle(.titleAndIcon)
-            .tint(.orange)
-            .help("Rolling restart — recreates every pod")
-            .accessibilityLabel("Rolling restart")
-
-            Button {
-                Task { await state.refreshCurrentResource() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .help("Refresh")
-            .accessibilityLabel("Refresh")
-        }
-    }
 
     @ViewBuilder
     private func conditionsBlock(_ dep: K8sDeployment) -> some View {
@@ -198,6 +172,16 @@ struct DeploymentDetailView: View {
 
             Spacer()
 
+            Button {
+                Task { await state.refreshCurrentResource() }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(Theme.SoftPill())
+            .help("Refresh")
+            Button("Restart") { showRestartAlert = true }
+                .buttonStyle(Theme.SoftPill())
+                .help("Rolling restart — recreates every pod")
             liveTailButton(dep)
         }
     }

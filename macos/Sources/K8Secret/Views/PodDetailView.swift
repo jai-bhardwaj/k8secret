@@ -70,7 +70,6 @@ struct PodDetailView: View {
             }
         }
         .navigationTitle(pod.name)
-        .toolbar { podToolbar(pod) }
         .alert("Delete Pod", isPresented: $showDeleteAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
@@ -81,26 +80,6 @@ struct PodDetailView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private func podToolbar(_ pod: K8sPod) -> some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                showDeleteAlert = true
-            } label: {
-                Label("Delete", systemImage: "trash")
-                    .foregroundStyle(.red)
-            }
-            .help("Delete pod")
-            .accessibilityLabel("Delete pod")
-
-            Button {
-                Task { await state.refreshCurrentResource() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
-            }
-
-        }
-    }
 
     @ViewBuilder
     private func labelsBlock(_ pod: K8sPod) -> some View {
@@ -155,6 +134,19 @@ struct PodDetailView: View {
                 }
             }
             Spacer()
+
+            // Actions live here, in the detail header — the prototype's
+            // grammar. The titlebar belongs to scope and search alone.
+            Button {
+                Task { await state.refreshCurrentResource() }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(Theme.SoftPill())
+            .help("Refresh")
+            Button("Delete") { showDeleteAlert = true }
+                .buttonStyle(Theme.DangerPill())
+                .help("Delete pod")
         }
     }
 

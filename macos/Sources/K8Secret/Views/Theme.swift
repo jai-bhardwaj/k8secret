@@ -215,6 +215,20 @@ enum Theme {
         }
     }
 
+    /// Destructive actions: red voice on a soft red wash — never a filled
+    /// red slab (the prototype's Stop-button grammar).
+    struct DangerPill: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Theme.bad)
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(Capsule().fill(Theme.bad.opacity(0.14)))
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .animation(Theme.spring, value: configuration.isPressed)
+        }
+    }
+
     /// Secondary actions: translucent wash pill.
     struct SoftPill: ButtonStyle {
         @Environment(\.colorScheme) private var scheme

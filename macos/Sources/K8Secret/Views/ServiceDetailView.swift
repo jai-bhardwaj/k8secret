@@ -62,16 +62,6 @@ struct ServiceDetailView: View {
             .padding(24)
         }
         .navigationTitle(svc.name)
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    Task { await state.refreshCurrentResource() }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
-                }
-
-            }
-        }
     }
 
     private func headerSection(_ svc: K8sService) -> some View {
@@ -112,6 +102,14 @@ struct ServiceDetailView: View {
             }
 
             Spacer()
+
+            Button {
+                Task { await state.refreshCurrentResource() }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(Theme.SoftPill())
+            .help("Refresh")
 
             // Port forward button — forward the first port
             if let firstPort = svc.ports.first {

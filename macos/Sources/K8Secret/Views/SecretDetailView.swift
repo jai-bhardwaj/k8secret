@@ -122,11 +122,30 @@ struct SecretDetailView: View {
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
+
+                // Whole-secret actions, in the pane they act on — the
+                // titlebar belongs to scope and search alone.
+                Button { state.showBulkImport = true } label: {
+                    Label("Import", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(Theme.SoftPill())
+                .help("Bulk-import keys from a .env file")
+                Button { state.secretExportOpen = true } label: {
+                    Label("Export .env", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(Theme.SoftPill())
+                .disabled(state.secretData.isEmpty && state.additions.isEmpty)
+                .help("Export every key as a .env file")
+                Button { state.showYAMLEditor = true } label: {
+                    Label("YAML", systemImage: "doc.text")
+                }
+                .buttonStyle(Theme.SoftPill())
+                .help("Edit raw YAML")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(.bar)
-            .overlay(alignment: .bottom) { Divider() }
+            .background(Theme.inset)
+            .overlay(alignment: .bottom) { Divider().overlay(Theme.line) }
 
             // KV list
             ScrollView {
@@ -175,53 +194,6 @@ struct SecretDetailView: View {
                 pairs: exportPairs,
                 stagedNote: stagedNote
             )
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    state.secretExportOpen = true
-                } label: {
-                    Label("Export .env", systemImage: "square.and.arrow.up")
-                }
-                .disabled(state.secretData.isEmpty && state.additions.isEmpty)
-                .help("Export every key as a .env file")
-
-                Button {
-                    state.discardChanges()
-                } label: {
-                    Label("Discard", systemImage: "arrow.uturn.backward")
-                }
-                .opacity(state.hasChanges ? 1 : 0)
-                .disabled(!state.hasChanges)
-
-                Button {
-                    state.requestSaveChanges()
-                } label: {
-                    // Going dim was the only sign a save was happening. A write to
-                    // a live secret is exactly the moment to show progress.
-                    if state.saving {
-                        Label { Text("Saving") } icon: { ProgressView().controlSize(.small) }
-                    } else {
-                        Label("Save", systemImage: "checkmark.circle.fill")
-                    }
-                }
-                .tint(.green)
-                .opacity(state.hasChanges ? 1 : 0)
-                .disabled(!state.hasChanges || state.saving)
-                .animation(.easeOut(duration: 0.15), value: state.saving)
-
-                Button { state.showBulkImport = true } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                }
-                .help("Bulk import keys")
-                .accessibilityLabel("Bulk import keys")
-
-                Button { state.showYAMLEditor = true } label: {
-                    Label("YAML", systemImage: "doc.text")
-                }
-                .help("Edit raw YAML")
-                .accessibilityLabel("Edit raw YAML")
-            }
         }
         .sheet(isPresented: $state.showBulkImport) {
             BulkImportSheet()
