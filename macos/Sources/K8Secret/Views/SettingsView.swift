@@ -65,17 +65,13 @@ struct SettingsView: View {
                         .foregroundStyle(Theme.text2)
                 }
                 Spacer()
-                Picker("", selection: $appearanceOverride) {
-                    Text("Light").tag("light")
-                    Text("System").tag("system")
-                    Text("Dark").tag("dark")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 220)
-                .onChange(of: appearanceOverride) { _, newValue in
-                    Self.apply(appearanceOverride: newValue)
-                }
+                Theme.SegmentedPills(
+                    options: [("light", "Light"), ("system", "System"), ("dark", "Dark")],
+                    selection: $appearanceOverride)
+                    .frame(width: 220)
+                    .onChange(of: appearanceOverride) { _, newValue in
+                        Self.apply(appearanceOverride: newValue)
+                    }
             }
 
             Divider().overlay(Color.white.opacity(0.14))

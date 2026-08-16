@@ -32,7 +32,10 @@ struct LogStreamWindow: View {
                         .font(.system(.caption, design: .monospaced, weight: .medium))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        // LiveMaterial, not a stock one: a stock material greys
+                        // out whenever this window isn't frontmost.
+                        .background(LiveMaterial(material: .popover)
+                            .clipShape(RoundedRectangle(cornerRadius: 6)))
                         .transition(.opacity)
                     Spacer()
                 }

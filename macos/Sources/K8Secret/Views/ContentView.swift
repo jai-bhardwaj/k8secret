@@ -74,57 +74,82 @@ struct ContentView: View {
                         .zIndex(2)
                 }
 
-                // ⌘K command palette
-                if state.paletteOpen {
-                    scrim { state.paletteOpen = false }
-                    CommandPaletteView()
-                        .padding(.top, 60)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                // ⌘K command palette.
+                //
+                // Every floating layer below owns its animation, scoped to its
+                // own `ZStack`. Driving them from a modifier on the app's root
+                // put each open and close in the same transaction as whatever
+                // else was changing — and this app polls the cluster every
+                // second, so a refresh landing mid-transition would interrupt
+                // it. That is what made closing a panel look like it stuttered.
+                ZStack {
+                    if state.paletteOpen {
+                        scrim { state.paletteOpen = false }
+                        CommandPaletteView()
+                            .padding(.top, 60)
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
+                .animation(Motion.panel, value: state.paletteOpen)
 
                 // Settings — an in-window glass panel, not an NSSheet: sheets
                 // are separate windows, so material glass there would sample
                 // the desktop instead of our canvas.
-                if state.settingsOpen {
-                    scrim { state.settingsOpen = false }
-                    SettingsView()
-                        .transition(.scale(scale: 0.94).combined(with: .offset(y: 14)).combined(with: .opacity))
+                ZStack {
+                    if state.settingsOpen {
+                        scrim { state.settingsOpen = false }
+                        SettingsView()
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
                 }
+                .animation(Motion.panel, value: state.settingsOpen)
 
                 // Confirm dialog — same reasoning as settings.
-                if let action = state.confirmAction {
-                    scrim { state.confirmAction = nil }
-                    ConfirmDialogView(action: action)
-                        .transition(.scale(scale: 0.94).combined(with: .offset(y: 14)).combined(with: .opacity))
+                ZStack {
+                    if let action = state.confirmAction {
+                        scrim { state.confirmAction = nil }
+                        ConfirmDialogView(action: action)
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
                 }
+                .animation(Motion.panel, value: state.confirmAction != nil)
 
                 // Namespace menu — hangs from the toolbar pill, drawn on our
                 // own canvas rather than in a native popover.
-                if state.namespaceMenuOpen {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea()
-                        .onTapGesture { withAnimation(Motion.panel) { state.namespaceMenuOpen = false } }
-                    NamespaceMenuPanel()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .offset(x: namespaceMenuOrigin.x, y: namespaceMenuOrigin.y)
-                        .ignoresSafeArea()
-                        .transition(.scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity))
+                ZStack {
+                    if state.namespaceMenuOpen {
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea()
+                            .onTapGesture { state.namespaceMenuOpen = false }
+                        NamespaceMenuPanel()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .offset(x: namespaceMenuOrigin.x, y: namespaceMenuOrigin.y)
+                            .ignoresSafeArea()
+                            .transition(.scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity))
+                    }
                 }
+                .animation(Motion.panel, value: state.namespaceMenuOpen)
 
                 // Cluster switcher — rises from the status bar it was clicked
                 // in (the VS Code quick-pick pattern). No scrim: a transparent
                 // tap-catcher closes it, the canvas stays undimmed.
-                if state.clusterSwitcherOpen {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea()
-                        .onTapGesture { state.clusterSwitcherOpen = false }
-                    ClusterSwitcherPanel()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                        .padding(.leading, 10)
-                        .padding(.bottom, 8)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                ZStack {
+                    if state.clusterSwitcherOpen {
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea()
+                            .onTapGesture { state.clusterSwitcherOpen = false }
+                        ClusterSwitcherPanel()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                            .padding(.leading, 10)
+                            .padding(.bottom, 8)
+                            // The same grammar as the namespace menu: it grows
+                            // from the corner it is anchored to, rather than
+                            // sliding in from off-screen.
+                            .transition(.scale(scale: 0.96, anchor: .bottomLeading).combined(with: .opacity))
+                    }
                 }
+                .animation(Motion.panel, value: state.clusterSwitcherOpen)
 
                 // First run / what's new — the app introducing itself.
                 if showFirstRun {
@@ -213,11 +238,6 @@ struct ContentView: View {
             UpdateSheetView(checker: UpdateChecker.shared)
                 .environment(state)
         }
-        .motion(Motion.panel, value: state.paletteOpen)
-        .motion(Motion.panel, value: state.settingsOpen)
-        .motion(Motion.panel, value: state.confirmAction != nil)
-        .motion(Motion.panel, value: state.clusterSwitcherOpen)
-        .motion(Motion.panel, value: state.namespaceMenuOpen)
         .background(WindowReader { hostWindow = $0 })
         .task {
             UITestTour.startIfRequested(state: state)
@@ -260,6 +280,12 @@ struct ContentView: View {
             case "first": showFirstRun = true
             case "whatsnew": showWhatsNew = true
             case "nsmenu": state.namespaceMenuOpen = true
+            case "switcher": state.clusterSwitcherOpen = true
+            case "settings": state.settingsOpen = true
+            case "settingsclose":
+                state.settingsOpen = true
+                try? await Task.sleep(for: .seconds(2.5))
+                withAnimation(Motion.panel) { state.settingsOpen = false }
             case "tour":
                 state.tourStep = Int(ProcessInfo.processInfo.environment["K8SECRET_UITEST_TOURSTEP"] ?? "") ?? 0
             default:
@@ -666,6 +692,17 @@ struct NamespaceMenuPanel: View {
     /// the cluster switcher follows.
     private var searchable: Bool { state.filteredNamespaces.count > 6 }
 
+    private static let maxRows: CGFloat = 260
+    private var estimatedRows: CGFloat { CGFloat(matches.count) * 29 }
+    @State private var rowsHeight: CGFloat?
+
+    private struct RowsHeight: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+
     private var matches: [K8sNamespace] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return state.filteredNamespaces }
@@ -753,8 +790,10 @@ struct NamespaceMenuPanel: View {
                             }
                         }
                     }
-                    // Hugs a short list, scrolls a long one.
-                    .frame(height: min(rowsHeight, 260))
+                    // Same as the cluster switcher: measured, clamped, and
+                    // clipped by a fixed frame.
+                    .frame(height: min(rowsHeight ?? estimatedRows, Self.maxRows))
+                    .animation(nil, value: rowsHeight)
                     .onPreferenceChange(RowsHeight.self) { rowsHeight = $0 }
                     .onAppear {
                         searchFocused = searchable
@@ -771,7 +810,7 @@ struct NamespaceMenuPanel: View {
         }
         .padding(.bottom, 6)
         .frame(width: 280)
-        .floatGlass(radius: 14)
+        .popGlass(radius: 14)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .tourSpot(.namespaceScope)
         .onKeyPress(.downArrow) { move(1); return .handled }
@@ -779,14 +818,6 @@ struct NamespaceMenuPanel: View {
         .onExitCommand { close() }
     }
 
-    @State private var rowsHeight: CGFloat = 260
-
-    private struct RowsHeight: PreferenceKey {
-        static let defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-            value = max(value, nextValue())
-        }
-    }
 
     private func move(_ delta: Int) {
         guard !matches.isEmpty else { return }
@@ -804,7 +835,9 @@ struct NamespaceMenuPanel: View {
     }
 
     private func close() {
-        withAnimation(Motion.panel) { state.namespaceMenuOpen = false }
+        // No explicit transaction: the layer that presents this panel owns the
+        // animation, so open and close can't disagree about it.
+        state.namespaceMenuOpen = false
     }
 
     private struct NamespaceRow: View {
@@ -857,7 +890,9 @@ struct ClusterSwitcherPanel: View {
     @Environment(\.openWindow) private var openWindow
     @State private var query = ""
     @State private var highlighted = 0
-    @State private var rowsHeight: CGFloat = 244
+    /// nil until the rows have been measured; the estimate covers the first
+    /// frame so the panel never opens at one size and settles at another.
+    @State private var rowsHeight: CGFloat?
     @FocusState private var searchFocused: Bool
 
     private struct RowsHeight: PreferenceKey {
@@ -891,6 +926,15 @@ struct ClusterSwitcherPanel: View {
     /// Where the "recent" divide falls. Below this the whole list is visible
     /// at a glance and grouping would be ceremony.
     private var grouped: Bool { state.availableContexts.count > 8 }
+
+    /// The tallest the list may grow before it scrolls.
+    private static let maxRows: CGFloat = 244
+
+    /// Close enough for one frame; the measurement below is what actually
+    /// sizes the panel, so this never has to be exactly right.
+    private var estimatedRows: CGFloat {
+        CGFloat(matches.count) * 29 + (leadCount > 0 ? 44 : 0)
+    }
 
     /// How many rows belong to the lead group.
     private var leadCount: Int {
@@ -983,10 +1027,13 @@ struct ClusterSwitcherPanel: View {
                             }
                         }
                     }
-                    // Hug the rows so one cluster gets a one-row panel, and cap
-                    // it so a hundred get a scroller instead of a window-tall
-                    // wall of names.
-                    .frame(height: min(rowsHeight, 244))
+                    // Measured, then clamped: the panel is exactly as tall as
+                    // its rows until they reach the cap, at which point the
+                    // scroller takes over. The scroller keeps a fixed frame so
+                    // its rows are clipped to the panel — sizing it to content
+                    // instead let them draw straight out over the window.
+                    .frame(height: min(rowsHeight ?? estimatedRows, Self.maxRows))
+                    .animation(nil, value: rowsHeight)
                     .onPreferenceChange(RowsHeight.self) { rowsHeight = $0 }
                     .onAppear {
                         searchFocused = searchable
@@ -1013,7 +1060,7 @@ struct ClusterSwitcherPanel: View {
             .padding(.bottom, 6)
         }
         .frame(width: 300)
-        .floatGlass(radius: 14)
+        .popGlass(radius: 14)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .tourSpot(.clusterSwitcher)
         .onKeyPress(.downArrow) { move(1); return .handled }
@@ -1206,7 +1253,8 @@ struct ToastView: View {
             // Glass toast: material + veil, colors scheme-resolved by hand
             // because this subtree renders detached (see `scheme` above).
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(.clear)
+                .background(LiveMaterial().clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(scheme == .dark ? Color.white.opacity(0.10) : Color.white.opacity(0.55))

@@ -137,12 +137,8 @@ struct GuidedTourView: View {
         .onChange(of: step, initial: true) { _, _ in
             let switcher = current?.opensClusterSwitcher ?? false
             let namespaces = current?.opensNamespaceMenu ?? false
-            if state.clusterSwitcherOpen != switcher {
-                withAnimation(Motion.panel) { state.clusterSwitcherOpen = switcher }
-            }
-            if state.namespaceMenuOpen != namespaces {
-                withAnimation(Motion.panel) { state.namespaceMenuOpen = namespaces }
-            }
+            if state.clusterSwitcherOpen != switcher { state.clusterSwitcherOpen = switcher }
+            if state.namespaceMenuOpen != namespaces { state.namespaceMenuOpen = namespaces }
         }
     }
 
@@ -228,12 +224,8 @@ struct GuidedTourView: View {
 
     private func finish() {
         Welcome.completeTour()
-        if state.clusterSwitcherOpen {
-            withAnimation(Motion.panel) { state.clusterSwitcherOpen = false }
-        }
-        if state.namespaceMenuOpen {
-            withAnimation(Motion.panel) { state.namespaceMenuOpen = false }
-        }
+        state.clusterSwitcherOpen = false
+        state.namespaceMenuOpen = false
         withAnimation(Theme.easeOut) { step = nil }
     }
 }

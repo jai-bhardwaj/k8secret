@@ -92,8 +92,11 @@ enum Theme {
 
     /// Text on the canvas. Dark canvas: white; light canvas: deep ink.
     static let text = dynamic(light: 0x241640, dark: 0xFFFFFF)
-    static let text2 = dynamicA(light: 0x241640, lightA: 0.75, dark: 0xFFFFFF, darkA: 0.72)
-    static let text3 = dynamicA(light: 0x241640, lightA: 0.47, dark: 0xFFFFFF, darkA: 0.44)
+    // Secondary type sits on a saturated canvas, where a thin white reads as a
+    // wash of the canvas's own hue rather than as grey — "green on green".
+    // These carry enough weight to stay legible on every tint.
+    static let text2 = dynamicA(light: 0x241640, lightA: 0.80, dark: 0xFFFFFF, darkA: 0.80)
+    static let text3 = dynamicA(light: 0x241640, lightA: 0.60, dark: 0xFFFFFF, darkA: 0.58)
 
     // MARK: - Surfaces (translucent washes on the canvas — no opaque panels)
 
@@ -164,7 +167,8 @@ enum Theme {
             content
                 .background {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(.clear)
+                        .background(LiveMaterial().clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous)))
                         .overlay(
                             RoundedRectangle(cornerRadius: radius, style: .continuous)
                                 .fill(Color.white.opacity(scheme == .dark ? 0.11 : 0.55))
@@ -187,15 +191,59 @@ enum Theme {
             content
                 .background {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(.clear)
+                        .background(LiveMaterial().clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous)))
                         .overlay(
+                            // Neutral, never a hue of its own: a violet veil
+                            // sat wrong on every canvas that wasn't violet.
                             RoundedRectangle(cornerRadius: radius, style: .continuous)
                                 .fill(scheme == .dark
-                                      ? Color(hex: 0x150E20).opacity(0.45)
+                                      ? Color.black.opacity(0.24)
                                       : Color.white.opacity(0.45))
                         )
                         .shadow(color: .black.opacity(0.28), radius: 24, y: 10)
                 }
+        }
+    }
+
+    /// Our own segmented control. The native `.pickerStyle(.segmented)` is an
+    /// AppKit control: it wears system chrome that ignores the canvas, and it
+    /// snaps rather than animates when the panel holding it is dismissed —
+    /// which is what made closing Settings look like it glitched.
+    struct SegmentedPills: View {
+        let options: [(value: String, label: String)]
+        @Binding var selection: String
+        @Namespace private var slider
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            HStack(spacing: 2) {
+                ForEach(options.indices, id: \.self) { index in
+                    let option = options[index]
+                    let isOn = selection == option.value
+                    Button {
+                        withAnimation(Motion.stateChange) { selection = option.value }
+                    } label: {
+                        Text(option.label)
+                            .font(.system(size: 12, weight: isOn ? .semibold : .regular))
+                            .foregroundStyle(isOn ? Theme.text : Theme.text2)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                            .background {
+                                if isOn {
+                                    Capsule()
+                                        .fill(Color.white.opacity(scheme == .dark ? 0.18 : 0.85))
+                                        .matchedGeometryEffect(id: "segment", in: slider)
+                                }
+                            }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(3)
+            .background(Theme.inset, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
         }
     }
 
@@ -398,4 +446,31 @@ enum ToolbarGeometry {
 
     /// The namespace scope pill: second of the hosted items.
     static let namespacePill = 1
+}
+
+
+/// Frosted glass that stays alive when the window is not frontmost.
+///
+/// SwiftUI's `Material` is an `NSVisualEffectView` in `.followsWindowActiveState`,
+/// which desaturates to grey the moment the window loses focus — so every panel
+/// in the app turned grey while its own window sat in the background, then
+/// snapped back to the canvas color on the next click. Pinning the state to
+/// `.active` keeps a panel the same color whether or not you are looking at it.
+struct LiveMaterial: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .hudWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .withinWindow
+        view.state = .active
+        view.isEmphasized = true
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.blendingMode = .withinWindow
+        view.state = .active
+    }
 }
