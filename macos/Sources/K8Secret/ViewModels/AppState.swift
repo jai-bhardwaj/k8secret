@@ -861,6 +861,27 @@ final class AppState {
     var overviewDeployments: [K8sDeployment] = []
     var overviewPods: [K8sPod] = []
 
+    /// Pods per namespace, for the namespace menu. Keyed by namespace, so
+    /// unlike the scoped lists it cannot go stale against the current scope —
+    /// and it is read-only decoration, never something an action acts on.
+    var namespacePodCounts: [String: Int] = [:]
+    private var namespaceCountsAt: Date?
+
+    /// Refreshed when the menu opens, and not more than twice a minute: a
+    /// count beside a namespace is worth one list call, not a poll.
+    func loadNamespacePodCounts() async {
+        if let at = namespaceCountsAt, Date().timeIntervalSince(at) < 30 { return }
+        let pods = (try? await listAcrossAll { [client] in
+            try await client.listPods(namespace: $0) }) ?? []
+        // Every known namespace gets an entry: an empty namespace reads "0",
+        // which is information, rather than a blank, which looks like a gap.
+        var counts: [String: Int] = [:]
+        for ns in namespaces { counts[ns.name] = 0 }
+        for pod in pods { counts[pod.namespace, default: 0] += 1 }
+        namespacePodCounts = counts
+        namespaceCountsAt = Date()
+    }
+
     private func listAcrossAll<T: Sendable>(
         _ fetch: @escaping @Sendable (String) async throws -> [T]
     ) async throws -> [T] {

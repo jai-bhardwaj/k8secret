@@ -282,6 +282,16 @@ struct ContentView: View {
             case "nsmenu": state.namespaceMenuOpen = true
             case "switcher": state.clusterSwitcherOpen = true
             case "settings": state.settingsOpen = true
+            case "closetest":
+                // Debug-only: open each layer and close it again, so the
+                // closing animation can be captured (pair with SLOWMO).
+                state.namespaceMenuOpen = true
+                try? await Task.sleep(for: .seconds(2))
+                state.namespaceMenuOpen = false
+                try? await Task.sleep(for: .seconds(3))
+                state.clusterSwitcherOpen = true
+                try? await Task.sleep(for: .seconds(2))
+                state.clusterSwitcherOpen = false
             case "settingsclose":
                 state.settingsOpen = true
                 try? await Task.sleep(for: .seconds(2.5))
@@ -745,13 +755,19 @@ struct NamespaceMenuPanel: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(Theme.inset, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                .overlay(Capsule().strokeBorder(
+                    searchFocused ? state.clusterTint.color.opacity(0.85) : Theme.line,
+                    lineWidth: searchFocused ? 1.5 : 1))
+                .shadow(color: searchFocused ? state.clusterTint.color.opacity(0.35) : .clear,
+                        radius: 6)
+                .animation(Motion.stateChange, value: searchFocused)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 6)
             }
 
             NamespaceRow(name: "All namespaces",
-                         detail: "\(state.filteredNamespaces.count)",
+                         detail: totalPods.map(String.init),
+                         accent: state.clusterTint.color,
                          isCurrent: state.allNamespaces,
                          isHighlighted: false) {
                 Task { await state.selectNamespaceScope(all: true) }
@@ -772,7 +788,8 @@ struct NamespaceMenuPanel: View {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(matches.enumerated()), id: \.element.id) { index, ns in
                                 NamespaceRow(name: ns.name,
-                                             detail: nil,
+                                             detail: state.namespacePodCounts[ns.name].map(String.init),
+                                             accent: state.clusterTint.color,
                                              isCurrent: !state.allNamespaces && state.selectedNamespace?.id == ns.id,
                                              isHighlighted: searchable && index == highlighted) {
                                     Task {
@@ -800,6 +817,7 @@ struct NamespaceMenuPanel: View {
                         if let current = state.selectedNamespace?.id {
                             scroller.scrollTo(current, anchor: .center)
                         }
+                        Task { await state.loadNamespacePodCounts() }
                     }
                     .onChange(of: highlighted) { _, new in
                         guard matches.indices.contains(new) else { return }
@@ -840,9 +858,16 @@ struct NamespaceMenuPanel: View {
         state.namespaceMenuOpen = false
     }
 
+    /// Pods across every namespace — the total the "All namespaces" row shows.
+    private var totalPods: Int? {
+        guard !state.namespacePodCounts.isEmpty else { return nil }
+        return state.namespacePodCounts.values.reduce(0, +)
+    }
+
     private struct NamespaceRow: View {
         let name: String
         let detail: String?
+        let accent: Color
         let isCurrent: Bool
         let isHighlighted: Bool
         let action: () -> Void
@@ -855,7 +880,7 @@ struct NamespaceMenuPanel: View {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Theme.text2)
+                        .foregroundStyle(accent)
                         .opacity(isCurrent ? 1 : 0)
                     Text(name)
                         .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
@@ -868,6 +893,7 @@ struct NamespaceMenuPanel: View {
                             .font(.system(size: 11))
                             .monospacedDigit()
                             .foregroundStyle(Theme.text3)
+                            .help("Pods running here")
                     }
                 }
                 .padding(.horizontal, 12)
@@ -983,7 +1009,12 @@ struct ClusterSwitcherPanel: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(Theme.inset, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                .overlay(Capsule().strokeBorder(
+                    searchFocused ? state.clusterTint.color.opacity(0.85) : Theme.line,
+                    lineWidth: searchFocused ? 1.5 : 1))
+                .shadow(color: searchFocused ? state.clusterTint.color.opacity(0.35) : .clear,
+                        radius: 6)
+                .animation(Motion.stateChange, value: searchFocused)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 6)
             }
@@ -1118,7 +1149,7 @@ struct ClusterSwitcherPanel: View {
                     if isCurrent {
                         Image(systemName: "checkmark")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Theme.text2)
+                            .foregroundStyle(tint?.color ?? Theme.text2)
                     }
                     if let shortcut {
                         Text(shortcut)
