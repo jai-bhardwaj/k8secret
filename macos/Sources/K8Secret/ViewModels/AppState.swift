@@ -41,6 +41,8 @@ final class AppState {
     /// Sheet/tab state hoisted from the views so it survives selection changes
     /// and can be driven by the debug tour (UITestTour).
     var settingsOpen = false
+    /// Status-bar cluster switcher panel (the VS Code quick-pick pattern).
+    var clusterSwitcherOpen = false
     var secretExportOpen = false
     var podDetailTab: PodDetailView.DetailTab = .overview
     var deploymentDetailTab: DeploymentDetailView.DetailTab = .overview

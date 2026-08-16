@@ -155,6 +155,13 @@ enum UITestTour {
             NSApplication.shared.appearance = originalAppearance
             await settle(0.5)
 
+            // 18. Cluster switcher rising from the status bar.
+            state.clusterSwitcherOpen = true
+            await settle(1.2); mark("18-cluster-switcher")
+            await settle(1.5)
+            state.clusterSwitcherOpen = false
+            await settle(0.4)
+
             mark("99-done")
         }
     }

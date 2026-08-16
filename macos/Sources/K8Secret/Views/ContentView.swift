@@ -57,6 +57,20 @@ struct ContentView: View {
                         .transition(.scale(scale: 0.94).combined(with: .offset(y: 14)).combined(with: .opacity))
                 }
 
+                // Cluster switcher — rises from the status bar it was clicked
+                // in (the VS Code quick-pick pattern). No scrim: a transparent
+                // tap-catcher closes it, the canvas stays undimmed.
+                if state.clusterSwitcherOpen {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture { state.clusterSwitcherOpen = false }
+                    ClusterSwitcherPanel()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .padding(.leading, 10)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 // Toast overlay
                 if let msg = state.toastMessage {
                     VStack {
@@ -90,6 +104,7 @@ struct ContentView: View {
         .motion(Motion.panel, value: state.paletteOpen)
         .motion(Motion.panel, value: state.settingsOpen)
         .motion(Motion.panel, value: state.confirmAction != nil)
+        .motion(Motion.panel, value: state.clusterSwitcherOpen)
         .task {
             UITestTour.startIfRequested(state: state)
             await state.connect()
@@ -173,50 +188,9 @@ struct ContentView: View {
             .keyboardShortcut("\\", modifiers: .command)
             .help("\(state.sidebarCollapsed ? "Show" : "Hide") sidebar (⌘\\)")
         }
-        ToolbarItem(placement: .navigation) {
-            Menu {
-                ForEach(state.availableContexts, id: \.self) { ctx in
-                    Button {
-                        Task { await state.switchContext(ctx) }
-                    } label: {
-                        HStack {
-                            Text(ctx)
-                            if ctx == state.context { Spacer(); Image(systemName: "checkmark") }
-                        }
-                    }
-                    .disabled(ctx == state.context)
-                }
-                Divider()
-                Menu("Open in New Window") {
-                    ForEach(state.availableContexts, id: \.self) { ctx in
-                        Button {
-                            openWindow(id: "cluster-ctx", value: ctx)
-                        } label: {
-                            Label(ctx, systemImage: "macwindow.badge.plus")
-                        }
-                    }
-                }
-            } label: {
-                TitlebarPill(strong: true) {
-                    Circle()
-                        .fill(state.clusterTint.color)
-                        .frame(width: 7, height: 7)
-                    Text(state.context)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 140)
-                        .fixedSize(horizontal: true, vertical: false)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Theme.text3)
-                }
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .help("Kubeconfig context — the dot is this cluster's tint from Settings")
-        }
+        // No context pill here: the cluster switcher lives in the status bar
+        // (click "Connected · <ctx>"), and identity is already everywhere —
+        // the tint paints the whole canvas.
         ToolbarItem(placement: .navigation) {
             NamespaceScopeButton()
         }
@@ -461,6 +435,101 @@ struct NamespaceScopeButton: View {
         .buttonStyle(.plain)
         .background(selected ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .padding(.horizontal, 4)
+    }
+}
+
+/// The cluster switcher: a glass panel rising from the status bar's
+/// "Connected · <ctx>" segment. Rows switch this window's context in place;
+/// the footer opens the ⌘N launcher for a new window instead.
+struct ClusterSwitcherPanel: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("CLUSTER")
+                .font(.system(size: 9.5, weight: .semibold))
+                .kerning(0.8)
+                .foregroundStyle(Theme.text3)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+
+            ForEach(state.availableContexts, id: \.self) { ctx in
+                SwitcherRow(
+                    name: ctx,
+                    tint: tint(for: ctx),
+                    isCurrent: ctx == state.context
+                ) {
+                    state.clusterSwitcherOpen = false
+                    guard ctx != state.context else { return }
+                    Task { await state.switchContext(ctx) }
+                }
+            }
+
+            Divider().overlay(Theme.line).padding(.vertical, 4)
+
+            SwitcherRow(name: "Open a cluster in a new window…", tint: nil, isCurrent: false,
+                        shortcut: "⌘N") {
+                state.clusterSwitcherOpen = false
+                openWindow(id: "launcher")
+            }
+            .padding(.bottom, 6)
+        }
+        .frame(width: 300)
+        .floatGlass(radius: 14)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func tint(for ctx: String) -> Theme.ClusterTint {
+        let raw = UserDefaults.standard.string(forKey: "clusterTint.\(ctx)") ?? ""
+        return Theme.ClusterTint(rawValue: raw) ?? .default
+    }
+
+    private struct SwitcherRow: View {
+        let name: String
+        let tint: Theme.ClusterTint?
+        let isCurrent: Bool
+        var shortcut: String?
+        let action: () -> Void
+
+        @State private var hovering = false
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 9) {
+                    if let tint {
+                        Circle()
+                            .fill(tint.color)
+                            .frame(width: 9, height: 9)
+                            .shadow(color: tint.color.opacity(0.6), radius: 3)
+                    }
+                    Text(name)
+                        .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    if isCurrent {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.text2)
+                    }
+                    if let shortcut {
+                        Text(shortcut)
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Theme.text3)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(hovering ? Color.white.opacity(scheme == .dark ? 0.09 : 0.45) : .clear)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering = $0 }
+        }
     }
 }
 

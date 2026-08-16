@@ -91,17 +91,36 @@ struct StatusBarView: View {
 
     // MARK: - Left
 
+    @State private var hoveringCluster = false
+
     private var leftSection: some View {
         HStack(spacing: 12) {
             // The prototype leads with what matters live: connection, then the
             // watch, then freshness. App version moves to the right edge.
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(state.connectionState == .connected ? Theme.ok : Theme.bad)
-                    .frame(width: 6, height: 6)
-                Text(state.connectionState == .connected ? "Connected · \(state.context)" : "Not connected")
-                    .foregroundStyle(.secondary)
+            // The connection segment is the cluster switcher (the VS Code
+            // status-bar pattern): click it and the picker rises from here.
+            Button {
+                state.clusterSwitcherOpen.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(state.connectionState == .connected ? Theme.ok : Theme.bad)
+                        .frame(width: 6, height: 6)
+                    Text(state.connectionState == .connected ? "Connected · \(state.context)" : "Not connected")
+                        .foregroundStyle(hoveringCluster ? Theme.text : Theme.text2)
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(Theme.text3)
+                        .opacity(hoveringCluster ? 1 : 0)
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(hoveringCluster ? Theme.inset : Color.clear, in: Capsule())
+                .contentShape(Capsule())
             }
+            .buttonStyle(.plain)
+            .onHover { hoveringCluster = $0 }
+            .help("Switch cluster context")
             .font(.system(size: 11))
 
             statusDivider
