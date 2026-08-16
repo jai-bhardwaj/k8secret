@@ -301,7 +301,10 @@ struct ContentView: View {
                    let type = ResourceType(rawValue: raw) {
                     await state.selectNamespaceScope(all: true)
                     await state.selectResourceType(type)
-                    try? await Task.sleep(for: .milliseconds(700))
+                    // Wait for the list rather than guessing at a delay.
+                    for _ in 0..<25 where state.count(of: type) == 0 {
+                        try? await Task.sleep(for: .milliseconds(200))
+                    }
                     switch type {
                     case .deployments: state.selectedDeployment = state.deployments.first
                     case .pods:

@@ -923,6 +923,20 @@ final class AppState {
         segment.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~"))) ?? segment
     }
 
+    /// How many of a type are loaded right now — used by the UI test hooks to
+    /// wait for a list instead of sleeping a guessed interval.
+    func count(of type: ResourceType) -> Int {
+        switch type {
+        case .secrets: secrets.count
+        case .deployments: deployments.count
+        case .pods: pods.count
+        case .services: services.count
+        case .configmaps: configMaps.count
+        case .cronjobs: cronJobs.count
+        case .ingresses: ingresses.count
+        }
+    }
+
     func loadNamespacePodCounts() async {
         if let at = namespaceCountsAt, Date().timeIntervalSince(at) < 30 { return }
         let pods = (try? await listAcrossAll { [client] in
@@ -970,16 +984,20 @@ final class AppState {
     }
 
     func loadSecretData() async {
-        guard let ns = selectedNamespace, let secret = selectedSecret else { return }
+        // The secret's own namespace, never the scope's: in "all namespaces"
+        // the scope is nil, and this returned before it fetched anything —
+        // every secret opened from an all-namespace list read as empty.
+        guard let secret = selectedSecret else { return }
+        let ns = secret.namespace
         loadingData = true
         do {
-            let result = try await client.getSecretData(namespace: ns.name, name: secret.name)
+            let result = try await client.getSecretData(namespace: ns, name: secret.name)
             // Decrypted values under the wrong name is the worst version of this
             // race: click one secret while another's fetch is in flight and you
             // were shown its contents as though they belonged to the one named on
             // screen. `secretResourceVersion` is the save's precondition, so it
             // has to describe the same secret as the values beside it.
-            guard isStillSelected(kind: "Secret", name: secret.name, namespace: ns.name) else {
+            guard isStillSelected(kind: "Secret", name: secret.name, namespace: ns) else {
                 loadingData = false
                 return
             }
@@ -1131,7 +1149,7 @@ final class AppState {
 
     func selectDeployment(_ dep: K8sDeployment) async {
         selectedDeployment = dep
-        await loadEvents(for: "Deployment", name: dep.name)
+        await loadEvents(for: "Deployment", name: dep.name, in: dep.namespace)
         startDetailPolling()
     }
 
@@ -1145,14 +1163,15 @@ final class AppState {
                 try? await Task.sleep(for: .seconds(5))
                 if Task.isCancelled { break }
 
-                guard let self,
-                      let dep = self.selectedDeployment,
-                      let ns = self.selectedNamespace else { break }
+                guard let self, let dep = self.selectedDeployment else { break }
+                // The deployment's own namespace: the poll used to stop dead
+                // whenever the list was scoped to every namespace.
+                let ns = dep.namespace
 
                 // Fetch only the single deployment. Assign only on a real change:
                 // an identical value still invalidates every view reading it, so
                 // the detail pane rebuilt itself every 5 seconds while idle.
-                if let updated = try? await self.client.getDeployment(namespace: ns.name, name: dep.name) {
+                if let updated = try? await self.client.getDeployment(namespace: ns, name: dep.name) {
                     // The fetch above is a suspension point: the user can select
                     // a different deployment while it is in flight, and this task
                     // is cancelled but not stopped mid-await. Without this check
@@ -1171,7 +1190,7 @@ final class AppState {
                 }
 
                 // Refresh events silently
-                await self.loadEvents(for: "Deployment", name: dep.name)
+                await self.loadEvents(for: "Deployment", name: dep.name, in: dep.namespace)
             }
         }
     }
@@ -1528,7 +1547,7 @@ final class AppState {
                         self.selectedDeployment = updated
                     }
                     // Silently refresh events (no loading state)
-                    await self.loadEvents(for: "Deployment", name: depName)
+                    await self.loadEvents(for: "Deployment", name: depName, in: updated.namespace)
                 }
 
                 // Build progress text
@@ -1593,25 +1612,26 @@ final class AppState {
     func selectPod(_ pod: K8sPod) async {
         selectedPod = pod
         podLogs = ""
-        await loadEvents(for: "Pod", name: pod.name)
+        await loadEvents(for: "Pod", name: pod.name, in: pod.namespace)
     }
 
     func loadPodLogs(container: String? = nil, tailLines: Int = 200, sinceSeconds: Int? = nil) async {
-        guard let ns = selectedNamespace, let pod = selectedPod else { return }
+        guard let pod = selectedPod else { return }
+        let ns = pod.namespace
         loadingLogs = true
         do {
-            let fetched = try await client.getPodLogs(namespace: ns.name, name: pod.name, container: container,
+            let fetched = try await client.getPodLogs(namespace: ns, name: pod.name, container: container,
                                                       tailLines: tailLines, sinceSeconds: sinceSeconds)
             // Logs are the pane people read most carefully, so showing one pod's
             // output under another's name is worth guarding even though the fetch
             // is usually quick.
-            guard isStillSelected(kind: "Pod", name: pod.name, namespace: ns.name) else {
+            guard isStillSelected(kind: "Pod", name: pod.name, namespace: ns) else {
                 loadingLogs = false
                 return
             }
             podLogs = fetched.isEmpty ? "(no logs available)" : fetched
         } catch {
-            guard isStillSelected(kind: "Pod", name: pod.name, namespace: ns.name) else {
+            guard isStillSelected(kind: "Pod", name: pod.name, namespace: ns) else {
                 loadingLogs = false
                 return
             }
@@ -1636,7 +1656,7 @@ final class AppState {
 
     func selectService(_ svc: K8sService) async {
         selectedService = svc
-        await loadEvents(for: "Service", name: svc.name)
+        await loadEvents(for: "Service", name: svc.name, in: svc.namespace)
     }
 
     // MARK: - Events
@@ -1647,23 +1667,38 @@ final class AppState {
     /// takes and the user is free to click elsewhere meanwhile, so a reply that
     /// arrives late describes a resource that may no longer be on screen —
     /// writing it anyway puts one resource's data under another one's name.
+    /// Whether what a fetch was for is still what the user is looking at.
+    ///
+    /// The comparison is against the *selected object's* namespace, never the
+    /// scope's. Reading it from the scope was wrong in both directions: in
+    /// "all namespaces" the scope has no namespace, so this fell back to
+    /// `default` and declared every result stale — secrets, logs and events
+    /// were fetched correctly and then thrown away — while in a scoped list it
+    /// only ever agreed by coincidence, since the object is in that namespace
+    /// anyway. Name and namespace together identify the object; that is what
+    /// this is asking about.
     func isStillSelected(kind: String, name: String, namespace: String) -> Bool {
-        guard selectedNamespace?.name ?? "default" == namespace else { return false }
+        func matches(_ selectedName: String?, _ selectedNamespace: String?) -> Bool {
+            selectedName == name && selectedNamespace == namespace
+        }
         switch kind {
-        case "Pod":        return selectedPod?.name == name
-        case "Deployment": return selectedDeployment?.name == name
-        case "Service":    return selectedService?.name == name
-        case "Secret":     return selectedSecret?.name == name
-        case "ConfigMap":  return selectedConfigMap?.name == name
-        case "CronJob":    return selectedCronJob?.name == name
-        case "Ingress":    return selectedIngress?.name == name
+        case "Pod":        return matches(selectedPod?.name, selectedPod?.namespace)
+        case "Deployment": return matches(selectedDeployment?.name, selectedDeployment?.namespace)
+        case "Service":    return matches(selectedService?.name, selectedService?.namespace)
+        case "Secret":     return matches(selectedSecret?.name, selectedSecret?.namespace)
+        case "ConfigMap":  return matches(selectedConfigMap?.name, selectedConfigMap?.namespace)
+        case "CronJob":    return matches(selectedCronJob?.name, selectedCronJob?.namespace)
+        case "Ingress":    return matches(selectedIngress?.name, selectedIngress?.namespace)
         default:           return true   // cluster-scoped: nothing to race against
         }
     }
 
-    func loadEvents(for kind: String, name: String) async {
-        // Nodes are cluster-scoped, events are in default namespace
-        let ns = selectedNamespace?.name ?? "default"
+    /// Events for one object. The namespace belongs to the object, not to the
+    /// current scope — in "all namespaces" the scope has none, and this used to
+    /// fall back to `default`, quietly showing another namespace's events (or
+    /// none) beside the resource you were reading.
+    func loadEvents(for kind: String, name: String, in namespace: String? = nil) async {
+        let ns = namespace ?? selectedNamespace?.name ?? "default"
         do {
             let fetched = try await client.getEvents(
                 namespace: ns,
@@ -1783,7 +1818,11 @@ final class AppState {
     }
 
     func saveChanges() async {
-        guard let ns = selectedNamespace, let secret = selectedSecret else { return }
+        // Same rule as the read: the secret names its own namespace. Taking it
+        // from the scope meant Save did nothing at all — silently — whenever
+        // the list was showing every namespace.
+        guard let secret = selectedSecret else { return }
+        let ns = secret.namespace
         guard hasChanges else { return }
         saving = true
         defer { saving = false }
@@ -1795,7 +1834,7 @@ final class AppState {
         do {
             // One atomic merge-patch: all keys land, or none do.
             try await client.applySecretChanges(
-                namespace: ns.name,
+                namespace: ns,
                 name: secret.name,
                 upserts: upserts,
                 removals: Array(deletions),

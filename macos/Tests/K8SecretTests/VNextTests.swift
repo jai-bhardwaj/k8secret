@@ -370,6 +370,43 @@ final class WindowIdentityTests: XCTestCase {
 }
 
 @MainActor
+final class AllNamespacesScopeTests: XCTestCase {
+    private func secret(named name: String, in namespace: String) -> K8sSecret {
+        K8sSecret(id: "\(namespace)/\(name)", name: name, namespace: namespace,
+                  type: "Opaque", createdAt: Date(), keyCount: 2)
+    }
+
+    /// Browsing every namespace at once leaves the scope with no namespace of
+    /// its own. Staleness used to be judged against that scope, falling back to
+    /// "default", so every reply for a resource in any other namespace was
+    /// discarded as stale: secrets opened empty, logs never arrived, events
+    /// belonged to the wrong namespace, and saving a secret did nothing at all.
+    /// Identity is the object's name *and* namespace.
+    func testStillSelectedFollowsTheObjectNotTheScope() {
+        let state = AppState()
+        state.selectedNamespace = nil          // "all namespaces"
+        state.selectedSecret = secret(named: "api", in: "payments")
+
+        XCTAssertTrue(state.isStillSelected(kind: "Secret", name: "api", namespace: "payments"),
+                      "a reply for the selected secret must be accepted with no scope namespace")
+        XCTAssertFalse(state.isStillSelected(kind: "Secret", name: "api", namespace: "staging"),
+                       "the same name in another namespace is a different secret")
+        XCTAssertFalse(state.isStillSelected(kind: "Secret", name: "other", namespace: "payments"),
+                       "another secret's reply must not land on this one")
+    }
+
+    /// And the scoped case keeps working — it used to agree only because the
+    /// object happened to live in the scoped namespace.
+    func testStillSelectedInAScopedNamespace() {
+        let state = AppState()
+        state.selectedNamespace = K8sNamespace(id: "payments", name: "payments", status: "Active")
+        state.selectedSecret = secret(named: "api", in: "payments")
+
+        XCTAssertTrue(state.isStillSelected(kind: "Secret", name: "api", namespace: "payments"))
+    }
+}
+
+@MainActor
 final class RecentClustersTests: XCTestCase {
     /// With a hundred contexts in a merged kubeconfig, alphabetical order
     /// buries the four anyone actually uses — so the switcher leads with the
