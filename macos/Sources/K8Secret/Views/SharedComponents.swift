@@ -107,6 +107,9 @@ struct NamespaceBadge: View {
 struct StatCard: View {
     let label: String
     let value: String
+    /// The prototype's `<small>` inside the value — "3 / 5", where the total
+    /// is context rather than the number you are reading.
+    var suffix: String? = nil
     var mono = false
     var valueColor: Color? = nil
 
@@ -116,10 +119,13 @@ struct StatCard: View {
                 .font(.system(size: 10, weight: .semibold))
                 .kerning(0.8)
                 .foregroundStyle(Theme.text3)
-            Text(value)
+            (Text(value)
                 .font(.system(size: mono ? 15 : 19, weight: .bold, design: mono ? .monospaced : .default))
-                .kerning(-0.3)
                 .foregroundStyle(valueColor ?? Theme.text)
+             + Text(suffix ?? "")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Theme.text3))
+                .kerning(-0.3)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)

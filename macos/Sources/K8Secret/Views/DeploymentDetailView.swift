@@ -273,7 +273,7 @@ struct DeploymentDetailView: View {
 
     private func statTiles(_ dep: K8sDeployment) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
-            StatCard(label: "Ready", value: "\(dep.readyReplicas) / \(dep.replicas)",
+            StatCard(label: "Ready", value: "\(dep.readyReplicas)", suffix: " / \(dep.replicas)",
                      valueColor: dep.readyReplicas < dep.replicas ? Theme.warn : nil)
             let agg = state.aggregateMetrics(of: dep)
             StatCard(label: "CPU", value: agg?.cpu ?? "—", mono: true, valueColor: agg == nil ? nil : Theme.cpu)
@@ -286,10 +286,12 @@ struct DeploymentDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Text("Replicas")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Theme.text)
 
-                HStack(spacing: 8) {
+                // One control, not three: the prototype's stepper is a single
+                // capsule with the count living between its two buttons.
+                HStack(spacing: 0) {
                     stepButton("minus", enabled: displayedReplicas(dep) > 0 && !state.scaling) {
                         replicaInput = String(max(0, displayedReplicas(dep) - 1))
                     }
@@ -298,14 +300,12 @@ struct DeploymentDetailView: View {
                         TextField("", text: $replicaInput)
                             .textFieldStyle(.plain)
                             .multilineTextAlignment(.center)
-                            .font(.system(size: 15, weight: .bold, design: .monospaced))
-                            .frame(width: 52)
-                            .padding(.vertical, 5)
-                            .background(Theme.inset, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(replicaFieldFocused ? Theme.accent : Theme.line, lineWidth: 1)
-                            )
+                            .font(.system(size: 13.5, weight: .bold, design: .monospaced))
+                            .frame(width: 56, height: 30)
+                            // Focus lights the field itself rather than ringing
+                            // it — a ring inside the capsule reads as a second
+                            // control.
+                            .background(replicaFieldFocused ? Theme.soft(Theme.accent) : Color.clear)
                             .focused($replicaFieldFocused)
                             .disabled(state.scaling)
                             .opacity(state.scaling ? 0.25 : 1)
@@ -327,6 +327,12 @@ struct DeploymentDetailView: View {
                         replicaInput = String(displayedReplicas(dep) + 1)
                     }
                 }
+                .background(Theme.inset)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Theme.lineStrong, lineWidth: 1)
+                )
 
                 Button("Apply") { commitReplicaInput(dep) }
                     .buttonStyle(Theme.PrimaryPill())
@@ -337,26 +343,28 @@ struct DeploymentDetailView: View {
             }
 
             Text("Steppers count from the number shown, never a stale cluster read. Jumps of ±5 or more, and any scale to zero, confirm first. Ceiling \(Self.maxReplicas).")
-                .font(.system(size: 11.5))
+                .font(.system(size: 11))
                 .foregroundStyle(Theme.text3)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
-        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.line, lineWidth: 1))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Theme.line, lineWidth: 1)
+        )
     }
 
     private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.text)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.text2)
                 .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line, lineWidth: 1))
         .disabled(!enabled)
         .accessibilityLabel(symbol == "minus" ? "One fewer replica" : "One more replica")
     }
