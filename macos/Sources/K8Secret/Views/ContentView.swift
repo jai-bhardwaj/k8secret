@@ -6,11 +6,20 @@ struct ContentView: View {
     /// connecting to a local cluster takes ~200ms, which is not a launch
     /// experience, it's a flicker.
     @State private var bootDone = false
-    /// The launch mark and the sidebar's Overview icon are the same view in
-    /// two places; SwiftUI interpolates the flight between them.
-    @Namespace private var markSpace
-    /// The app owns the mark from the moment the flight begins.
+    /// The app is not in the view tree until the launch hands over — connect()
+    /// finishes long before the sequence does, and without this the whole
+    /// interface renders behind the launch.
+    @State private var appVisible = false
+    /// The launch's words leave before the app arrives.
+    @State private var launchCopyGone = false
+    /// The flight: the mark leaves the launch composition for the rail slot.
     @State private var markHandedOff = false
+    /// True once it has arrived — the rail draws its own icon from here on and
+    /// the flying copy retires. Both are the same mark on the same rectangle,
+    /// so the swap is invisible.
+    @State private var markLanded = false
+    /// The mark's entrance in the launch composition.
+    @State private var markAssembled = false
     @State private var showFirstRun = Welcome.needsFirstRun
     @State private var showWhatsNew = false
     @Environment(\.openWindow) private var openWindow
@@ -37,22 +46,29 @@ struct ContentView: View {
             UpdateBannerView(checker: UpdateChecker.shared)
 
             ZStack {
+                // Mounted from the first frame, hidden with opacity — never
+                // with `if`. Inserting the app later would install its toolbar
+                // later, and the window's top inset arrives with the toolbar:
+                // the content would lay out under the titlebar and then slide
+                // down through it, colliding with the toolbar pills on the way.
+                Group {
+                    switch state.connectionState {
+                    case .connecting:
+                        connectingView
+                    case .disconnected(let message):
+                        DisconnectedView(message: message)
+                    case .connected:
+                        mainView
+                    }
+                }
+                .opacity(appVisible ? 1 : 0)
+
                 if !bootDone {
                     BootView(context: state.context,
                              phase: state.launchPhase,
-                             namespace: markSpace,
-                             handedOff: markHandedOff)
+                             copyGone: launchCopyGone)
                         .transition(.opacity)
                         .zIndex(2)
-                }
-                switch state.connectionState {
-                case .connecting:
-                    connectingView
-                        .opacity(bootDone ? 1 : 0)
-                case .disconnected(let message):
-                    DisconnectedView(message: message)
-                case .connected:
-                    mainView
                 }
 
                 // ⌘K command palette
@@ -102,11 +118,15 @@ struct ContentView: View {
                         onPick: { ctx in
                             Welcome.completeFirstRun()
                             withAnimation(Theme.easeOut) { showFirstRun = false }
-                            Task { await state.switchContext(ctx) }
+                            Task {
+                                await state.switchContext(ctx)
+                                await startTour()
+                            }
                         },
                         onSkip: {
                             Welcome.completeFirstRun()
                             withAnimation(Theme.easeOut) { showFirstRun = false }
+                            Task { await startTour() }
                         })
                         .transition(.scale(scale: 0.94).combined(with: .opacity))
                 } else if showWhatsNew {
@@ -134,9 +154,31 @@ struct ContentView: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            .overlayPreferenceValue(MarkSlotKey.self) { slots in
+                flightLayer(slots)
+            }
+
 
             StatusBarView()
+                .opacity(appVisible ? 1 : 0)
             }
+        }
+        .overlayPreferenceValue(TourSpotKey.self) { spots in
+            // At window level on purpose: the tour spotlights the status bar
+            // too, which lives outside the content stack.
+            // Ignoring the safe area here is what keeps the spotlight honest:
+            // the scrim covers the titlebar, so the rectangles it punches out
+            // must be measured in that same full-window space.
+            GeometryReader { proxy in
+                if state.tourStep != nil {
+                    GuidedTourView(step: Binding(get: { state.tourStep },
+                                                 set: { state.tourStep = $0 }),
+                                   spots: spots,
+                                   proxy: proxy)
+                        .transition(.opacity)
+                }
+            }
+            .ignoresSafeArea()
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .background {
@@ -161,6 +203,18 @@ struct ContentView: View {
         .motion(Motion.panel, value: state.clusterSwitcherOpen)
         .task {
             UITestTour.startIfRequested(state: state)
+            // The launch is a first impression, not a per-window tax. Windows
+            // two through ten of a session open straight into the app and just
+            // connect — nobody wants to watch the ceremony ten times.
+            guard !LaunchCeremony.played else {
+                appVisible = true
+                markLanded = true
+                bootDone = true
+                await state.connect()
+                await UpdateChecker.shared.checkForUpdates()
+                return
+            }
+            LaunchCeremony.played = true
             // Debug-only: hold the boot sequence on screen long enough to
             // capture it (same contract as the tour — inert normally).
             // Play the launch sequence and connect concurrently; the window
@@ -170,20 +224,72 @@ struct ContentView: View {
             async let played: Void = Task.sleep(for: .seconds(hold))
             await state.connect()
             try? await played
-            // The words leave, then the mark flies into the rail; the app is
-            // revealed by the landing, not alongside it.
-            withAnimation(.easeOut(duration: 0.28)) { bootDone = true }
-            try? await Task.sleep(for: .milliseconds(120))
-            withAnimation(.spring(response: 0.85, dampingFraction: 0.82)) { markHandedOff = true }
+            // Four beats: the words leave, the app fades up in the space they
+            // vacated, the mark flies to its slot in the rail, and the launch
+            // retires once the mark is home.
+            withAnimation(.easeOut(duration: 0.30)) { launchCopyGone = true }
+            try? await Task.sleep(for: .milliseconds(320))
+            withAnimation(.easeOut(duration: 0.50)) { appVisible = true }
+            try? await Task.sleep(for: .milliseconds(160))
+            withAnimation(.spring(response: 0.82, dampingFraction: 0.88)) { markHandedOff = true }
+            try? await Task.sleep(for: .milliseconds(820))
+            // No animation: the rail's own mark occupies the identical
+            // rectangle, so handing over is a swap nobody can see.
+            markLanded = true
+            bootDone = true
             // Debug-only surfacing, same contract as the tour.
             switch ProcessInfo.processInfo.environment["K8SECRET_UITEST_WELCOME"] {
             case "first": showFirstRun = true
             case "whatsnew": showWhatsNew = true
-            default: showWhatsNew = Welcome.needsWhatsNew
+            case "tour":
+                state.tourStep = Int(ProcessInfo.processInfo.environment["K8SECRET_UITEST_TOURSTEP"] ?? "") ?? 0
+            default:
+                showWhatsNew = Welcome.needsWhatsNew
+                // Someone who has used the app before the tour existed still
+                // gets it — once, and never in the middle of an update note.
+                if !showWhatsNew && !showFirstRun { await startTour() }
             }
             await UpdateChecker.shared.checkForUpdates()
         }
     }
+
+    /// The guided tour opens once the app has settled — a coach mark landing
+    /// on a control that is still animating reads as broken.
+    private func startTour() async {
+        guard Welcome.needsTour else { return }
+        try? await Task.sleep(for: .milliseconds(450))
+        withAnimation(Theme.easeOut) { state.tourStep = 0 }
+    }
+
+    /// The launch mark, drawn exactly once for the whole app. It assembles on
+    /// the launch slot, then flies to the rail slot when the app takes over.
+    /// Position and scale both come from measured rectangles, so it lands on
+    /// the Overview icon to the pixel rather than near it.
+    @ViewBuilder
+    private func flightLayer(_ slots: [MarkSlot: Anchor<CGRect>]) -> some View {
+        GeometryReader { proxy in
+            let launch = slots[.launch].map { proxy[$0] }
+            let rail = slots[.rail].map { proxy[$0] }
+            // Falling back to the launch slot keeps a disconnected window —
+            // which has no rail — from flinging the mark to the origin.
+            if !markLanded, let target = markHandedOff ? (rail ?? launch) : launch {
+                ClusterMark(size: Self.markSize)
+                    .scaleEffect((markAssembled ? 1 : 0.42) * target.width / Self.markSize)
+                    .opacity(markAssembled ? 1 : 0)
+                    .blur(radius: markAssembled ? 0 : 7)
+                    .shadow(color: .black.opacity(markHandedOff ? 0 : 0.45), radius: 22, y: 16)
+                    .position(x: target.midX, y: target.midY)
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.68)) { markAssembled = true }
+        }
+    }
+
+    /// Drawn at one size and scaled by transform — the mark stays vector-sharp
+    /// through the flight instead of being re-laid-out every frame.
+    private static let markSize: CGFloat = 168
 
     /// The dim behind any floating panel: gentle, so the canvas stays alive
     /// behind the glass (the prototype's 34% scrim rule).
@@ -221,8 +327,11 @@ struct ContentView: View {
         // or list OR detail below the compact breakpoint.
         HStack(spacing: 0) {
             VNextSidebar(autoCollapsed: contentWidth < 980,
-                         markSpace: markSpace,
-                         markLanded: markHandedOff)
+                         markLanded: markLanded)
+                // Measured from a leaf in the background: setting the
+                // preference on the sidebar itself would replace everything
+                // its own rows publish, and the Secrets stop would vanish.
+                .background { Color.clear.tourSpot(.rail) }
             Group {
                 switch state.selectedDestination {
                 case .overview:
@@ -335,12 +444,15 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .keyboardShortcut("\\", modifiers: .command)
             .help("\(state.sidebarCollapsed ? "Show" : "Hide") sidebar (⌘\\)")
+            .modifier(LaunchHidden(shown: appVisible))
         }
         // No context pill here: the cluster switcher lives in the status bar
         // (click "Connected · <ctx>"), and identity is already everywhere —
         // the tint paints the whole canvas.
         ToolbarItem(placement: .navigation) {
             NamespaceScopeButton()
+                .modifier(LaunchHidden(shown: appVisible))
+                .tourSpot(.namespaceScope)
         }
         // The prototype's .tb-spacer: a flexible space pushing everything
         // after it to the trailing edge.
@@ -377,6 +489,8 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Jump to any resource or action (⌘K)")
+            .modifier(LaunchHidden(shown: appVisible))
+            .tourSpot(.search)
 
             Button {
                 state.settingsOpen = true
@@ -389,6 +503,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Settings (⌘,)")
+            .modifier(LaunchHidden(shown: appVisible))
         }
     }
 

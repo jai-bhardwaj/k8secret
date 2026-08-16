@@ -7,17 +7,17 @@ import SwiftUI
 /// becomes the Overview icon — the splash resolves into the app rather than
 /// being replaced by it.
 ///
-/// The flight uses `matchedGeometryEffect`, so the landing position and size
-/// are correct by construction at any window size, in compact mode, and with
-/// the rail collapsed or expanded — no coordinate measuring, and none of the
-/// "lands slightly off" bugs that class of code invites.
+/// Neither end draws the mark. Both publish the rectangle it should occupy
+/// (`MarkSlot.launch` here, `MarkSlot.rail` in the sidebar) and one single
+/// mark, owned by `ContentView`, moves between those measured rectangles.
+/// That is what makes the landing exact: there is never a second copy to
+/// cross-fade with, and the target is the icon's real frame at that instant —
+/// any window size, compact or not, rail collapsed or expanded.
 struct BootView: View {
     let context: String
     let phase: Int
-    /// Shared with the sidebar's Overview icon; the mark travels between them.
-    let namespace: Namespace.ID
-    /// True once the app owns the mark — the launch stops drawing it then.
-    let handedOff: Bool
+    /// The words leave before the app arrives.
+    var copyGone = false
 
     @State private var assembled = false
     @State private var lit = false
@@ -34,24 +34,12 @@ struct BootView: View {
                                          center: .center, startRadius: 6, endRadius: 210))
                     .frame(width: 420, height: 420)
                     .blur(radius: 10)
+                    .opacity(copyGone ? 0 : 1)
 
-                if !handedOff {
-                    ClusterMark(size: 168)
-                        .matchedGeometryEffect(id: "appMark", in: namespace, isSource: true)
-                        .scaleEffect(assembled ? 1 : 0.42)
-                        .opacity(assembled ? 1 : 0)
-                        .blur(radius: assembled ? 0 : 7)
-                        .shadow(color: .black.opacity(0.45), radius: 22, y: 16)
-                        .overlay {
-                            // The strike: a hot core flare at the moment it locks.
-                            Circle()
-                                .fill(RadialGradient(colors: [.white.opacity(0.9), .clear],
-                                                     center: .center, startRadius: 0, endRadius: 60))
-                                .frame(width: 120, height: 120)
-                                .blur(radius: 2)
-                                .opacity(lit ? 0 : 0)
-                        }
-                }
+                // The mark's place in the composition — published, not drawn.
+                Color.clear
+                    .frame(width: 168, height: 168)
+                    .markSlot(.launch)
             }
             .frame(height: 200)
 
@@ -87,7 +75,7 @@ struct BootView: View {
                     }
                 }
             }
-            .opacity(assembled ? 1 : 0)
+            .opacity(copyGone ? 0 : (assembled ? 1 : 0))
             .offset(y: assembled ? 0 : 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -99,4 +87,49 @@ struct BootView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Connecting to \(context.isEmpty ? "cluster" : context)")
     }
+}
+
+
+/// The two ends of the launch flight. Each publishes a rectangle; the mark
+/// itself is drawn once, above both, and animates between them.
+enum MarkSlot: Hashable {
+    case launch
+    case rail
+}
+
+struct MarkSlotKey: PreferenceKey {
+    static let defaultValue: [MarkSlot: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [MarkSlot: Anchor<CGRect>],
+                       nextValue: () -> [MarkSlot: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+extension View {
+    /// Publish this view's bounds as one end of the launch flight. Attach it
+    /// to the mark-sized view itself, never to a padded wrapper — the flight
+    /// lands on exactly the rectangle reported here.
+    func markSlot(_ slot: MarkSlot) -> some View {
+        anchorPreference(key: MarkSlotKey.self, value: .bounds) { [slot: $0] }
+    }
+}
+
+/// Toolbar controls exist from the first frame — the window's top inset comes
+/// with the toolbar, so removing it during the launch would move the content.
+/// They are hidden the only way that costs no layout.
+struct LaunchHidden: ViewModifier {
+    let shown: Bool
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .disabled(!shown)
+            .accessibilityHidden(!shown)
+    }
+}
+
+/// Whether this session has already played the launch. Per-process, so a new
+/// window is instant while a relaunch is still an occasion.
+@MainActor
+enum LaunchCeremony {
+    static var played = false
 }

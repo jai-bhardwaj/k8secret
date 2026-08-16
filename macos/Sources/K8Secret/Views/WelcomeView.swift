@@ -7,6 +7,7 @@ enum Welcome {
     /// Bumped whenever the "what's new" copy below changes.
     static let seenVersionKey = "welcome.lastSeenVersion"
     static let firstRunKey = "welcome.completedFirstRun"
+    static let tourKey = "welcome.completedTour"
 
     /// What this build should announce after an update.
     static let highlights: [(String, String)] = [
@@ -25,6 +26,16 @@ enum Welcome {
         guard !needsFirstRun else { return false }
         let seen = UserDefaults.standard.string(forKey: seenVersionKey) ?? ""
         return seen != AppConstants.version
+    }
+
+    /// The guided tour runs once, after the first cluster is chosen — and any
+    /// time it is asked for again from Settings.
+    static var needsTour: Bool {
+        !UserDefaults.standard.bool(forKey: tourKey)
+    }
+
+    static func completeTour() {
+        UserDefaults.standard.set(true, forKey: tourKey)
     }
 
     static func completeFirstRun() {

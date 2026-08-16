@@ -96,6 +96,24 @@ struct SettingsView: View {
             }
 
             HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Guide")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                    Text("Five stops over the real window — the rail, scope, search, secrets and clusters.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button("Show me around") {
+                    state.settingsOpen = false
+                    state.tourStep = 0
+                }
+                .buttonStyle(Theme.SoftPill())
+            }
+
+            HStack {
                 Spacer()
                 Button("Done") { state.settingsOpen = false }
                     .buttonStyle(Theme.PrimaryPill())

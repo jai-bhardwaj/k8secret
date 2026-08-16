@@ -333,6 +333,50 @@ final class DestinationStateTests: XCTestCase {
     }
 }
 
+// MARK: - Windows and onboarding
+
+@MainActor
+final class WindowIdentityTests: XCTestCase {
+    /// SwiftUI keys a WindowGroup's windows by their value. When cluster
+    /// windows were keyed by the bare context name, opening the same cluster
+    /// twice only re-focused the first window — the serial is what makes ten
+    /// windows onto one cluster possible.
+    func testEveryOpenGetsItsOwnIdentity() {
+        let a = ClusterRef.next("colima")
+        let b = ClusterRef.next("colima")
+        XCTAssertEqual(a.context, b.context)
+        XCTAssertNotEqual(a, b, "two opens of one cluster must be two windows")
+        XCTAssertNotEqual(a.hashValue, b.hashValue)
+    }
+}
+
+final class GuidedTourTests: XCTestCase {
+    /// Toolbar controls are hosted by NSToolbar and cannot publish an anchor.
+    /// Every stop must therefore either be measurable in the content or carry
+    /// a titlebar fallback, or it silently disappears from the tour.
+    func testEveryStopCanBeShown() {
+        XCTAssertEqual(tourSteps.count, 5)
+        for step in tourSteps {
+            let measurable = step.spot != .namespaceScope && step.spot != .search
+            XCTAssertTrue(measurable || step.titlebar != nil,
+                          "\(step.spot) can be neither measured nor placed")
+            XCTAssertFalse(step.title.isEmpty)
+            XCTAssertFalse(step.body.isEmpty)
+        }
+    }
+
+    func testTourIsOfferedOnceAndRemembered() {
+        let key = Welcome.tourKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        XCTAssertTrue(Welcome.needsTour)
+        Welcome.completeTour()
+        XCTAssertFalse(Welcome.needsTour)
+        if let previous { UserDefaults.standard.set(previous, forKey: key) }
+        else { UserDefaults.standard.removeObject(forKey: key) }
+    }
+}
+
 // MARK: - Launch smoke
 
 final class AppearanceApplyTests: XCTestCase {

@@ -43,6 +43,8 @@ final class AppState {
     var settingsOpen = false
     /// Status-bar cluster switcher panel (the VS Code quick-pick pattern).
     var clusterSwitcherOpen = false
+    /// Which stop of the guided tour is showing, or nil when it isn't running.
+    var tourStep: Int?
     /// How far the launch sequence's checklist has got. Driven by `connect`,
     /// so the steps describe work that actually happened.
     var launchPhase = 0

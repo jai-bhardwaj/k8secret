@@ -58,7 +58,10 @@ struct LauncherView: View {
                                     card: ctx,
                                     isCurrent: ctx.id == currentContext
                                 ) {
-                                    openWindow(id: "cluster-ctx", value: ctx.id)
+                                    // A fresh ref every time, so opening the
+                                    // same cluster twice gives two windows.
+                                    openWindow(id: "cluster-ctx",
+                                               value: ClusterRef.next(ctx.id))
                                     dismissWindow(id: "launcher")
                                 }
                             }

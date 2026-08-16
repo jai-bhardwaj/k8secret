@@ -232,7 +232,6 @@ struct VNextSidebar: View {
     /// still applies when there's room.
     var autoCollapsed = false
     /// The launch mark lands here: the Overview row's icon is the same view.
-    var markSpace: Namespace.ID?
     var markLanded = false
     @State private var flyout = false
     @State private var hoverGen = 0
@@ -335,7 +334,7 @@ struct VNextSidebar: View {
                             if collapsed {
                                 CollapsedChip(destination: item,
                                               isSelected: state.selectedDestination == item,
-                                              markSpace: item == .overview ? markSpace : nil,
+                                              isMarkSlot: item == .overview,
                                               markLanded: markLanded) {
                                     Task { await state.selectDestination(item) }
                                 }
@@ -343,10 +342,11 @@ struct VNextSidebar: View {
                                 ExpandedNavRow(destination: item,
                                                isSelected: state.selectedDestination == item,
                                                count: count(for: item),
-                                               markSpace: item == .overview ? markSpace : nil,
+                                               isMarkSlot: item == .overview,
                                                markLanded: markLanded) {
                                     Task { await state.selectDestination(item) }
                                 }
+                                .tourSpotIf(item == .resource(.secrets), .secrets)
                             }
                         }
                     }
@@ -414,7 +414,7 @@ struct ExpandedNavRow: View {
     let destination: AppDestination
     let isSelected: Bool
     let count: Int?
-    var markSpace: Namespace.ID? = nil
+    var isMarkSlot = false
     var markLanded = false
     let action: () -> Void
 
@@ -473,13 +473,16 @@ struct ExpandedNavRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// The Overview icon doubles as the launch mark's destination.
+    /// The Overview icon doubles as the launch mark's destination. The slot is
+    /// reserved — and measured — from the first frame; it only becomes visible
+    /// once the flying mark has landed on it.
     @ViewBuilder
     private func markedIcon(size: CGFloat) -> some View {
-        if let markSpace, markLanded {
+        if isMarkSlot {
             ClusterMark(size: size + 4)
-                .matchedGeometryEffect(id: "appMark", in: markSpace, isSource: false)
+                .markSlot(.rail)
                 .frame(width: size + 8, height: size + 8)
+                .opacity(markLanded ? 1 : 0)
         } else {
             DimensionalIcon(destination: destination, size: size)
         }
@@ -496,7 +499,7 @@ struct ExpandedNavRow: View {
 struct CollapsedChip: View {
     let destination: AppDestination
     let isSelected: Bool
-    var markSpace: Namespace.ID? = nil
+    var isMarkSlot = false
     var markLanded = false
     let action: () -> Void
 
@@ -506,10 +509,11 @@ struct CollapsedChip: View {
     var body: some View {
         Button(action: action) {
             Group {
-                if let markSpace, markLanded {
+                if isMarkSlot {
                     ClusterMark(size: 26)
-                        .matchedGeometryEffect(id: "appMark", in: markSpace, isSource: false)
+                        .markSlot(.rail)
                         .frame(width: 30, height: 30)
+                        .opacity(markLanded ? 1 : 0)
                 } else {
                     DimensionalIcon(destination: destination, size: 22)
                 }
