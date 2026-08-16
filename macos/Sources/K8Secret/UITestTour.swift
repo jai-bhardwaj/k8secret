@@ -116,6 +116,7 @@ enum UITestTour {
             await state.selectResourceType(.cronjobs)
             if let cj = state.cronJobs.first { state.selectedCronJob = cj }
             await settle(1.4); mark("11-cronjobs")
+            await settle(2.2)
 
             // 12. Deployment detail with the crashloop banner + conditions.
             await state.selectResourceType(.deployments)
@@ -123,6 +124,7 @@ enum UITestTour {
                 state.selectedDeployment = dep
             }
             await settle(1.4); mark("12-deployment")
+            await settle(2.2)
 
             // 13. All Namespaces scope with badges.
             await state.selectNamespaceScope(all: true)
@@ -139,17 +141,21 @@ enum UITestTour {
             await state.selectResourceType(.services)
             if let svc = state.services.first { state.selectedService = svc; await state.selectService(svc) }
             await settle(1.4); mark("13b-services")
+            await settle(2.2)
 
             await state.selectResourceType(.ingresses)
             if let ing = state.ingresses.first { state.selectedIngress = ing }
             await settle(1.4); mark("13c-ingresses")
+            await settle(2.2)
 
             await state.selectResourceType(.configmaps)
             if let cm = state.configMaps.first { state.selectedConfigMap = cm; await state.selectConfigMap(cm) }
             await settle(1.4); mark("13d-configmaps")
+            await settle(2.2)
 
             await state.selectDestination(.events)
             await settle(1.6); mark("13e-events")
+            await settle(2.2)
             await state.selectDestination(.resource(.pods))
             await settle(0.6)
 

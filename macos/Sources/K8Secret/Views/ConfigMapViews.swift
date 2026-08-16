@@ -124,6 +124,7 @@ struct ConfigMapDetailView: View {
             }
             Spacer()
             Button("Export .env") { showExport = true }
+                .buttonStyle(Theme.SoftPill())
                 .disabled(state.configMapData.isEmpty)
         }
         .padding(.horizontal, 20)
