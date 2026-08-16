@@ -153,19 +153,23 @@ struct ContentView: View {
         .toolbarBackground(.hidden, for: .windowToolbar)
     }
 
-    /// The namespace scope control: a filter in the toolbar, not a place in
-    /// the sidebar. "All Namespaces" aggregates lists with a namespace badge
-    /// per row; selecting any row scopes back into its own namespace.
+    /// The prototype's titlebar, verbatim: [toggle] [context pill] [namespace
+    /// pill] ————— [search pill] [settings]. Every control is a translucent
+    /// capsule on the canvas (plain button styles — never native toolbar
+    /// chrome), and the search is pushed flush right by a flexible spacer.
     @ToolbarContentBuilder
     private var scopeToolbar: some ToolbarContent {
-        // The prototype's titlebar order: sidebar toggle, then context pill
-        // (beside the traffic lights), then the namespace scope.
         ToolbarItem(placement: .navigation) {
             Button {
                 withAnimation(Theme.easeOut) { state.sidebarCollapsed.toggle() }
             } label: {
-                Label("Toggle Sidebar", systemImage: "sidebar.left")
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.text2)
+                    .frame(width: 28, height: 24)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .keyboardShortcut("\\", modifiers: .command)
             .help("\(state.sidebarCollapsed ? "Show" : "Hide") sidebar (⌘\\)")
         }
@@ -193,56 +197,76 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 7) {
+                TitlebarPill(strong: true) {
                     Circle()
                         .fill(state.clusterTint.color)
                         .frame(width: 7, height: 7)
                     Text(state.context)
                         .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Theme.text)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .frame(maxWidth: 140)
+                        .fixedSize(horizontal: true, vertical: false)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Theme.text3)
                 }
             }
-            .help("Kubeconfig context — the dot is this cluster's tint from Settings")
-        }
-        ToolbarItem(placement: .automatic) {
-            // The prototype's search field: the ⌘K affordance lives in the
-            // toolbar so the palette is discoverable, not a secret handshake.
-            Button {
-                state.paletteOpen = true
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                    Text("Jump to any resource…")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Text("⌘K")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1.5)
-                        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4.5)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
-            }
+            .menuStyle(.button)
             .buttonStyle(.plain)
-            .help("Jump to any resource or action (⌘K)")
-        }
-        ToolbarItem(placement: .automatic) {
-            Button {
-                state.settingsOpen = true
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-            .help("Settings (⌘,)")
+            .help("Kubeconfig context — the dot is this cluster's tint from Settings")
         }
         ToolbarItem(placement: .navigation) {
             NamespaceScopeButton()
+        }
+        // The prototype's .tb-spacer: a flexible space pushing everything
+        // after it to the trailing edge.
+        ToolbarItem(placement: .automatic) { Spacer() }
+        // Trailing group, like the prototype's right cluster after .tb-spacer.
+        ToolbarItemGroup(placement: .primaryAction) {
+            // The prototype's search field: the ⌘K affordance lives in the
+            // titlebar so the palette is discoverable, not a secret handshake.
+            Button {
+                state.paletteOpen = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.text3)
+                    Text("Jump to any resource…")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.text3)
+                        .lineLimit(1)
+                        .padding(.trailing, 26)
+                    Text("⌘K")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.text2)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.lineStrong, lineWidth: 1))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5.5)
+                .background(Theme.inset, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Jump to any resource or action (⌘K)")
+
+            Button {
+                state.settingsOpen = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.text2)
+                    .frame(width: 28, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Settings (⌘,)")
         }
     }
 
@@ -313,6 +337,23 @@ struct ModuleWashView: View {
     }
 }
 
+/// The titlebar's pill grammar: a translucent capsule on the canvas with a
+/// soft ring — never native toolbar chrome. `strong` uses the stronger ring
+/// (the prototype's line-strong on the context/namespace pills).
+struct TitlebarPill<Content: View>: View {
+    var strong = false
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 7) { content }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 5.5)
+            .background(Theme.raised, in: Capsule())
+            .overlay(Capsule().strokeBorder(strong ? Theme.lineStrong : Theme.line, lineWidth: 1))
+            .contentShape(Capsule())
+    }
+}
+
 /// The namespace scope: a real scope picker, not a flat menu — clusters have
 /// hundreds of namespaces, so the popover opens with a filter field focused,
 /// "All Namespaces" pinned above a scrolling, clipped list.
@@ -327,12 +368,21 @@ struct NamespaceScopeButton: View {
             query = ""
             open.toggle()
         } label: {
-            (Text("namespace ").foregroundStyle(.secondary)
-             + Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—")).bold())
-                .font(.callout)
-                .lineLimit(1)
-                .frame(maxWidth: 190)
+            TitlebarPill(strong: true) {
+                (Text("namespace ").foregroundStyle(Theme.text2)
+                 + Text(state.allNamespaces ? "all" : (state.selectedNamespace?.name ?? "—"))
+                    .bold().foregroundStyle(Theme.text))
+                    .font(.system(size: 12.5))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 150)
+                    .fixedSize(horizontal: true, vertical: false)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Theme.text3)
+            }
         }
+        .buttonStyle(.plain)
         .help("Scope every list to one namespace, or all of them")
         .popover(isPresented: $open, arrowEdge: .bottom) {
             VStack(spacing: 6) {
