@@ -190,9 +190,8 @@ struct DeploymentDetailView: View {
             let matchingPods = state.pods.filter { $0.name.hasPrefix(dep.name) }
             if matchingPods.isEmpty {
                 Task {
-                    guard let ns = state.selectedNamespace else { return }
                     let allPods = (try? await K8sClient().listPodsAfterConnect(
-                        context: state.context, namespace: ns.name)) ?? []
+                        context: state.context, namespace: dep.namespace)) ?? []
                     let depPods = allPods.filter { $0.name.hasPrefix(dep.name) }
                     if depPods.isEmpty {
                         state.showToast("No pods found for \(dep.name)", isError: true)

@@ -22,10 +22,22 @@ struct YAMLEditorView: View {
                         .foregroundStyle(Theme.text)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text("Editing the manifest — applied as one write, on the version you opened")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.text3)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text("Applied as one write, on the version you opened")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.text3)
+                        // The one place values are not masked, said plainly.
+                        // They cannot be: this text is what gets written back,
+                        // so a redacted line would overwrite a real secret with
+                        // the word that hid it.
+                        Label("values in full", systemImage: "eye")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.warn)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Theme.soft(Theme.warn), in: Capsule())
+                    }
+                    .lineLimit(1)
                 }
 
                 Spacer(minLength: 12)
@@ -34,16 +46,17 @@ struct YAMLEditorView: View {
                     StatusPill(text: "Modified", color: accent)
                 }
 
-                Button("Close") { dismiss() }
+                Button("Close") { state.showYAMLEditor = false }
                     .buttonStyle(Theme.SoftPill())
+                    .focusEffectDisabled()
                     .keyboardShortcut(.cancelAction)
 
                 if hasEdits {
                     Button("Apply") {
                         state.rawYAML = editedYAML
-                        // Close the sheet first — the confirmation is presented by
-                        // ContentView and would otherwise be covered by it.
-                        dismiss()
+                        // Close first — the confirmation is presented by
+                        // ContentView and would otherwise sit under this.
+                        state.showYAMLEditor = false
                         state.requestApplyRawYAML()
                     }
                     .buttonStyle(Theme.PrimaryPill())
@@ -76,10 +89,24 @@ struct YAMLEditorView: View {
                     }
             }
         }
-        .frame(minWidth: 700, minHeight: 500)
-        .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
-        .onAppear {
+        .frame(width: 720, height: 540)
+        .popGlass(radius: 20)
+        .shadow(color: .black.opacity(0.4), radius: 40, y: 20)
+        // The editor fetches its own manifest and follows it in. It used to
+        // copy `rawYAML` once, on appear — which happens before the fetch it
+        // was waiting on returns, so the editor opened empty and stayed empty.
+        .task {
+            if let secret = state.selectedSecret {
+                await state.loadRawYAML(
+                    apiPath: AppState.apiPath(for: .secrets,
+                                              namespace: secret.namespace,
+                                              name: secret.name))
+            }
             editedYAML = state.rawYAML
+        }
+        .onChange(of: state.rawYAML) { _, loaded in
+            guard !hasEdits else { return }
+            editedYAML = loaded
         }
     }
 }

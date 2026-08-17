@@ -199,14 +199,6 @@ struct SecretDetailView: View {
         .sheet(isPresented: $state.showBulkImport) {
             BulkImportSheet()
         }
-        .sheet(isPresented: $state.showYAMLEditor) {
-            YAMLEditorView()
-        }
-        .onChange(of: state.showYAMLEditor) { _, show in
-            if show, let ns = state.selectedNamespace, let secret = state.selectedSecret {
-                Task { await state.loadRawYAML(apiPath: "/api/v1/namespaces/\(ns.name)/secrets/\(secret.name)") }
-            }
-        }
     }
 
     @ViewBuilder

@@ -115,6 +115,18 @@ struct ContentView: View {
                 }
                 .animation(Motion.panel, value: state.settingsOpen)
 
+                // The YAML editor: a panel on the canvas like settings and
+                // confirmations, never an NSSheet — a sheet is its own window,
+                // so glass in it samples the desktop instead of this canvas.
+                ZStack {
+                    if state.showYAMLEditor {
+                        scrim { state.showYAMLEditor = false }
+                        YAMLEditorView()
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
+                }
+                .animation(Motion.panel, value: state.showYAMLEditor)
+
                 // Confirm dialog — same reasoning as settings.
                 ZStack {
                     if let action = state.confirmAction {
@@ -318,6 +330,17 @@ struct ContentView: View {
             case "nsmenu": state.namespaceMenuOpen = true
             case "switcher": state.clusterSwitcherOpen = true
             case "settings": state.settingsOpen = true
+            case "yamledit":
+                await state.selectNamespaceScope(all: true)
+                await state.selectResourceType(.secrets)
+                for _ in 0..<25 where state.secrets.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                if let secret = state.secrets.first {
+                    state.selectedSecret = secret
+                    await state.selectSecret(secret)
+                    state.showYAMLEditor = true
+                }
             case "confirm":
                 state.confirm(title: "Restart web?",
                               message: "A rolling restart replaces every pod in this deployment, one batch at a time.",
