@@ -185,6 +185,9 @@ struct ContentView: View {
                     WhatsNewView { takeTour in
                         Welcome.markVersionSeen()
                         withAnimation(Theme.easeOut) { showWhatsNew = false }
+                        // Skipping is an answer, not a deferral: recording it
+                        // stops the app asking again on the next patch.
+                        if !takeTour { Welcome.completeTour() }
                         if takeTour {
                             Task {
                                 // Let the panel clear before the spotlight lands.

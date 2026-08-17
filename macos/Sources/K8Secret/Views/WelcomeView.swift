@@ -179,8 +179,11 @@ struct WhatsNewView: View {
             }
 
             HStack(spacing: 10) {
+                Text("Takes about a minute")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.text3)
                 Spacer()
-                Button("Not now") { onDone(false) }
+                Button("Skip the tour") { onDone(false) }
                     .buttonStyle(Theme.SoftPill())
                 Button("Show me around") { onDone(true) }
                     .buttonStyle(Theme.PrimaryPill())
