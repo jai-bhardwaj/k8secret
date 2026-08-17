@@ -1,8 +1,8 @@
 {
-  "version": "0.6.5",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.5/K8Secret-0.6.5.dmg",
-  "notes": "K8Secret 0.6.5 — the YAML editor works.\n\nOpened from a list scoped to every namespace, it fetched nothing — the fetch was keyed on the scope's namespace, which that scope does not have — and even when the fetch worked, the editor copied the manifest once on appear, which happens before the fetch returns. It came up blank either way. It loads its own manifest now and follows it in.\n\nIt was also still a system sheet, in an app whose panels are otherwise glass on its own canvas. It is a canvas panel now, and it says plainly that it shows values in full: it cannot mask them, because the text in it is what gets written back, and a redacted line would overwrite a real secret with the word that hid it.\n\nLive Tail had the same scope bug — from an all-namespace list it looked for a deployment's pods in a namespace it did not have, found none, and stopped. Restarting a deployment and deleting a pod now ask in the app's own dialog rather than a system alert.",
+  "version": "0.6.6",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.6/K8Secret-0.6.6.dmg",
+  "notes": "K8Secret 0.6.6 — the scan orb, and the last of the fixed magenta.\n\nThe Overview's scan control scrolled off the bottom of the pane where the design has it pinned, and it was the last thing still painted in one fixed magenta — on an ocean canvas it read as a pink dome rising out of the status bar. It floats above the content now, at its specified size, in the cluster's own accent.\n\nThe product pages are current too: every screenshot on the README and on sujalsharma.com/k8secret is the app as it is today rather than the release before the interface was rebuilt.",
   "minOS": "14.0",
   "date": "2026-08-17",
-  "sha256": "9f09240d1795671af5698234920960efadedc668507d9ac795c634f1ae1d55d5"
+  "sha256": "962f96eab29b02119092ff2ad8e18f5458d87b5f92346a05c16e7ae549205563"
 }
