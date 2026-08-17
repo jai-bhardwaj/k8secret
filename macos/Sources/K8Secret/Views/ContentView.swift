@@ -182,9 +182,16 @@ struct ContentView: View {
                         .transition(.scale(scale: 0.94).combined(with: .opacity))
                 } else if showWhatsNew {
                     scrim {}
-                    WhatsNewView {
+                    WhatsNewView { takeTour in
                         Welcome.markVersionSeen()
                         withAnimation(Theme.easeOut) { showWhatsNew = false }
+                        if takeTour {
+                            Task {
+                                // Let the panel clear before the spotlight lands.
+                                try? await Task.sleep(for: .milliseconds(320))
+                                withAnimation(Theme.easeOut) { state.tourStep = 0 }
+                            }
+                        }
                     }
                     .transition(.scale(scale: 0.94).combined(with: .opacity))
                 }
@@ -291,6 +298,19 @@ struct ContentView: View {
             switch ProcessInfo.processInfo.environment["K8SECRET_UITEST_WELCOME"] {
             case "first": showFirstRun = true
             case "whatsnew": showWhatsNew = true
+            case "whatsnewtour":
+                // Debug-only: the update panel, then the hand-off it offers.
+                showWhatsNew = true
+                try? await Task.sleep(for: .seconds(2))
+                Welcome.markVersionSeen()
+                withAnimation(Theme.easeOut) { showWhatsNew = false }
+                try? await Task.sleep(for: .milliseconds(320))
+                withAnimation(Theme.easeOut) { state.tourStep = 0 }
+                // Then walk it, so the motion between stops can be watched.
+                for stop in 1...4 {
+                    try? await Task.sleep(for: .seconds(2))
+                    state.tourStep = stop
+                }
             case "nsmenu": state.namespaceMenuOpen = true
             case "switcher": state.clusterSwitcherOpen = true
             case "settings": state.settingsOpen = true

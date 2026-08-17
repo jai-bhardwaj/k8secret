@@ -7,7 +7,10 @@ enum Welcome {
     /// Bumped whenever the "what's new" copy below changes.
     static let seenVersionKey = "welcome.lastSeenVersion"
     static let firstRunKey = "welcome.completedFirstRun"
-    static let tourKey = "welcome.completedTour"
+    /// The release whose tour was taken. A flag was enough while the tour
+    /// only ever ran once; a feature release changes what there is to show.
+    static let tourVersionKey = "welcome.tourVersion"
+    static let tourKey = "welcome.completedTour"   // legacy flag, read-only
 
     /// What this build should announce after an update.
     static let highlights: [(String, String)] = [
@@ -21,6 +24,8 @@ enum Welcome {
          "Filter clusters and namespaces by name, with counts beside them and the ones you actually use on top. ⌘K still jumps anywhere in the cluster."),
         ("Fixed: browsing all namespaces",
          "Scoped to every namespace, the app was discarding what it had already fetched — secrets read as empty, logs never arrived, and saving a secret did nothing at all. It works."),
+        ("Shown, not just told",
+         "This panel now offers the tour, and a release that adds things worth pointing at brings it back. Settings has it whenever you want it again."),
     ]
 
     static var needsFirstRun: Bool {
@@ -35,14 +40,22 @@ enum Welcome {
         return seen != AppConstants.version
     }
 
-    /// The guided tour runs once, after the first cluster is chosen — and any
-    /// time it is asked for again from Settings.
+    /// The guided tour is offered after the first cluster is chosen, and again
+    /// after a feature release — a release that adds things to point at.
+    /// Patches don't replay it: nobody wants a five-stop tour for a bug fix.
     static var needsTour: Bool {
-        !UserDefaults.standard.bool(forKey: tourKey)
+        guard let taken = UserDefaults.standard.string(forKey: tourVersionKey) else { return true }
+        return featureLine(of: taken) != featureLine(of: AppConstants.version)
     }
 
     static func completeTour() {
-        UserDefaults.standard.set(true, forKey: tourKey)
+        UserDefaults.standard.set(AppConstants.version, forKey: tourVersionKey)
+    }
+
+    /// "0.6.1" → "0.6". The tour replays when this changes, so 0.6.0 → 0.6.1
+    /// is quiet and 0.6.x → 0.7.0 is not.
+    static func featureLine(of version: String) -> String {
+        version.split(separator: ".").prefix(2).joined(separator: ".")
     }
 
     static func completeFirstRun() {
@@ -127,7 +140,9 @@ struct FirstRunView: View {
 /// After an update: what changed, in three lines, dismissed forever.
 struct WhatsNewView: View {
     @Environment(\.clusterAccent) private var accent
-    let onDone: () -> Void
+    /// `true` when the reader asked to be shown around — a major release is
+    /// worth walking through, not just reading about.
+    let onDone: (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -163,9 +178,11 @@ struct WhatsNewView: View {
                 }
             }
 
-            HStack {
+            HStack(spacing: 10) {
                 Spacer()
-                Button("Continue") { onDone() }
+                Button("Not now") { onDone(false) }
+                    .buttonStyle(Theme.SoftPill())
+                Button("Show me around") { onDone(true) }
                     .buttonStyle(Theme.PrimaryPill())
                     .keyboardShortcut(.defaultAction)
             }

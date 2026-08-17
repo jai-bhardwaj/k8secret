@@ -448,14 +448,48 @@ final class GuidedTourTests: XCTestCase {
     }
 
     func testTourIsOfferedOnceAndRemembered() {
-        let key = Welcome.tourKey
+        let key = Welcome.tourVersionKey
         let previous = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
         UserDefaults.standard.removeObject(forKey: key)
         XCTAssertTrue(Welcome.needsTour)
         Welcome.completeTour()
-        XCTAssertFalse(Welcome.needsTour)
-        if let previous { UserDefaults.standard.set(previous, forKey: key) }
-        else { UserDefaults.standard.removeObject(forKey: key) }
+        XCTAssertFalse(Welcome.needsTour, "the tour does not replay within a release line")
+    }
+
+    /// A release that adds things worth pointing at earns the tour again; a
+    /// patch does not. Anyone who took the old tour has no version recorded,
+    /// so the release that introduces this offers it once.
+    func testTourReplaysOnAFeatureReleaseButNotAPatch() {
+        XCTAssertEqual(Welcome.featureLine(of: "0.6.1"), "0.6")
+        XCTAssertEqual(Welcome.featureLine(of: "0.6.0"), Welcome.featureLine(of: "0.6.12"))
+        XCTAssertNotEqual(Welcome.featureLine(of: "0.6.9"), Welcome.featureLine(of: "0.7.0"))
+        XCTAssertNotEqual(Welcome.featureLine(of: "0.5.9"), Welcome.featureLine(of: "0.6.0"))
+    }
+
+    /// What's New only speaks after an update, never on a fresh install, where
+    /// first run does the introducing.
+    func testWhatsNewIsAnUpdateMomentOnly() {
+        let seenKey = Welcome.seenVersionKey
+        let firstRunKey = Welcome.firstRunKey
+        let previousSeen = UserDefaults.standard.object(forKey: seenKey)
+        let previousRun = UserDefaults.standard.object(forKey: firstRunKey)
+        defer {
+            if let previousSeen { UserDefaults.standard.set(previousSeen, forKey: seenKey) }
+            else { UserDefaults.standard.removeObject(forKey: seenKey) }
+            if let previousRun { UserDefaults.standard.set(previousRun, forKey: firstRunKey) }
+            else { UserDefaults.standard.removeObject(forKey: firstRunKey) }
+        }
+
+        UserDefaults.standard.set(false, forKey: firstRunKey)
+        XCTAssertFalse(Welcome.needsWhatsNew, "a fresh install gets first run, not release notes")
+
+        UserDefaults.standard.set(true, forKey: firstRunKey)
+        UserDefaults.standard.set("0.5.9", forKey: seenKey)
+        XCTAssertTrue(Welcome.needsWhatsNew, "an older seen version means there is news")
     }
 }
 

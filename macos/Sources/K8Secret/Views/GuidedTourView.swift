@@ -80,6 +80,14 @@ struct GuidedTourView: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(AppState.self) private var state
+    /// The spotlight's own state, so a rectangle that arrives late — a panel
+    /// this stop opened, a list still settling — glides in rather than
+    /// appearing where the last one was.
+    @State private var spot: CGRect?
+
+    /// Snappy, and no overshoot: a spotlight that springs past its target and
+    /// comes back reads as a glitch, however brief.
+    private static let travel = Animation.spring(response: 0.32, dampingFraction: 0.92)
 
     /// Stops that can be shown here: either their control was measured, or
     /// they live in the titlebar and don't need to be.
@@ -96,10 +104,15 @@ struct GuidedTourView: View {
         return visibleSteps[min(max(0, step), visibleSteps.count - 1)]
     }
 
-    private var rect: CGRect? {
+    /// Where the spotlight belongs right now, measured this instant.
+    private var measured: CGRect? {
         guard let current, current.titlebar == nil, let anchor = spots[current.spot] else { return nil }
         return proxy[anchor].insetBy(dx: -8, dy: -8)
     }
+
+    /// What the spotlight is actually drawn at — the last measurement, held
+    /// while a new one is on its way.
+    private var rect: CGRect? { spot }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -132,8 +145,13 @@ struct GuidedTourView: View {
                     .offset(x: cardOrigin.x, y: cardOrigin.y)
             }
         }
-        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: step)
+        .animation(Self.travel, value: spot)
+        .animation(Self.travel, value: step)
         .onExitCommand { finish() }
+        .onChange(of: measured, initial: true) { _, new in
+            guard let new else { return }
+            withAnimation(Self.travel) { spot = new }
+        }
         .onChange(of: step, initial: true) { _, _ in
             let switcher = current?.opensClusterSwitcher ?? false
             let namespaces = current?.opensNamespaceMenu ?? false
@@ -142,7 +160,27 @@ struct GuidedTourView: View {
         }
     }
 
+    /// One card, which glides. Only its contents change — giving the whole
+    /// card an identity per stop meant two glass panels and two sets of words
+    /// cross-fading on top of each other while it moved.
     private func card(_ stepModel: TourStep) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            copy(stepModel)
+                .id(step)
+                .transition(.asymmetric(
+                    // The old words leave before the new ones arrive, so the
+                    // two are never legible at once.
+                    insertion: .opacity.animation(.easeOut(duration: 0.16 * Motion.scale)
+                        .delay(0.13 * Motion.scale)),
+                    removal: .opacity.animation(.easeIn(duration: 0.11 * Motion.scale))))
+        }
+        .padding(16)
+        .frame(width: Self.cardWidth, alignment: .leading)
+        .popGlass(radius: 16)
+        .shadow(color: .black.opacity(0.35), radius: 26, y: 12)
+    }
+
+    private func copy(_ stepModel: TourStep) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(stepModel.title)
                 .font(.system(size: 15.5, weight: .semibold))
@@ -172,10 +210,6 @@ struct GuidedTourView: View {
             }
             .padding(.top, 2)
         }
-        .padding(16)
-        .frame(width: Self.cardWidth, alignment: .leading)
-        .popGlass(radius: 16)
-        .shadow(color: .black.opacity(0.35), radius: 26, y: 12)
     }
 
     private static let cardWidth: CGFloat = 300
@@ -219,7 +253,9 @@ struct GuidedTourView: View {
         let next = (step ?? 0) + delta
         if next < 0 { return }
         if next >= visibleSteps.count { finish(); return }
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { step = next }
+        // One transaction for the move: the modifiers above carry it, so this
+        // does not start a second animation racing the first.
+        step = next
     }
 
     private func finish() {
