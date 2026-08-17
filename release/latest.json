@@ -1,8 +1,8 @@
 {
-  "version": "0.6.1",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.1/K8Secret-0.6.1.dmg",
-  "notes": "K8Secret 0.6.1 — the update, shown rather than announced.\n\n0.6.0 rebuilt the interface, and for anyone updating into it that is a lot to meet at once. The release notes now end with \"Show me around\", which starts the guided tour on the real window: five stops over the rail, the namespace menu, ⌘K, secrets and the cluster switcher, spotlighting each control where it actually sits. Settings keeps it for whenever you want it again, and a release that adds things worth pointing at will bring it back on its own — a patch will not.\n\nThe tour also moves properly now. Each stop used to fade a whole new card in over the old one while it travelled, so two panels and two sets of words were briefly legible at once; one card glides now and only its words change. The spotlight holds its own position, so a menu a stop opens is followed smoothly instead of snapped to, and its spring no longer overshoots.",
+  "version": "0.6.2",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.2/K8Secret-0.6.2.dmg",
+  "notes": "K8Secret 0.6.2 — the tour points at what it is talking about.\n\nThe ⌘K stop had no rectangle of its own: the toolbar hosts that pill outside SwiftUI's view tree, so the spotlight stayed wherever the previous stop had left it and the namespace menu lit up while the card explained search. AppKit can measure toolbar items — it is how the namespace menu already hangs from its pill — so the tour is handed those rectangles too. The ⌘K stop now lights the search pill itself, with its card beneath it by the same rule every other stop follows, and a stop with nothing to point at clears the spotlight instead of inheriting the last one.",
   "minOS": "14.0",
   "date": "2026-08-17",
-  "sha256": "1a8ce05f15b13c95869ac79ca3f4f8fd4cd99b442b2421fb1d6b6ad288ddcc91"
+  "sha256": "ac0bf562a8f35cbdf3529a10f87e991a1af3c480ef80f750bf5a94153bcbbfd6"
 }
