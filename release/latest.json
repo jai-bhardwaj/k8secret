@@ -1,8 +1,8 @@
 {
-  "version": "0.6.6",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.6/K8Secret-0.6.6.dmg",
-  "notes": "K8Secret 0.6.6 — the scan orb, and the last of the fixed magenta.\n\nThe Overview's scan control scrolled off the bottom of the pane where the design has it pinned, and it was the last thing still painted in one fixed magenta — on an ocean canvas it read as a pink dome rising out of the status bar. It floats above the content now, at its specified size, in the cluster's own accent.\n\nThe product pages are current too: every screenshot on the README and on sujalsharma.com/k8secret is the app as it is today rather than the release before the interface was rebuilt.",
+  "version": "0.6.7",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.7/K8Secret-0.6.7.dmg",
+  "notes": "Per-cluster client-certificate identity, and window chrome that restores itself.",
   "minOS": "14.0",
   "date": "2026-08-17",
-  "sha256": "962f96eab29b02119092ff2ad8e18f5458d87b5f92346a05c16e7ae549205563"
+  "sha256": "634a6dad6612b26e0cedc5824fa871f641709a0bd4ffaa5efd0399c0ca074388"
 }
