@@ -37,11 +37,9 @@ struct TourStep {
     let title: String
     let body: String
     /// Toolbar controls are hosted by NSToolbar, outside SwiftUI's preference
-    /// tree, so they cannot be measured — but they also sit *above* the tour's
-    /// scrim, so they stay lit on their own. For those stops the card simply
-    /// parks under the control's side of the titlebar instead of pretending to
-    /// know a rectangle it can't see.
-    var titlebar: HorizontalEdge? = nil
+    /// tree, so a preference cannot measure them — AppKit can, and the tour is
+    /// handed those rectangles separately.
+    var inToolbar = false
     /// A stop that opens the thing it is describing. Talking about switching
     /// clusters while the switcher is shut teaches nothing — the tour opens it,
     /// spotlights the real panel, and closes it again on the way out.
@@ -61,7 +59,7 @@ let tourSteps: [TourStep] = [
     TourStep(spot: .search,
              title: "Jump straight to anything",
              body: "⌘K finds a pod, a secret or a namespace by name, wherever in the cluster it lives, and takes you there.",
-             titlebar: .trailing),
+             inToolbar: true),
     TourStep(spot: .secrets,
              title: "Secrets stay covered",
              body: "Values are masked until you ask for them, and nothing leaves the window without you saying so."),
@@ -76,6 +74,8 @@ let tourSteps: [TourStep] = [
 struct GuidedTourView: View {
     @Binding var step: Int?
     let spots: [TourSpot: Anchor<CGRect>]
+    /// Toolbar items, measured through AppKit in the same coordinates.
+    let toolbarSpots: [TourSpot: CGRect]
     let proxy: GeometryProxy
 
     @Environment(\.colorScheme) private var scheme
@@ -93,7 +93,7 @@ struct GuidedTourView: View {
     /// they live in the titlebar and don't need to be.
     private var visibleSteps: [TourStep] {
         let usable = tourSteps.filter {
-            spots[$0.spot] != nil || $0.titlebar != nil
+            spots[$0.spot] != nil || toolbarSpots[$0.spot] != nil
                 || $0.opensClusterSwitcher || $0.opensNamespaceMenu
         }
         return usable.isEmpty ? tourSteps : usable
@@ -104,10 +104,17 @@ struct GuidedTourView: View {
         return visibleSteps[min(max(0, step), visibleSteps.count - 1)]
     }
 
-    /// Where the spotlight belongs right now, measured this instant.
+    /// Where the spotlight belongs right now, measured this instant — from the
+    /// view tree where it can be, from the toolbar where it can't.
     private var measured: CGRect? {
-        guard let current, current.titlebar == nil, let anchor = spots[current.spot] else { return nil }
-        return proxy[anchor].insetBy(dx: -8, dy: -8)
+        guard let current else { return nil }
+        if let anchor = spots[current.spot] {
+            return proxy[anchor].insetBy(dx: -8, dy: -8)
+        }
+        if let toolbar = toolbarSpots[current.spot] {
+            return toolbar.insetBy(dx: -6, dy: -6)
+        }
+        return nil
     }
 
     /// What the spotlight is actually drawn at — the last measurement, held
@@ -149,8 +156,16 @@ struct GuidedTourView: View {
         .animation(Self.travel, value: step)
         .onExitCommand { finish() }
         .onChange(of: measured, initial: true) { _, new in
-            guard let new else { return }
-            withAnimation(Self.travel) { spot = new }
+            // A missing rectangle for the *current* stop means its target is
+            // still settling, so the last one is held and glided from. A stop
+            // that has no target at all clears it — otherwise the spotlight
+            // stayed on the previous control while the card talked about
+            // something else entirely.
+            if let new {
+                withAnimation(Self.travel) { spot = new }
+            } else if current.map({ spots[$0.spot] == nil && toolbarSpots[$0.spot] == nil }) ?? true {
+                withAnimation(Self.travel) { spot = nil }
+            }
         }
         .onChange(of: step, initial: true) { _, _ in
             let switcher = current?.opensClusterSwitcher ?? false
@@ -220,11 +235,6 @@ struct GuidedTourView: View {
         let size = proxy.size
         let height: CGFloat = 170, gap: CGFloat = 16, pad: CGFloat = 14
 
-        if let edge = current?.titlebar {
-            // Just under the titlebar, on the control's own side.
-            let x = edge == .leading ? 18 : max(18, size.width - Self.cardWidth - 18)
-            return CGPoint(x: x, y: 16)
-        }
         guard let rect else {
             return CGPoint(x: (size.width - Self.cardWidth) / 2, y: (size.height - height) / 2)
         }

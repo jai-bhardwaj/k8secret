@@ -499,6 +499,8 @@ enum ToolbarGeometry {
 
     /// The namespace scope pill: second of the hosted items.
     static let namespacePill = 1
+    /// The ⌘K search pill: third, after the flexible space (which hosts no view).
+    static let searchPill = 2
 }
 
 

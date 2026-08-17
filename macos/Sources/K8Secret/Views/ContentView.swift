@@ -232,6 +232,7 @@ struct ContentView: View {
                     GuidedTourView(step: Binding(get: { state.tourStep },
                                                  set: { state.tourStep = $0 }),
                                    spots: spots,
+                                   toolbarSpots: toolbarSpots,
                                    proxy: proxy)
                         .transition(.opacity)
                 }
@@ -366,6 +367,22 @@ struct ContentView: View {
             }
             await UpdateChecker.shared.checkForUpdates()
         }
+    }
+
+    /// The toolbar controls the tour points at, measured through AppKit —
+    /// NSToolbar hosts them outside the view tree, so no preference can see
+    /// them, and a stop that can't be measured used to leave the spotlight on
+    /// whatever it lit last.
+    private var toolbarSpots: [TourSpot: CGRect] {
+        let window = hostWindow ?? NSApp.keyWindow
+        var out: [TourSpot: CGRect] = [:]
+        if let pill = ToolbarGeometry.rect(ofHostedItem: ToolbarGeometry.namespacePill, in: window) {
+            out[.namespaceScope] = pill
+        }
+        if let search = ToolbarGeometry.rect(ofHostedItem: ToolbarGeometry.searchPill, in: window) {
+            out[.search] = search
+        }
+        return out
     }
 
     /// Where the namespace menu hangs: directly under its pill, measured from
