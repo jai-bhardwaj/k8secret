@@ -1,58 +1,66 @@
 # K8Secret
 
-A native macOS app for managing Kubernetes clusters — secrets, deployments, services, pods, logs, and port-forwarding — in a single keyboard-friendly window.
+A native macOS app for Kubernetes — secrets, deployments, pods, services, cronjobs, ingresses, logs and port-forwards — in one window that behaves like a Mac app rather than a terminal wearing a UI.
 
-![K8Secret — deployment detail](docs/screenshots/02-deployment-detail.png)
+![K8Secret — the Overview](docs/screenshots/overview.png)
 
-K8Secret talks directly to the Kubernetes API using your `~/.kube/config` (no kubectl shell-out except for port-forwards), so it's fast, multi-cluster aware, and behaves the way you expect from a real macOS app — multi-window, native menus, keyboard navigation, cmd-tab-able.
+K8Secret talks to the Kubernetes API directly using your `~/.kube/config` (no kubectl shell-out except for port-forwards), so it is fast, genuinely multi-cluster, and cmd-tab-able.
+
+**0.6 rebuilt the interface.** Every window is one cluster, painted in a color you choose, so which cluster you are looking at is answerable from across the room — and a window that is showing production can be made unmistakable.
 
 ---
 
 ## Features
 
-### Deployments — view, scale, rollout
+### Overview — the answer before the detail
 
-See replica counts, container images, conditions, labels, and recent events at a glance. Scale up or down in-place, or watch a rollout progress without leaving the app.
+A health ring and one sentence: how much of the cluster is where it should be. What needs attention is listed under it, so the first screen is a verdict rather than a table you have to read.
 
-![Deployments list](docs/screenshots/01-deployments-list.png)
+### Deployments — scale in place, watch the rollout
 
-### Pods — metrics, status, and live logs
+Replica counts, images, conditions, labels and events. The stepper counts from the number shown rather than a stale read; a jump of ±5 or more, and any scale to zero, asks first. A rollout is a ring that fills, not a spinner that spins.
 
-Per-pod CPU/memory usage (against requests and limits), container info, pod IP, owner, and an Events feed. Logs stream live in a dedicated window with severity filters and search.
+![Deployments](docs/screenshots/deployments.png)
 
-![Pod detail](docs/screenshots/04-pod-detail.png)
+### Pods — usage against requests, and live logs
 
-![Live log streaming](docs/screenshots/05-log-stream.png)
+CPU and memory per pod with the ratio against its requests, restart counts, placement, containers and events. Logs stream in their own window with search and severity filters.
 
-### Services — inspect and port-forward
+![Pods](docs/screenshots/pods.png)
 
-ClusterIP, ports, selectors. Click **Port Forward** and K8Secret picks a free local port, runs `kubectl port-forward` under the hood, opens your browser, and auto-retries with exponential backoff if the connection drops.
+### Secrets — covered until you ask
 
-![Service detail](docs/screenshots/07-service-detail.png)
+Opaque secrets decode into plain key/value pairs, **masked by default** and revealed one at a time, so opening a namespace on a shared screen doesn't expose everything in it. Copying a value marks the clipboard item concealed — clipboard managers skip it, Universal Clipboard doesn't sync it — and clears it after 45 seconds.
 
-### Secrets — view, edit, bulk import/export
+Edits are staged and applied as a **single atomic merge-patch**, conditional on the `resourceVersion` the secret was read at: either every change lands or none does, and if someone else edited it meanwhile you get a conflict instead of silently clobbering their work. Bulk import from `.env` or JSON, and export the same way.
 
-The killer feature. Stop copy-pasting `kubectl get secret -o yaml | base64 -d`. K8Secret decodes Opaque secrets into plain key/value pairs, with edit-in-place and search.
+![Secrets](docs/screenshots/secrets.png)
 
-Values are **masked by default** and revealed one at a time, so opening a namespace on a shared screen doesn't expose everything in it. Copying a value marks the clipboard item as concealed — clipboard managers skip it and it isn't synced by Universal Clipboard — and clears it after 45 seconds.
+### YAML — the live manifest, a tab away
 
-Edits are staged locally and applied as a **single atomic merge-patch**: either every change lands or none does. The write is conditional on the `resourceVersion` the secret was read at, so if someone else edited it in the meantime you get a conflict instead of silently clobbering their change.
+Every resource shows what the API server actually returns, with `managedFields` dropped the way kubectl drops it. Secret values stay redacted here: base64 is not encryption, and opening a tab is not asking to see them.
 
-![Secret detail](docs/screenshots/09-secret-detail.png)
+![YAML](docs/screenshots/yaml.png)
 
-Bulk import from `.env` or JSON — merge with existing keys or replace the whole secret. Live preview of what will be imported before you commit.
+### As many clusters as you keep
 
-![Bulk import](docs/screenshots/10-bulk-import.png)
+⌘N opens a chooser rather than a second window onto the same place. Open ten if you like — each window has its own cluster, namespace, scope and selection. Both pickers filter by name, count what they list, and put the clusters you actually use on top.
 
-### Multi-cluster, multi-window
+![Cluster switcher](docs/screenshots/clusters.png)
 
-Switch contexts from the sidebar dropdown or open a second cluster in a new window — useful when comparing staging vs. production. Each window remembers its own context and theme color.
+### It introduces itself
 
-![Pods list with sidebar](docs/screenshots/03-pods-list.png)
+A first run that asks which cluster to start with, and a guided tour that spotlights the real controls where they sit — the rail, the namespace menu, ⌘K, secrets, the switcher. It is offered again after a release that adds things worth pointing at, and lives in Settings the rest of the time.
 
-![Services list](docs/screenshots/06-services-list.png)
+![Guided tour](docs/screenshots/tour.png)
 
-![Secrets list](docs/screenshots/08-secrets-list.png)
+And it opens like an app: the mark assembles, then flies into the rail it becomes.
+
+![Launch](docs/screenshots/launch.png)
+
+### Everywhere else
+
+⌘K jumps to any resource in any namespace by name. Port-forwards live in the rail's foot with a live dot each. Events stream per resource and cluster-wide. Every list is keyboard-navigable, and background polling never moves your selection or your scroll.
 
 ---
 
@@ -101,7 +109,7 @@ If that tradeoff isn't acceptable for your environment, build from source.
 
 ## Requirements
 
-- macOS **14 (Sonoma) or later** — uses SwiftUI's `@Observable` and `NavigationSplitView`
+- macOS **14 (Sonoma) or later** — uses SwiftUI's `@Observable` and Swift concurrency
 - A working `~/.kube/config` with at least one context
 - `kubectl` in your `PATH` if you want port-forwarding (K8Secret looks at `/usr/local/bin/kubectl`, `/opt/homebrew/bin/kubectl`, then falls back to `kubectl` on `PATH`)
 

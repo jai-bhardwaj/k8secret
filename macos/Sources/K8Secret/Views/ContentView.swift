@@ -1333,6 +1333,17 @@ struct WindowConfigurator: NSViewRepresentable {
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.styleMask.insert(.fullSizeContentView)
+            // No frame, all shadow. A titled window paints a pale hairline
+            // around itself and a backdrop under the content; against a canvas
+            // that runs to the edges, that hairline is the only thing between
+            // the app and the desktop, and it reads as a seam. Clearing the
+            // window's own background removes it — the content is still masked
+            // to the window's rounded corners — and leaves the drop shadow to
+            // do the separating, which is what it is for.
+            w.isOpaque = false
+            w.backgroundColor = .clear
+            w.hasShadow = true
+            w.invalidateShadow()
         }
     }
 }
