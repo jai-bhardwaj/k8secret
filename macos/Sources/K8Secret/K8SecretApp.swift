@@ -29,13 +29,26 @@ struct K8SecretApp: App {
         // representable's async hook races window attachment.
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didUpdateNotification] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
-                guard let w = note.object as? NSWindow,
-                      w.styleMask.contains(.titled),
-                      !w.titlebarAppearsTransparent else { return }
+                guard let w = note.object as? NSWindow, w.styleMask.contains(.titled) else { return }
                 MainActor.assumeIsolated {
-                    w.titlebarAppearsTransparent = true
-                    w.titleVisibility = .hidden
-                    w.styleMask.insert(.fullSizeContentView)
+                    // Each of the three is checked on its own. The guard used to
+                    // read `!w.titlebarAppearsTransparent` and skip the whole
+                    // block, treating one property as a proxy for all three —
+                    // so once transparency was set, `.fullSizeContentView` could
+                    // never be restored. Anything that dropped it later (a
+                    // fullscreen toggle, a tab merge, AppKit rebuilding the frame)
+                    // left the content no longer extending under the titlebar,
+                    // and the gradient stopped short of the top of the window:
+                    // a transparent strip across the top showing whatever sat
+                    // behind it.
+                    //
+                    // These run on didUpdate, which is frequent, so each one is a
+                    // cheap comparison and assigns only when it actually differs.
+                    if !w.titlebarAppearsTransparent { w.titlebarAppearsTransparent = true }
+                    if w.titleVisibility != .hidden { w.titleVisibility = .hidden }
+                    if !w.styleMask.contains(.fullSizeContentView) {
+                        w.styleMask.insert(.fullSizeContentView)
+                    }
                 }
             }
         }
