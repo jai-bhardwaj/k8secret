@@ -5,7 +5,6 @@ struct PodDetailView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var selectedLogContainer: String?
     @State private var logRange: LogRange = .last200
-    @State private var showDeleteAlert = false
 
     var body: some View {
         Group {
@@ -79,14 +78,6 @@ struct PodDetailView: View {
             }
         }
         .navigationTitle(pod.name)
-        .alert("Delete Pod", isPresented: $showDeleteAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                Task { await state.deletePod(pod) }
-            }
-        } message: {
-            Text("Delete pod \(pod.name)? If managed by a controller, a new pod will be created.")
-        }
     }
 
 
@@ -164,7 +155,13 @@ struct PodDetailView: View {
         }
         .buttonStyle(Theme.SoftPill())
         .help("Refresh")
-        Button("Delete") { showDeleteAlert = true }
+        Button("Delete") {
+            state.confirm(
+                title: "Delete \(pod.name)?",
+                message: "If a controller owns this pod, Kubernetes will start a replacement immediately.",
+                confirmLabel: "Delete"
+            ) { await state.deletePod(pod) }
+        }
             .buttonStyle(Theme.DangerPill())
             .help("Delete pod")
     }

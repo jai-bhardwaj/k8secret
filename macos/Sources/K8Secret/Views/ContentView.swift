@@ -318,6 +318,11 @@ struct ContentView: View {
             case "nsmenu": state.namespaceMenuOpen = true
             case "switcher": state.clusterSwitcherOpen = true
             case "settings": state.settingsOpen = true
+            case "confirm":
+                state.confirm(title: "Restart web?",
+                              message: "A rolling restart replaces every pod in this deployment, one batch at a time.",
+                              confirmLabel: "Restart",
+                              destructive: false) {}
             case "logs":
                 // Debug-only: land in a pod's live log window.
                 await state.selectResourceType(.pods)

@@ -4,7 +4,6 @@ struct DeploymentDetailView: View {
     @Environment(\.clusterAccent) private var accent
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
-    @State private var showRestartAlert = false
     /// Text backing the editable replica count. Kept as a String so a partially
     /// typed value ("" or "1" on the way to "100") doesn't fight the stepper.
     @State private var replicaInput = ""
@@ -91,14 +90,6 @@ struct DeploymentDetailView: View {
             state.stopRolloutPolling()
         }
         .navigationTitle(dep.name)
-                .alert("Restart Deployment", isPresented: $showRestartAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Restart") {
-                Task { await state.restartDeployment(dep) }
-            }
-        } message: {
-            Text("This will perform a rolling restart of \(dep.name). All pods will be recreated.")
-        }
     }
 
 
@@ -175,7 +166,14 @@ struct DeploymentDetailView: View {
         }
         .buttonStyle(Theme.SoftPill())
         .help("Refresh")
-        Button("Restart") { showRestartAlert = true }
+        Button("Restart") {
+            state.confirm(
+                title: "Restart \(dep.name)?",
+                message: "A rolling restart replaces every pod in this deployment, one batch at a time.",
+                confirmLabel: "Restart",
+                destructive: false
+            ) { await state.restartDeployment(dep) }
+        }
             .buttonStyle(Theme.SoftPill())
             .help("Rolling restart — recreates every pod")
         if dep.replicas > 0 {
