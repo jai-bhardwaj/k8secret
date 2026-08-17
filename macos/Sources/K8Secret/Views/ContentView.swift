@@ -1391,6 +1391,17 @@ struct WindowConfigurator: NSViewRepresentable {
             // window's own background removes it — the content is still masked
             // to the window's rounded corners — and leaves the drop shadow to
             // do the separating, which is what it is for.
+            // Debug-only: a fixed window size, so a screenshot set is
+            // reproducible rather than whatever size the window was left at.
+            if let size = ProcessInfo.processInfo.environment["K8SECRET_UITEST_SIZE"] {
+                let parts = size.split(separator: "x").compactMap { Double($0) }
+                if parts.count == 2, let screen = w.screen ?? NSScreen.main {
+                    let frame = NSRect(x: screen.frame.midX - parts[0] / 2,
+                                       y: screen.frame.midY - parts[1] / 2,
+                                       width: parts[0], height: parts[1])
+                    w.setFrame(frame, display: true)
+                }
+            }
             w.isOpaque = false
             w.backgroundColor = .clear
             w.hasShadow = true

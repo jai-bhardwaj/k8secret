@@ -165,18 +165,20 @@ struct OverviewView: View {
                     }
                 }
 
-                // The prototype's scan orb: a glowing re-scan control.
-                HStack {
-                    Spacer()
-                    ScanOrb {
-                        Task { await state.loadOverview() }
-                    }
-                    Spacer()
-                }
-                .padding(.top, 10)
+                // Room for the orb, which floats over this rather than
+                // scrolling with it.
+                Color.clear.frame(height: 132)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // The prototype's `position: sticky; bottom: 26px` — a re-scan control
+        // that stays put while the overview scrolls under it.
+        .overlay(alignment: .bottom) {
+            ScanOrb {
+                Task { await state.loadOverview() }
+            }
+            .padding(.bottom, 26)
         }
         .navigationTitle("Overview")
         .task { await state.loadOverview() }
@@ -383,33 +385,39 @@ struct HeroActionButton: View {
 struct ScanOrb: View {
     let action: () -> Void
     @State private var pulsing = false
-    @State private var spinning = false
+    @State private var pressed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.clusterAccent) private var accent
 
     var body: some View {
         Button {
             action()
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.7)) { spinning.toggle() }
         } label: {
             Text("Scan")
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: 16.5, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 104, height: 104)
+                .frame(width: 112, height: 112)
+                // The prototype's orb: a light source at 50% 32%, deepening to
+                // the cluster's own accent rather than one fixed magenta.
                 .background(
                     Circle().fill(
-                        RadialGradient(colors: [Color(hex: 0xE24BE0), Color(hex: 0x8A2BB8)],
-                                       center: UnitPoint(x: 0.35, y: 0.3),
-                                       startRadius: 6, endRadius: 90))
+                        RadialGradient(
+                            colors: [accent.opacity(0.95), accent, accent.blended(with: .black, 0.45)],
+                            center: UnitPoint(x: 0.5, y: 0.32),
+                            startRadius: 4, endRadius: 96))
                 )
-                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
-                .shadow(color: Color(hex: 0xD935D9).opacity(pulsing ? 0.55 : 0.35),
-                        radius: pulsing ? 34 : 22)
-                .scaleEffect(pulsing ? 1.03 : 1)
-                .rotation3DEffect(.degrees(spinning ? 360 : 0), axis: (x: 0, y: 1, z: 0))
+                // Three layers, as specified: a wide glow, a soft halo instead
+                // of a hairline ring, and a drop shadow beneath.
+                .overlay(Circle().strokeBorder(.white.opacity(0.10), lineWidth: 6).blur(radius: 3))
+                .shadow(color: accent.opacity(pulsing ? 0.50 : 0.40), radius: pulsing ? 39 : 30)
+                .shadow(color: accent.opacity(0.55), radius: 22, y: 16)
+                .scaleEffect(pressed ? 0.96 : 1)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .onLongPressGesture(minimumDuration: 0, pressing: { down in
+            withAnimation(.spring(response: 0.18, dampingFraction: 0.7)) { pressed = down }
+        }, perform: {})
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 3.4).repeatForever(autoreverses: true)) {

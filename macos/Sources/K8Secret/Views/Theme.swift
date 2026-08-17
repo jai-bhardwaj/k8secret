@@ -568,3 +568,17 @@ struct IconButtonStyle: ButtonStyle {
             .animation(Motion.stateChange, value: hovering)
     }
 }
+
+extension Color {
+    /// Mix toward another colour — for deepening an accent into the shadowed
+    /// side of a sphere without inventing a second hue for every tint.
+    func blended(with other: Color, _ amount: Double) -> Color {
+        let a = NSColor(self).usingColorSpace(.sRGB) ?? .clear
+        let b = NSColor(other).usingColorSpace(.sRGB) ?? .clear
+        let t = min(max(amount, 0), 1)
+        return Color(
+            red: Double(a.redComponent) * (1 - t) + Double(b.redComponent) * t,
+            green: Double(a.greenComponent) * (1 - t) + Double(b.greenComponent) * t,
+            blue: Double(a.blueComponent) * (1 - t) + Double(b.blueComponent) * t)
+    }
+}

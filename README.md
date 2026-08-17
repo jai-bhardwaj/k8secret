@@ -42,6 +42,10 @@ Every resource shows what the API server actually returns, with `managedFields` 
 
 ![YAML](docs/screenshots/yaml.png)
 
+A secret's manifest is editable in place — applied as one write, on the version you opened, and honest about showing values in full while you do.
+
+![Editing a manifest](docs/screenshots/yaml-editor.png)
+
 ### As many clusters as you keep
 
 ⌘N opens a chooser rather than a second window onto the same place. Open ten if you like — each window has its own cluster, namespace, scope and selection. Both pickers filter by name, count what they list, and put the clusters you actually use on top.
