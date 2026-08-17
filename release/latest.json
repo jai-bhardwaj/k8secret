@@ -1,8 +1,8 @@
 {
-  "version": "0.6.4",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.4/K8Secret-0.6.4.dmg",
-  "notes": "K8Secret 0.6.4 — a new icon, and the rail tells the truth.\n\nThe app icon is the mark itself — three nodes around a lit core, with no rounded-square plate behind it — rendered from the same view the launch animation assembles, so the icon and the app cannot drift apart.\n\nThe rail's counts only ever described lists you had already opened: they filled in as you wandered and emptied again whenever you changed namespace. Every type is counted for the current scope now, and zero is shown rather than hidden.\n\nSeveral screens moved closer to the design they were drawn from. Services and secrets are three-column lists under a header rather than two-line cards. Pods use a single status dot instead of system symbols beside a pill that already said the same thing. A secret's keys are one line each — key, value, actions — with borderless controls that appear when you point at them. The YAML editor wears the same canvas as everything else. Restarting a deployment and deleting a pod now ask in the app's own dialog rather than a system alert. And the window drops its pale frame for a proper shadow.",
+  "version": "0.6.5",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.5/K8Secret-0.6.5.dmg",
+  "notes": "K8Secret 0.6.5 — the YAML editor works.\n\nOpened from a list scoped to every namespace, it fetched nothing — the fetch was keyed on the scope's namespace, which that scope does not have — and even when the fetch worked, the editor copied the manifest once on appear, which happens before the fetch returns. It came up blank either way. It loads its own manifest now and follows it in.\n\nIt was also still a system sheet, in an app whose panels are otherwise glass on its own canvas. It is a canvas panel now, and it says plainly that it shows values in full: it cannot mask them, because the text in it is what gets written back, and a redacted line would overwrite a real secret with the word that hid it.\n\nLive Tail had the same scope bug — from an all-namespace list it looked for a deployment's pods in a namespace it did not have, found none, and stopped. Restarting a deployment and deleting a pod now ask in the app's own dialog rather than a system alert.",
   "minOS": "14.0",
   "date": "2026-08-17",
-  "sha256": "65902803859af72bbf8357f1588f92b233af1721a4db68b80fde1bc946057466"
+  "sha256": "9f09240d1795671af5698234920960efadedc668507d9ac795c634f1ae1d55d5"
 }
