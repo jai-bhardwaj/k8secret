@@ -1,8 +1,8 @@
 {
-  "version": "0.6.0",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.0/K8Secret-0.6.0.dmg",
-  "notes": "K8Secret 0.6.0 — the interface, rebuilt.\n\nEvery window is now one cluster, painted in a color you choose, so which cluster you are looking at is answerable from across the room. ⌘N opens a chooser rather than a second window onto the same place; open as many as you need, each with its own namespace, scope and selection. Both pickers search, count what they list, and put the clusters you actually use on top.\n\nThe app opens like an app: a launch that assembles and hands the window over to itself, a first run that asks which cluster to start with, and a guided tour that spotlights the real controls instead of pictures of them. Every resource has its live manifest a tab away — with secret values still covered there, because opening a tab is not asking to see them.\n\nOne fix matters more than the rest. Scoped to every namespace at once, the app was throwing away replies it had already fetched: secrets opened empty, pod logs never arrived, events came from the wrong namespace, and saving a secret did nothing whatsoever — silently, with no error. Every one of those paths now takes the namespace from the resource it is acting on, which is where it always belonged.",
+  "version": "0.6.1",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.1/K8Secret-0.6.1.dmg",
+  "notes": "K8Secret 0.6.1 — the update, shown rather than announced.\n\n0.6.0 rebuilt the interface, and for anyone updating into it that is a lot to meet at once. The release notes now end with \"Show me around\", which starts the guided tour on the real window: five stops over the rail, the namespace menu, ⌘K, secrets and the cluster switcher, spotlighting each control where it actually sits. Settings keeps it for whenever you want it again, and a release that adds things worth pointing at will bring it back on its own — a patch will not.\n\nThe tour also moves properly now. Each stop used to fade a whole new card in over the old one while it travelled, so two panels and two sets of words were briefly legible at once; one card glides now and only its words change. The spotlight holds its own position, so a menu a stop opens is followed smoothly instead of snapped to, and its spring no longer overshoots.",
   "minOS": "14.0",
   "date": "2026-08-17",
-  "sha256": "0884e0c04186de5ac43f3f432a4e1486e1c7960ce2a5693f3488818134c6e61e"
+  "sha256": "1a8ce05f15b13c95869ac79ca3f4f8fd4cd99b442b2421fb1d6b6ad288ddcc91"
 }
