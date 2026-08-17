@@ -10,8 +10,8 @@ struct StatusBarView: View {
 
             rightSection
         }
-        .padding(.horizontal, 12)
-        .frame(height: 28)
+        .padding(.horizontal, 18)
+        .frame(height: 32)
         .frame(maxWidth: .infinity)
         .overlay(alignment: .top) {
             // The cluster tint's second anchor (the context dot is the first):

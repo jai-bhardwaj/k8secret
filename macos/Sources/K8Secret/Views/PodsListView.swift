@@ -237,30 +237,16 @@ struct PodRow: View {
     // MARK: - Phase icon & badge
 
     @ViewBuilder
+    /// The prototype's `.pdot`: one 8pt dot, coloured by state. System symbols
+    /// — half-filled circles, clock faces, question marks — were a second
+    /// vocabulary next to the status pill already beside them, and they were
+    /// wearing system colours that ignore the canvas.
     private var phaseIcon: some View {
-        switch pod.phase.lowercased() {
-        case "running":
-            Image(systemName: pod.readyCount == pod.totalCount ? "circle.fill" : "circle.lefthalf.filled")
-                .foregroundStyle(pod.readyCount == pod.totalCount ? .green : .yellow)
-                .font(.system(size: 14))
-        case "succeeded":
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.blue)
-                .font(.system(size: 14))
-        case "pending":
-            Image(systemName: "clock.fill")
-                .foregroundStyle(.yellow)
-                .font(.system(size: 14))
-        case "failed":
-            Image(systemName: "xmark.circle.fill")
-                .foregroundStyle(.red)
-                .font(.system(size: 14))
-        default:
-            Image(systemName: "questionmark.circle.fill")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 14))
-        }
+        Circle()
+            .fill(pod.readyCount == pod.totalCount ? phaseColor : Theme.warn)
+            .frame(width: 8, height: 8)
     }
+
 
     private var phaseBadge: some View {
         // Short words like "Running"/"Succeeded" were free to hyphenate in a

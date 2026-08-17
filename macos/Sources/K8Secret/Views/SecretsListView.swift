@@ -55,6 +55,7 @@ struct SecretsListView: View {
             title: "Secrets",
             subtitle: "\(state.secrets.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter secrets…", text: $state.secretSearch)
+        ListColumnHeader(columns: [("Name", nil), ("Keys", 46), ("Age", 44)])
         List(state.filteredSecrets) { secret in
             SecretRow(secret: secret)
                 .vnextRow(isSelected: state.selectedSecret?.id == secret.id)
@@ -90,36 +91,29 @@ struct SecretsListView: View {
 struct SecretRow: View {
     let secret: K8sSecret
 
+    /// The prototype's `.row.c-sec`: name, key count, age — the type belongs
+    /// in the detail pane, not repeated down the list.
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: secretIcon)
-                .foregroundStyle(.tint)
-                .font(.system(size: 16))
-                .frame(width: 24)
+        HStack(spacing: 8) {
+            Text(secret.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(secret.name)
-                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
-                    .lineLimit(1)
-
-                Text(secret.keyCount > 0
-                     ? "\(secret.type) · \(secret.keyCount) key\(secret.keyCount == 1 ? "" : "s")"
-                     : secret.type)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
+            Text(secret.keyCount > 0 ? "\(secret.keyCount)" : "—")
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(Theme.text2)
+                .frame(width: 46, alignment: .trailing)
 
             Text(secret.age)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(Theme.text3)
+                .frame(width: 44, alignment: .trailing)
         }
-        .padding(.vertical, 4)
     }
 
     private var secretIcon: String {

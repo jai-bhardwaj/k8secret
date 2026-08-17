@@ -546,3 +546,25 @@ extension EnvironmentValues {
         set { self[ClusterAccentKey.self] = newValue }
     }
 }
+
+/// The prototype's `.icobtn`: a 26pt icon target with no chrome until you
+/// point at it. Bordered buttons put a grey box around every action in a
+/// secret's row, so a list of keys read as a toolbar.
+struct IconButtonStyle: ButtonStyle {
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12))
+            .foregroundStyle(hovering ? Theme.text : Theme.text3)
+            .frame(width: 26, height: 26)
+            .background(hovering ? Theme.inset : .clear,
+                        in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .opacity(isEnabled ? 1 : 0.4)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .animation(Motion.stateChange, value: hovering)
+    }
+}

@@ -468,6 +468,31 @@ struct RolloutBanner: View {
     }
 }
 
+/// The prototype's `.cols`: a muted header over a grid list, so the numbers
+/// beside a name are labelled rather than guessed at.
+struct ListColumnHeader: View {
+    let columns: [(String, CGFloat?)]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+                if let width = column.1 {
+                    Text(column.0.uppercased())
+                        .frame(width: width, alignment: .trailing)
+                } else {
+                    Text(column.0.uppercased())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .kerning(0.8)
+        .foregroundStyle(Theme.text3)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
+    }
+}
+
 // MARK: - Detail chrome (the prototype's breadcrumb + SPEC grammar)
 
 /// The line above every detail pane: `ctx / namespace / type` — where am I,

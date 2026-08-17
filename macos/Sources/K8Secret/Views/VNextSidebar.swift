@@ -436,7 +436,10 @@ struct ExpandedNavRow: View {
                     .foregroundStyle(isSelected ? Theme.text : Theme.text2)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if let count, count > 0 {
+                // Zero is an answer — "nothing here" is worth reading, and a
+                // rail where some items carry a number and others don't looks
+                // like the numbers are broken.
+                if let count {
                     Text("\(count)")
                         .font(.system(size: 11))
                         .monospacedDigit()

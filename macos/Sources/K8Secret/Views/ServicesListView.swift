@@ -55,6 +55,7 @@ struct ServicesListView: View {
             title: "Services",
             subtitle: "\(state.services.count) \(state.allNamespaces ? "across all namespaces" : "in " + (state.selectedNamespace?.name ?? "—"))")
         FilterField(prompt: "Filter services…", text: $state.serviceSearch)
+        ListColumnHeader(columns: [("Name", nil), ("Cluster IP", 92), ("Ports", 62)])
         List(state.filteredServices) { svc in
             ServiceRow(service: svc)
                 .vnextRow(isSelected: state.selectedService?.id == svc.id)
@@ -90,61 +91,37 @@ struct ServicesListView: View {
         .vnextListPane()
     }
 }
-
 struct ServiceRow: View {
     let service: K8sService
 
+    /// The prototype's `.row.c-svc`: name, cluster IP, ports — three columns
+    /// under a header, rather than a card with an icon and a second line.
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: serviceIcon)
-                .foregroundStyle(.tint)
-                .font(.system(size: 16))
-                .frame(width: 24)
+        HStack(spacing: 8) {
+            Text(service.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(service.name)
-                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+            Text(service.clusterIP == "None" ? "—" : service.clusterIP)
+                .font(.system(size: 11, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(Theme.text2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 92, alignment: .trailing)
 
-                // Both of these lacked a line limit, so in a narrow column an IP
-                // wrapped character by character — 10.43.166.49 rendered as three
-                // stacked fragments with the port interleaved between them.
-                HStack(spacing: 8) {
-                    // Cluster IP
-                    if service.clusterIP != "None" {
-                        Text(service.clusterIP)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    // Ports summary
-                    if !service.ports.isEmpty {
-                        Text(service.ports.map { "\($0.port)/\($0.protocol_)" }.joined(separator: ", "))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 4) {
-                typeBadge
-
-                Text(service.age)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-            .fixedSize()
+            Text(service.ports.isEmpty ? "—" : service.ports.map { String($0.port) }.joined(separator: ", "))
+                .font(.system(size: 11, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(Theme.text2)
+                .lineLimit(1)
+                .frame(width: 62, alignment: .trailing)
         }
-        .padding(.vertical, 4)
     }
+
 
     private var serviceIcon: String {
         switch service.type.lowercased() {

@@ -94,10 +94,54 @@ final class AppState {
         "\(context)|\(allNamespaces ? "*" : (selectedNamespace?.name ?? "—"))"
     }
 
+    /// Counts for every rail item in the current scope, so the rail is
+    /// complete rather than filling in as you visit each list.
+    var sidebarCounts: [ResourceType: Int] = [:]
+    private var sidebarCountsScope = ""
+
+    /// One list per type, for the counts beside the rail's items. The prototype
+    /// shows a number on every item at all times; the app only knew the length
+    /// of lists you had already opened, so the rail filled in as you wandered
+    /// and emptied again whenever you changed namespace.
+    func loadSidebarCounts() async {
+        let scope = currentScopeKey
+        guard selectedNamespace != nil || allNamespaces else { return }
+
+        async let secrets = (try? listScoped { [client] in try await client.listSecrets(namespace: $0) })?.count
+        async let deployments = (try? listScoped { [client] in try await client.listDeployments(namespace: $0) })?.count
+        async let pods = (try? listScoped { [client] in try await client.listPods(namespace: $0) })?.count
+        async let services = (try? listScoped { [client] in try await client.listServices(namespace: $0) })?.count
+        async let configMaps = (try? listScoped { [client] in try await client.listConfigMaps(namespace: $0) })?.count
+        async let cronJobs = (try? listScoped { [client] in try await client.listCronJobs(namespace: $0) })?.count
+        async let ingresses = (try? listScoped { [client] in try await client.listIngresses(namespace: $0) })?.count
+
+        let counted: [ResourceType: Int?] = await [
+            .secrets: secrets, .deployments: deployments, .pods: pods,
+            .services: services, .configmaps: configMaps,
+            .cronjobs: cronJobs, .ingresses: ingresses,
+        ]
+        // The scope can change while seven lists are in flight; counts for a
+        // namespace the user has left are worse than none.
+        guard scope == currentScopeKey else { return }
+        sidebarCounts = counted.compactMapValues { $0 }
+        sidebarCountsScope = scope
+    }
+
     /// Count for the sidebar: the loaded length when that list belongs to the
     /// scope on screen, otherwise nil so the badge stays empty rather than lying.
     func sidebarCount(for type: ResourceType) -> Int? {
-        guard listScopeStamp[type] == currentScopeKey else { return nil }
+        // A list open right now is the freshest answer; otherwise the counts
+        // fetched for this scope, if they are still for this scope.
+        if listScopeStamp[type] == currentScopeKey {
+            return loadedCount(for: type)
+        }
+        if sidebarCountsScope == currentScopeKey, let counted = sidebarCounts[type] {
+            return counted
+        }
+        return nil
+    }
+
+    private func loadedCount(for type: ResourceType) -> Int? {
         switch type {
         case .deployments: return deployments.count
         case .pods: return pods.count
@@ -515,11 +559,17 @@ final class AppState {
         UserDefaults.standard.set(tint.rawValue, forKey: "clusterTint.\(context)")
     }
 
+    /// Refresh the rail's counts alongside the list, whenever the scope moves.
+    private func refreshSidebarCounts() {
+        Task { await loadSidebarCounts() }
+    }
+
     func selectNamespace(_ ns: K8sNamespace) async {
         if allNamespaces { allNamespaces = false }
         selectedNamespace = ns
         clearSelections()
         await loadResourcesForCurrentType()
+        refreshSidebarCounts()
     }
 
     private func clearSelections() {
@@ -556,6 +606,7 @@ final class AppState {
         selectedDestination = .resource(type)
         if selectedNamespace != nil || allNamespaces {
             await loadResourcesForCurrentType()
+        refreshSidebarCounts()
         }
     }
 
@@ -605,6 +656,7 @@ final class AppState {
         allNamespaces = all
         clearSelections()
         await loadResourcesForCurrentType()
+        refreshSidebarCounts()
     }
 
     /// The namespaces the current scope spans.
@@ -1647,6 +1699,7 @@ final class AppState {
             selectedPod = nil
             try? await Task.sleep(for: .seconds(1))
             await loadResourcesForCurrentType()
+        refreshSidebarCounts()
         } catch {
             showToast("Delete failed: \(error.localizedDescription)", isError: true)
         }

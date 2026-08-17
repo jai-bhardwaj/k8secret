@@ -171,6 +171,25 @@ struct ClusterWindow: View {
             .task {
                 // Debug-only (same contract as UITestTour): surface the ⌘N
                 // launcher so it can be screenshot-verified without input.
+                // Debug-only: render the app mark to PNGs for the icon set, so
+                // the icon is the same artwork the launch assembles rather than
+                // a drawing of it that drifts.
+                if let dir = ProcessInfo.processInfo.environment["K8SECRET_RENDER_ICON"] {
+                    for side in [16, 32, 64, 128, 256, 512, 1024] {
+                        let canvas = CGFloat(side)
+                        let renderer = ImageRenderer(
+                            content: ClusterMark(size: canvas * 0.94)
+                                .frame(width: canvas, height: canvas))
+                        renderer.scale = 1
+                        guard let image = renderer.nsImage,
+                              let tiff = image.tiffRepresentation,
+                              let rep = NSBitmapImageRep(data: tiff),
+                              let png = rep.representation(using: .png, properties: [:]) else { continue }
+                        try? png.write(to: URL(fileURLWithPath: dir)
+                            .appendingPathComponent("mark-\(side).png"))
+                    }
+                    NSApplication.shared.terminate(nil)
+                }
                 if ProcessInfo.processInfo.environment["K8SECRET_UITEST_LAUNCHER"] == "1" {
                     openWindow(id: "launcher")
                 }

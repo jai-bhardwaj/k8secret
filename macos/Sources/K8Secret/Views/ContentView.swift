@@ -318,6 +318,29 @@ struct ContentView: View {
             case "nsmenu": state.namespaceMenuOpen = true
             case "switcher": state.clusterSwitcherOpen = true
             case "settings": state.settingsOpen = true
+            case "logs":
+                // Debug-only: land in a pod's live log window.
+                await state.selectResourceType(.pods)
+                for _ in 0..<25 where state.pods.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                if let pod = state.pods.first(where: { $0.phase == "Running" }) ?? state.pods.first {
+                    state.selectedPod = pod
+                    openWindow(value: LogStreamID(context: state.context,
+                                                  namespace: pod.namespace,
+                                                  pod: pod.name,
+                                                  container: pod.containers.first?.name ?? ""))
+                }
+            case "bulk":
+                await state.selectResourceType(.secrets)
+                for _ in 0..<25 where state.secrets.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                if let secret = state.secrets.first {
+                    state.selectedSecret = secret
+                    await state.selectSecret(secret)
+                    state.showBulkImport = true
+                }
             case "show":
                 // Debug-only: land on a resource type with its first row
                 // selected, so any pane can be screenshot-verified.

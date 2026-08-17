@@ -385,8 +385,7 @@ struct KVRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Line 1: Status icon + Key + Actions
+        HStack(spacing: 10) {
             HStack(spacing: 8) {
                 statusIcon
 
@@ -394,52 +393,51 @@ struct KVRow: View {
                     .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(keyColor)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                     .textSelection(.enabled)
-
-                Spacer()
-
-                // Actions
-                HStack(spacing: 4) {
-                    // Reveal toggle
-                    Button {
-                        isRevealed.toggle()
-                    } label: {
-                        Image(systemName: isRevealed ? "eye.slash" : "eye")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help(isRevealed ? "Hide value" : "Reveal value")
-                    .accessibilityLabel(isRevealed ? "Hide value for \(kv.key)" : "Reveal value for \(kv.key)")
-
-                    // Copy button
-                    Button {
-                        SecretPasteboard.copySecret(kv.value)
-                        showCopied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            showCopied = false
-                        }
-                    } label: {
-                        Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11))
-                            .foregroundStyle(showCopied ? .green : .secondary)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Copy value (hidden from clipboard history, cleared after \(Int(SecretPasteboard.clearAfter))s)")
-                    .accessibilityLabel("Copy value for \(kv.key)")
-                    .disabled(kv.status == .deleted)
-
-                    actions
-                }
-                .opacity(isHovered ? 1 : 0.6)
             }
+            .frame(width: 190, alignment: .leading)
 
-            // Line 2: Value — masked until explicitly revealed, so screen shares,
-            // screenshots and shoulder-surfing don't leak every secret in the
-            // namespace just because someone opened the app.
-            HStack(spacing: 0) {
+            value
+
+            HStack(spacing: 4) {
+                Button {
+                    isRevealed.toggle()
+                } label: {
+                    Image(systemName: isRevealed ? "eye.slash" : "eye")
+                }
+                .buttonStyle(IconButtonStyle())
+                .help(isRevealed ? "Hide value" : "Reveal value")
+                .accessibilityLabel(isRevealed ? "Hide value for \(kv.key)" : "Reveal value for \(kv.key)")
+
+                Button {
+                    SecretPasteboard.copySecret(kv.value)
+                    showCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showCopied = false }
+                } label: {
+                    Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                        .foregroundStyle(showCopied ? Theme.ok : Theme.text3)
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Copy value (hidden from clipboard history, cleared after \(Int(SecretPasteboard.clearAfter))s)")
+                .accessibilityLabel("Copy value for \(kv.key)")
+                .disabled(kv.status == .deleted)
+
+                actions
+            }
+            .opacity(isHovered ? 1 : 0.55)
+        }
+        .padding(.vertical, 9)
+        .overlay(alignment: .top) { Theme.line.frame(height: 1) }
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+
+    /// Masked until explicitly revealed, so screen shares, screenshots and
+    /// shoulder-surfing don't leak every secret in the namespace just because
+    /// someone opened the app.
+    private var value: some View {
+        HStack(spacing: 0) {
                 if isRevealed {
                     Text(kv.value)
                         .font(.system(size: 12, design: .monospaced))
@@ -460,21 +458,13 @@ struct KVRow: View {
                         .onTapGesture { isRevealed = true }
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if kv.status != .deleted {
-                    state.editingKey = K8sKeyValue(id: kv.key, key: kv.key, value: kv.value)
-                }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if kv.status != .deleted {
+                state.editingKey = K8sKeyValue(id: kv.key, key: kv.key, value: kv.value)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
-        .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
 
     @ViewBuilder
@@ -527,8 +517,7 @@ struct KVRow: View {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 12))
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(IconButtonStyle())
                 .help("Undo delete")
                 .accessibilityLabel("Undo delete")
             } else {
@@ -538,8 +527,7 @@ struct KVRow: View {
                     Image(systemName: "pencil")
                         .font(.system(size: 12))
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(IconButtonStyle())
                 .help("Edit value")
                 .accessibilityLabel("Edit value")
 
@@ -550,8 +538,7 @@ struct KVRow: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.red)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(IconButtonStyle())
                 .help("Delete key")
                 .accessibilityLabel("Delete key")
             }
@@ -563,8 +550,7 @@ struct KVRow: View {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 12))
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(IconButtonStyle())
                 .help("Undo change")
                 .accessibilityLabel("Undo change")
             }
