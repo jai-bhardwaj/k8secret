@@ -1,6 +1,29 @@
 import Foundation
 import Security
 
+// MARK: - Diagnostic tracing
+//
+// Off unless K8SECRET_TLS_DEBUG=1 is set. Writes to stderr, so it appears when
+// the binary is run from a terminal:
+//
+//     K8SECRET_TLS_DEBUG=1 .build/release/K8Secret
+//
+// Deliberately says nothing about key material: certificate subjects, byte
+// counts and status codes only.
+
+let k8sTraceEnabled = ProcessInfo.processInfo.environment["K8SECRET_TLS_DEBUG"] == "1"
+
+func k8sTrace(_ message: @autoclosure () -> String) {
+    guard k8sTraceEnabled else { return }
+    FileHandle.standardError.write(Data("[k8secret] \(message())\n".utf8))
+}
+
+/// Human-readable form of a Security.framework status.
+func k8sStatusText(_ status: OSStatus) -> String {
+    let text = (SecCopyErrorMessageString(status, nil) as String?) ?? "no description"
+    return "\(status) (\(text))"
+}
+
 enum K8sError: LocalizedError {
     case noConfig
     case noContext
@@ -1546,12 +1569,14 @@ actor K8sClient {
                 // A 401 right after we failed to build a client identity is not a
                 // credentials problem the user can fix by re-reading their token —
                 // say what actually happened.
-                if http.statusCode == 401, K8sTLSDelegate.clientCertificateUnavailable {
+                if http.statusCode == 401,
+                   let tlsDelegate = session.delegate as? K8sTLSDelegate,
+                   tlsDelegate.clientCertificateUnavailable {
                     throw K8sError.authFailed(
-                        "This cluster uses client-certificate authentication, which K8Secret "
-                        + "doesn't support — presenting a client certificate on macOS requires "
-                        + "storing your private key in a keychain, and K8Secret doesn't touch the "
-                        + "keychain. Use a token instead: "
+                        "This cluster authenticates with a client certificate, and K8Secret "
+                        + "could not build a usable identity from the certificate and key in "
+                        + "your kubeconfig. Check that client-certificate-data and "
+                        + "client-key-data decode to a matching pair, or use a token instead: "
                         + "kubectl create token <serviceaccount>"
                     )
                 }
@@ -1562,6 +1587,17 @@ actor K8sClient {
         } catch let e as K8sError {
             throw e
         } catch {
+            let ns = error as NSError
+            k8sTrace("request FAILED \(method) \(path)")
+            k8sTrace("  NSError domain=\(ns.domain) code=\(ns.code)")
+            k8sTrace("  localizedDescription=\(ns.localizedDescription)")
+            for (key, value) in ns.userInfo where key != NSLocalizedDescriptionKey {
+                k8sTrace("  userInfo[\(key)] = \(value)")
+            }
+            if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError {
+                k8sTrace("  underlying domain=\(underlying.domain) code=\(underlying.code) "
+                         + "desc=\(underlying.localizedDescription)")
+            }
             throw K8sError.networkError(error.localizedDescription)
         }
     }
@@ -1961,9 +1997,35 @@ actor K8sClient {
 // MARK: - TLS Delegate
 
 final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    /// Guards the two pieces of per-connection state below. Delegate callbacks
+    /// arrive on arbitrary queues, and this class is `@unchecked Sendable`.
+    private let identityLock = NSLock()
+
     /// Set when a client certificate was configured but no usable identity could be
     /// built, so a 401 can say why instead of just "Unauthorized".
-    nonisolated(unsafe) static var clientCertificateUnavailable = false
+    ///
+    /// Per-delegate, and therefore per-cluster. As a `static` this leaked across
+    /// windows: one cluster failing to build an identity changed how every other
+    /// cluster explained its own 401.
+    private var _clientCertificateUnavailable = false
+    var clientCertificateUnavailable: Bool {
+        identityLock.lock()
+        defer { identityLock.unlock() }
+        return _clientCertificateUnavailable
+    }
+
+    /// The identity built from *this delegate's* certificate and key.
+    ///
+    /// This was `static`. A delegate is created per cluster and carries that
+    /// cluster's `clientCertData`/`clientKeyData` as instance properties, but the
+    /// cache in front of them was process-wide: the first client-certificate
+    /// cluster to complete a handshake populated it, and every cluster opened
+    /// afterwards hit `if let cached` and presented that first cluster's
+    /// certificate instead of its own. With several client-cert clusters in one
+    /// kubeconfig at most one could connect per launch — the rest had their
+    /// certificate rejected during the handshake, which surfaces as
+    /// "A TLS error caused the secure connection to fail".
+    private var cachedIdentity: SecIdentity?
 
     let caData: Data?
     let clientCertData: Data?
@@ -1984,11 +2046,19 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     ) {
         let protection = challenge.protectionSpace
 
+        k8sTrace("challenge: method=\(protection.authenticationMethod) "
+                 + "host=\(protection.host):\(protection.port) "
+                 + "caBytes=\(caData?.count ?? -1) "
+                 + "clientCertBytes=\(clientCertData?.count ?? -1) "
+                 + "clientKeyBytes=\(clientKeyData?.count ?? -1) "
+                 + "insecure=\(insecure)")
+
         if protection.authenticationMethod == NSURLAuthenticationMethodServerTrust {
             handleServerTrust(challenge: challenge, completionHandler: completionHandler)
         } else if protection.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
             handleClientCert(challenge: challenge, completionHandler: completionHandler)
         } else {
+            k8sTrace("  -> performDefaultHandling (unhandled challenge type)")
             completionHandler(.performDefaultHandling, nil)
         }
     }
@@ -2019,6 +2089,16 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         // A CA bundle may legitimately carry several certificates; all of them are
         // anchors the user asked us to trust.
         let caCerts = createCertificates(from: caData)
+        k8sTrace("  serverTrust: anchors parsed from kubeconfig CA = \(caCerts.count)")
+        for cert in caCerts {
+            k8sTrace("    anchor: \((SecCertificateCopySubjectSummary(cert) as String?) ?? "<none>")")
+        }
+        if let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate] {
+            k8sTrace("  serverTrust: server presented \(chain.count) certificate(s)")
+            for cert in chain {
+                k8sTrace("    served: \((SecCertificateCopySubjectSummary(cert) as String?) ?? "<none>")")
+            }
+        }
         guard !caCerts.isEmpty else {
             // A CA was configured but we couldn't parse it. Refusing is the only
             // safe option: falling back to system roots would silently accept a
@@ -2034,9 +2114,19 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         SecTrustSetAnchorCertificates(trust, caCerts as CFArray)
         SecTrustSetAnchorCertificatesOnly(trust, true)
 
-        if SecTrustEvaluateWithError(trust, nil) {
+        var trustError: CFError?
+        if SecTrustEvaluateWithError(trust, &trustError) {
+            k8sTrace("  serverTrust: PASS -> useCredential")
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
+            if let trustError {
+                k8sTrace("  serverTrust: FAIL domain=\(CFErrorGetDomain(trustError) as String? ?? "?") "
+                         + "code=\(CFErrorGetCode(trustError)) "
+                         + "reason=\(CFErrorCopyDescription(trustError) as String? ?? "?")")
+            } else {
+                k8sTrace("  serverTrust: FAIL (no CFError returned)")
+            }
+            k8sTrace("  -> cancelAuthenticationChallenge")
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
     }
@@ -2068,12 +2158,23 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if let issuers = challenge.protectionSpace.distinguishedNames {
+            k8sTrace("  clientCert: server accepts \(issuers.count) issuer name(s)")
+        }
+
         guard let certData = clientCertData, let keyData = clientKeyData else {
+            k8sTrace("  clientCert: none configured -> performDefaultHandling "
+                     + "(NO certificate is presented; the server will drop the handshake "
+                     + "if it requires one)")
             completionHandler(.performDefaultHandling, nil)
             return
         }
 
         if let identity = createIdentity(certPEM: certData, keyPEM: keyData) {
+            var certRef: SecCertificate?
+            SecIdentityCopyCertificate(identity, &certRef)
+            k8sTrace("  clientCert: presenting "
+                     + "\(certRef.flatMap { SecCertificateCopySubjectSummary($0) as String? } ?? "<unknown>")")
             let credential = URLCredential(
                 identity: identity,
                 certificates: nil,
@@ -2081,6 +2182,8 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             )
             completionHandler(.useCredential, credential)
         } else {
+            k8sTrace("  clientCert: identity could NOT be built -> performDefaultHandling "
+                     + "(no certificate presented)")
             completionHandler(.performDefaultHandling, nil)
         }
     }
@@ -2104,11 +2207,26 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         // handshake because that is where the key is about to be used.
         TransientKeychain.shared.ensureUnlocked()
 
-        if let cached = Self.cachedIdentity { return cached }
+        identityLock.lock()
+        let cached = cachedIdentity
+        identityLock.unlock()
+        if let cached {
+            k8sTrace("    createIdentity: returning cached identity for THIS delegate")
+            return cached
+        }
 
-        guard let keychain = TransientKeychain.shared.get(),
-              let bundle = Self.buildPKCS12(certPEM: certPEM, keyPEM: keyPEM) else {
-            Self.clientCertificateUnavailable = true
+        let keychainRef = TransientKeychain.shared.get()
+        k8sTrace("    createIdentity: TransientKeychain.get() -> "
+                 + (keychainRef == nil ? "nil (SecKeychainCreate failed)" : "ok"))
+
+        let bundleRef = Self.buildPKCS12(certPEM: certPEM, keyPEM: keyPEM)
+        k8sTrace("    createIdentity: buildPKCS12 -> "
+                 + (bundleRef == nil ? "nil (openssl failed)" : "\(bundleRef!.data.count) bytes"))
+
+        guard let keychain = keychainRef, let bundle = bundleRef else {
+            identityLock.lock()
+            _clientCertificateUnavailable = true
+            identityLock.unlock()
             return nil
         }
 
@@ -2124,21 +2242,25 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         }
 
         var items: CFArray?
-        guard SecPKCS12Import(bundle.data as CFData, options as CFDictionary, &items) == errSecSuccess,
+        let importStatus = SecPKCS12Import(bundle.data as CFData, options as CFDictionary, &items)
+        k8sTrace("    createIdentity: SecPKCS12Import -> \(k8sStatusText(importStatus))")
+
+        guard importStatus == errSecSuccess,
               let entries = items as? [[String: Any]],
               let identityRef = entries.first?[kSecImportItemIdentity as String] else {
-            Self.clientCertificateUnavailable = true
+            k8sTrace("    createIdentity: no identity in imported bundle")
+            identityLock.lock()
+            _clientCertificateUnavailable = true
+            identityLock.unlock()
             return nil
         }
 
         let identity = identityRef as! SecIdentity
-        Self.cachedIdentity = identity
+        identityLock.lock()
+        cachedIdentity = identity
+        identityLock.unlock()
         return identity
     }
-
-    /// Built once per process — the conversion forks a subprocess, and the
-    /// credentials do not change while the app is running.
-    nonisolated(unsafe) private static var cachedIdentity: SecIdentity?
 
     /// Convert a PEM certificate + key into a PKCS#12 blob.
     ///
