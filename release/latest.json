@@ -1,8 +1,8 @@
 {
-  "version": "0.6.2",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.2/K8Secret-0.6.2.dmg",
-  "notes": "K8Secret 0.6.2 — the tour points at what it is talking about.\n\nThe ⌘K stop had no rectangle of its own: the toolbar hosts that pill outside SwiftUI's view tree, so the spotlight stayed wherever the previous stop had left it and the namespace menu lit up while the card explained search. AppKit can measure toolbar items — it is how the namespace menu already hangs from its pill — so the tour is handed those rectangles too. The ⌘K stop now lights the search pill itself, with its card beneath it by the same rule every other stop follows, and a stop with nothing to point at clears the spotlight instead of inheriting the last one.",
+  "version": "0.6.3",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.3/K8Secret-0.6.3.dmg",
+  "notes": "K8Secret 0.6.3 — the update hands you the tour.\n\nThe release notes offered the guided tour behind a button labelled \"Not now\", which reads as a deferral, so the tour was easy to miss on the one occasion it is most useful: the update that rebuilt the interface. Taking it is now the default action — Return starts it — with the minute it costs stated beside the buttons, and skipping is recorded as an answer rather than a question the app repeats on the next patch.\n\nThe tour itself walks the real window: the rail, the namespace menu, ⌘K, secrets and the cluster switcher, each spotlit where it actually sits. Settings keeps it for whenever you want it again.",
   "minOS": "14.0",
   "date": "2026-08-17",
-  "sha256": "ac0bf562a8f35cbdf3529a10f87e991a1af3c480ef80f750bf5a94153bcbbfd6"
+  "sha256": "912e42f46db471c9aa2ef9620d13220bb1e74271fbbb31089f1a28e9afe817f7"
 }
