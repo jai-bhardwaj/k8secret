@@ -94,6 +94,30 @@ final class TLSIntegrationTests: XCTestCase {
         }
     }
 
+    /// A refused handshake has to say who refused it and why.
+    ///
+    /// URLSession reports every one of these as "a TLS error caused the secure
+    /// connection to fail", which reads as the cluster's fault and sends people
+    /// to check a server that is working. We are the ones refusing, and we know
+    /// the reason — a user should be able to screenshot the error and have it
+    /// name the cause, without reproducing anything or running a debug build.
+    func testARefusedHandshakeExplainsItself() async throws {
+        try useKubeconfig(caFile: "other.crt")
+
+        do {
+            _ = try await K8sClient().connect()
+            XCTFail("connected to a server whose certificate does not chain to the configured CA")
+        } catch {
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("K8Secret closed the connection"),
+                          "the error should name us as the one refusing, got: \(message)")
+            XCTAssertTrue(message.contains("certificate-authority-data"),
+                          "the error should point at the setting to check, got: \(message)")
+            XCTAssertFalse(message == "A TLS error caused the secure connection to fail.",
+                           "the raw URLSession message blames the server")
+        }
+    }
+
     func testConnectsWhenTheCertificateChainsToTheConfiguredCA() async throws {
         try useKubeconfig(caFile: "ca.crt")
 

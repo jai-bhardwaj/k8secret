@@ -1603,15 +1603,27 @@ actor K8sClient {
             // sends people to look at the cluster. We know we presented nothing;
             // say so, and name the step that actually broke.
             if ns.domain == NSURLErrorDomain,
-               ns.code == NSURLErrorSecureConnectionFailed,
-               let tlsDelegate = session.delegate as? K8sTLSDelegate,
-               tlsDelegate.clientCertificateUnavailable {
-                throw K8sError.networkError(
-                    "Couldn't present this cluster's client certificate, so the server closed "
-                    + "the connection. The certificate and key in your kubeconfig were read, but "
-                    + "macOS wouldn't build an identity from them. Re-run with K8SECRET_TLS_DEBUG=1 "
-                    + "for the exact step that failed."
-                )
+               let tlsDelegate = session.delegate as? K8sTLSDelegate {
+                // We refused the handshake and know why. Cancelling a challenge
+                // surfaces as NSURLErrorCancelled — the bare word "cancelled",
+                // which reads as though the user did it — rather than as a TLS
+                // error, so this cannot be keyed on the TLS code. It is keyed on
+                // having actually recorded a refusal, which nothing else sets.
+                if let refusal = tlsDelegate.handshakeRefusal {
+                    throw K8sError.networkError("K8Secret closed the connection: \(refusal).")
+                }
+                guard ns.code == NSURLErrorSecureConnectionFailed else {
+                    throw K8sError.networkError(error.localizedDescription)
+                }
+                // We presented nothing because the identity wouldn't build.
+                if tlsDelegate.clientCertificateUnavailable {
+                    throw K8sError.networkError(
+                        "Couldn't present this cluster's client certificate, so the server closed "
+                        + "the connection. The certificate and key in your kubeconfig were read, but "
+                        + "macOS wouldn't build an identity from them. Re-run with "
+                        + "K8SECRET_TLS_DEBUG=1 for the exact step that failed."
+                    )
+                }
             }
             throw K8sError.networkError(error.localizedDescription)
         }
@@ -2029,6 +2041,28 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         return _clientCertificateUnavailable
     }
 
+    /// Why *we* refused the handshake, if we did.
+    ///
+    /// When this delegate cancels a challenge, URLSession reports only that a
+    /// TLS error occurred — the same sentence whether the server's certificate
+    /// failed to verify, the kubeconfig's CA couldn't be parsed, or the server
+    /// simply hung up. We always know which; keeping the reason here lets the
+    /// error say it instead of asking the user to guess, or to reproduce the
+    /// problem on a machine someone else owns.
+    private var _handshakeRefusal: String?
+    var handshakeRefusal: String? {
+        identityLock.lock()
+        defer { identityLock.unlock() }
+        return _handshakeRefusal
+    }
+
+    private func refuse(_ reason: String) {
+        identityLock.lock()
+        _handshakeRefusal = reason
+        identityLock.unlock()
+        k8sTrace("  -> cancelAuthenticationChallenge: \(reason)")
+    }
+
     /// The identity built from *this delegate's* certificate and key.
     ///
     /// This was `static`. A delegate is created per cluster and carries that
@@ -2083,6 +2117,7 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
         guard let trust = challenge.protectionSpace.serverTrust else {
+            refuse("the server offered no certificate to evaluate")
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
@@ -2118,6 +2153,8 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             // A CA was configured but we couldn't parse it. Refusing is the only
             // safe option: falling back to system roots would silently accept a
             // certificate the user never intended to trust.
+            refuse("this cluster's certificate-authority-data could not be read as a "
+                   + "certificate — \(caData.count) bytes that are neither PEM nor DER")
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
@@ -2134,14 +2171,20 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             k8sTrace("  serverTrust: PASS -> useCredential")
             completionHandler(.useCredential, URLCredential(trust: trust))
         } else {
+            let detail = trustError
+                .flatMap { CFErrorCopyDescription($0) as String? }
+                ?? "no reason given"
             if let trustError {
                 k8sTrace("  serverTrust: FAIL domain=\(CFErrorGetDomain(trustError) as String? ?? "?") "
-                         + "code=\(CFErrorGetCode(trustError)) "
-                         + "reason=\(CFErrorCopyDescription(trustError) as String? ?? "?")")
+                         + "code=\(CFErrorGetCode(trustError)) reason=\(detail)")
             } else {
                 k8sTrace("  serverTrust: FAIL (no CFError returned)")
             }
-            k8sTrace("  -> cancelAuthenticationChallenge")
+            // Name the host: with hostname verification on, the commonest cause is
+            // a server certificate that doesn't cover the address in the
+            // kubeconfig — which the user can check.
+            refuse("the server's certificate for \(challenge.protectionSpace.host) did not "
+                   + "verify against this cluster's certificate-authority-data — \(detail)")
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
     }
