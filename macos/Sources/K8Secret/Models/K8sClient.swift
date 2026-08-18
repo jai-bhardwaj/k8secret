@@ -1615,6 +1615,42 @@ actor K8sClient {
                 guard ns.code == NSURLErrorSecureConnectionFailed else {
                     throw K8sError.networkError(error.localizedDescription)
                 }
+
+                // A TLS failure we didn't cause. How far the handshake got says
+                // which one it is, and the user cannot see that from "a TLS
+                // error caused the secure connection to fail" — a sentence that
+                // describes the cluster, our certificate and macOS's own
+                // policies equally well.
+                let progress = tlsDelegate.handshakeProgress
+                let endpoint = URL(string: serverURL)
+                let host = endpoint?.host ?? serverURL
+                let port = endpoint?.port ?? 443
+                if !progress.serverTrust {
+                    throw K8sError.networkError(
+                        "The TLS handshake with \(host) failed before its certificate could be "
+                        + "checked, so this is not about the certificate. macOS and the server "
+                        + "could not agree on a TLS version or cipher — recent macOS refuses "
+                        + "TLS 1.0 and 1.1 outright. Check what the endpoint terminates TLS with; "
+                        + "`openssl s_client -connect \(host):\(port)` will name it."
+                    )
+                }
+                if progress.presented {
+                    throw K8sError.networkError(
+                        "\(host) rejected this cluster's client certificate and closed the "
+                        + "connection. The certificate was read and presented, so it is the "
+                        + "certificate itself the server won't take — most often expired, or "
+                        + "signed by a CA the cluster has since rotated. `kubectl` would fail "
+                        + "the same way; re-fetch your credentials for this cluster."
+                    )
+                }
+                if progress.clientCertAsked {
+                    throw K8sError.networkError(
+                        "\(host) asked for a client certificate and this context has none, so "
+                        + "the server closed the connection. Check the user for this context in "
+                        + "your kubeconfig — it needs client-certificate/client-key, a token, or "
+                        + "an exec plugin."
+                    )
+                }
                 // We presented nothing because the identity wouldn't build.
                 if tlsDelegate.clientCertificateUnavailable {
                     throw K8sError.networkError(
@@ -2049,6 +2085,19 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     /// simply hung up. We always know which; keeping the reason here lets the
     /// error say it instead of asking the user to guess, or to reproduce the
     /// problem on a machine someone else owns.
+    /// What the handshake actually got as far as. A TLS failure means something
+    /// very different depending on how far we got, and only the delegate knows:
+    /// never consulted at all is a negotiation failure below us; consulted for
+    /// the server and then dying is the server rejecting what we presented.
+    private var _sawServerTrustChallenge = false
+    private var _sawClientCertChallenge = false
+    private var _presentedClientCertificate = false
+    var handshakeProgress: (serverTrust: Bool, clientCertAsked: Bool, presented: Bool) {
+        identityLock.lock()
+        defer { identityLock.unlock() }
+        return (_sawServerTrustChallenge, _sawClientCertChallenge, _presentedClientCertificate)
+    }
+
     private var _handshakeRefusal: String?
     var handshakeRefusal: String? {
         identityLock.lock()
@@ -2103,8 +2152,10 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
                  + "insecure=\(insecure)")
 
         if protection.authenticationMethod == NSURLAuthenticationMethodServerTrust {
+            identityLock.lock(); _sawServerTrustChallenge = true; identityLock.unlock()
             handleServerTrust(challenge: challenge, completionHandler: completionHandler)
         } else if protection.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
+            identityLock.lock(); _sawClientCertChallenge = true; identityLock.unlock()
             handleClientCert(challenge: challenge, completionHandler: completionHandler)
         } else {
             k8sTrace("  -> performDefaultHandling (unhandled challenge type)")
@@ -2238,6 +2289,7 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
                 certificates: nil,
                 persistence: .forSession
             )
+            identityLock.lock(); _presentedClientCertificate = true; identityLock.unlock()
             completionHandler(.useCredential, credential)
         } else {
             k8sTrace("  clientCert: identity could NOT be built -> performDefaultHandling "
