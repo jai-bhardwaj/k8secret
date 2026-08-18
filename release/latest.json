@@ -1,8 +1,8 @@
 {
-  "version": "0.6.16",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.16/K8Secret-0.6.16.dmg",
-  "notes": "K8Secret 0.6.16 — events that appear, logs that read like logs.\n\nThe Events tab showed nothing on most real clusters. It was asking every namespace separately and letting any one of them fail the lot, so a single namespace your account cannot read emptied the entire feed. It now asks the cluster once, and where it has to ask namespace by namespace, one refusal costs only its own events.\n\nLogs open showing your container's output instead of a button that offers to fetch it, fill the pane rather than a small box, and carry the filter and Follow controls the design always had. Timestamps step back, lines reporting a failure stand out, and Follow keeps re-reading the tail — which is what you want pointed at a container that keeps restarting.\n\nYAML is now laid out as the manifest it is: its own panel, with keys and quoted values coloured so structure is scannable instead of a wall of one colour.",
+  "version": "0.6.17",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.17/K8Secret-0.6.17.dmg",
+  "notes": "K8Secret 0.6.17 — a fix for macOS 14, and colour that follows your theme.\n\nIf you are on macOS 14 and your cluster uses a client certificate, 0.6.15 and 0.6.16 could not connect to it. Removing a certificate from the keychain immediately after use also invalidated the identity built from it, so the handshake failed. Please update. Newer versions of macOS were unaffected.\n\nEverywhere else, this is about colour. Eighty-nine places in the app painted with macOS's own red, orange, yellow, green and blue. Those are fixed shades that know nothing about the light or dark mode you are in, or the colour you chose for the cluster — so in light mode a crash-looping container announced itself in a pale yellow you could barely read, and status colours drifted away from everything around them. They now come from the app's palette, which has a value for each mode.\n\nSettings drew the lines between its sections in white, which is a smear on a light panel and invisible on a dark one. The sidebar's flyout had the same edge. Both now use the same hairline as everywhere else.",
   "minOS": "14.0",
   "date": "2026-08-18",
-  "sha256": "a8627c402454301a360e404abdcf7e9ae6eec25e64c7bce3838a364bf993132b"
+  "sha256": "4293c3ebd08008a5d043c0f172818080b33102fa1a9a3b2ca4dc16b51cac31b6"
 }
