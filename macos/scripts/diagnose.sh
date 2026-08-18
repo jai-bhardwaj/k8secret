@@ -1,82 +1,75 @@
 #!/usr/bin/env bash
 # Everything needed to place a K8Secret connection failure, in one paste.
 #
-# A connection that fails on one Mac and works on another is almost always
-# something about the machine — its openssl, its macOS, or a kubeconfig naming
-# files that live somewhere else. This gathers those, plus a live TLS trace, so
-# a bug report arrives with the answer already in it.
+# A cluster that connects on one Mac and not another is almost always something
+# about the machine: its macOS, its openssl, a kubeconfig naming files that live
+# somewhere else, or a TLS version the two ends negotiate differently. This
+# gathers all of those, plus a live trace of the app's own handshake, so a bug
+# report arrives with the answer already in it.
 #
 #   ./macos/scripts/diagnose.sh
 #
-# Prints versions, hostnames, byte counts and which files exist. It never reads
-# a key, a token or a secret's contents, so the output is safe to paste into an
-# issue — check it yourself before you do.
+# Prints versions, hostnames, byte counts, validity dates and which files exist.
+# It never reads a key, a token, or a secret's contents — but read the output
+# before pasting it somewhere public, as hostnames are in it.
+
+set -uo pipefail
+
 APP="${1:-/Applications/K8Secret.app}"
 BIN="$APP/Contents/MacOS/k8secret"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG="$(mktemp)"
+ENDPOINT_FILE="$(mktemp)"
+trap 'rm -f "$LOG" "$ENDPOINT_FILE"' EXIT
 
-echo "K8Secret:  $(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo '?')"
+echo "K8Secret:  $(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo 'not installed at '"$APP")"
 echo "macOS:     $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
 echo "openssl:   $(/usr/bin/openssl version 2>&1)"
-echo "context:   $(kubectl config current-context 2>/dev/null || echo '(kubectl not present)')"
+echo "kubectl:   $(kubectl version --client -o json 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["clientVersion"]["gitVersion"])' 2>/dev/null || echo 'not installed')"
 
 echo
-echo "--- kubeconfig shape (no secret material) ---"
-python3 - <<'PY'
-import os, glob, subprocess
-paths = os.environ.get("KUBECONFIG") or os.path.expanduser("~/.kube/config")
-for p in paths.split(":"):
-    if not os.path.exists(p):
-        print(f"{p}: MISSING"); continue
-    try:
-        import yaml
-        cfg = yaml.safe_load(open(p))
-    except Exception as e:
-        print(f"{p}: unreadable ({e})"); continue
-    cur = cfg.get("current-context")
-    print(f"{p}  current-context={cur}")
-    ctx = next((c for c in cfg.get("contexts", []) if c.get("name") == cur), None)
-    if not ctx: continue
-    want_cluster = ctx.get("context", {}).get("cluster")
-    want_user = ctx.get("context", {}).get("user")
-    for c in cfg.get("clusters", []):
-        if c.get("name") != want_cluster: continue
-        cl = c.get("cluster", {})
-        print(f"  server: {cl.get('server')}")
-        for k in ("certificate-authority", "certificate-authority-data"):
-            if k in cl:
-                v = cl[k]
-                if k.endswith("-data"):
-                    print(f"  {k}: <inline, {len(v)} b64 chars>")
-                else:
-                    print(f"  {k}: {v}  exists={os.path.exists(os.path.expanduser(v))}")
-        if cl.get("insecure-skip-tls-verify"): print("  insecure-skip-tls-verify: true")
-    for u in cfg.get("users", []):
-        if u.get("name") != want_user: continue
-        us = u.get("user", {})
-        print(f"  user auth keys: {sorted(us.keys())}")
-        for k in ("client-certificate", "client-key", "tokenFile"):
-            if k in us:
-                print(f"  {k}: {us[k]}  exists={os.path.exists(os.path.expanduser(us[k]))}")
-        if "exec" in us:
-            cmd = us["exec"].get("command", "")
-            which = subprocess.run(["which", cmd], capture_output=True, text=True).stdout.strip()
-            print(f"  exec command: {cmd}  found={which or 'NOT ON PATH'}")
-PY
+echo "--- active context (names and presence only) ---"
+K8SECRET_ENDPOINT_OUT="$ENDPOINT_FILE" python3 "$SCRIPT_DIR/kubeconfig-shape.py"
+
+ENDPOINT="$(cat "$ENDPOINT_FILE" 2>/dev/null || true)"
+if [ -n "$ENDPOINT" ]; then
+  echo
+  echo "--- what the API server asks for, by TLS version ---"
+  # Independent of the app: ask the endpoint directly whether it requests a
+  # client certificate, and at which version. TLS 1.3 moved that request to
+  # after the handshake and macOS does not do the post-handshake form, so a
+  # server that offers acceptable CA names at 1.2 and nothing at 1.3 can only
+  # be authenticated to over 1.2.
+  HOST="${ENDPOINT%%:*}"
+  for VERSION in tls1_2 tls1_3; do
+    OUT="$(echo | /usr/bin/openssl s_client -connect "$ENDPOINT" -servername "$HOST" -"$VERSION" 2>&1)"
+    PROTO="$(printf '%s' "$OUT" | awk -F': *' '/^    Protocol/ {print $2; exit}')"
+    if printf '%s' "$OUT" | grep -q "Acceptable client certificate CA names"; then
+      ASKS="yes"
+    else
+      ASKS="no"
+    fi
+    echo "  ${VERSION}: protocol=${PROTO:-could-not-connect}  requests-client-certificate=${ASKS}"
+  done
+  echo "  (yes at 1.2 and no at 1.3 means this cluster needs K8Secret's TLS 1.2 cap)"
+fi
 
 echo
-echo "--- TLS trace ---"
+echo "--- the app's own handshake ---"
+if [ ! -x "$BIN" ]; then
+  echo "  no executable at $BIN — pass the .app path as the first argument"
+  exit 1
+fi
 K8SECRET_TLS_DEBUG=1 "$BIN" > "$LOG" 2>&1 &
 PID=$!
-sleep 15
-kill -9 $PID 2>/dev/null
-grep -E "challenge:|serverTrust:|clientCert:|createIdentity:|buildPKCS12:|request FAILED|NSError|localizedDescription" "$LOG" | head -30
+sleep 30
+kill -9 "$PID" 2>/dev/null
+grep -E "session:|probe:|metrics:|challenge:|serverTrust:|clientCert:|createIdentity:|buildPKCS12:|request FAILED|NSError|localizedDescription|underlying" "$LOG" | head -40
+
+LINES="$(wc -l < "$LOG" | tr -d ' ')"
 echo
-LINES=$(wc -l < "$LOG" | tr -d ' ')
 echo "trace lines captured: $LINES"
 if [ "$LINES" = "0" ]; then
-  echo
-  echo "No trace at all means the app never got as far as a TLS challenge —"
-  echo "either it did not launch, or it is an older build without tracing."
+  echo "No trace at all means the app never reached a TLS challenge — either it"
+  echo "did not launch, or this build predates tracing (0.6.7)."
 fi
-rm -f "$LOG"

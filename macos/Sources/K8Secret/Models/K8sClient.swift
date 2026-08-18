@@ -596,6 +596,13 @@ actor K8sClient {
         self.serverURL = cluster.server
         self.session = try buildSession(config: cfg)
 
+        // With tracing on, take one measured swing at the endpoint first. The
+        // async `data(for:)` used everywhere else never delivers task-level
+        // callbacks, so the negotiated TLS version — the one fact that differs
+        // between a machine where this works and one where it doesn't — is
+        // invisible without a task we drive ourselves.
+        if k8sTraceEnabled { await traceHandshake() }
+
         // Test connectivity
         let _ = try await request(path: "/api/v1/namespaces?limit=1")
 
@@ -1564,6 +1571,9 @@ actor K8sClient {
         }
 
         do {
+            // Pass the delegate explicitly: the async `data(for:)` form does not
+            // route task-level callbacks — metrics among them — to the session
+            // delegate, so the negotiated TLS version was never recorded.
             let (data, response) = try await session.data(for: req)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 // A 401 right after we failed to build a client identity is not a
@@ -2026,6 +2036,71 @@ actor K8sClient {
 
     // MARK: - TLS Session
 
+    /// Subject, issuer and validity of a client certificate, for the trace.
+    ///
+    /// An expired client certificate produces the same symptom as everything
+    /// else in this area — the server simply stops talking to you — and nothing
+    /// in the app has ever looked at the dates. `az aks get-credentials` and
+    /// friends issue certificates that do expire.
+    static func describeCertificate(_ pem: Data) -> String {
+        let blocks = K8sTLSDelegate.pemBlocksStatic(pem)
+        let der = blocks.first ?? pem
+        guard let cert = SecCertificateCreateWithData(nil, der as CFData) else {
+            return "clientCert: could not be parsed as a certificate (\(pem.count) bytes)"
+        }
+        let subject = (SecCertificateCopySubjectSummary(cert) as String?) ?? "<no subject>"
+
+        var text = "clientCert: subject=\(subject)"
+        var error: Unmanaged<CFError>?
+        if let values = SecCertificateCopyValues(cert, [kSecOIDX509V1ValidityNotBefore,
+                                                        kSecOIDX509V1ValidityNotAfter] as CFArray,
+                                                 &error) as? [String: Any] {
+            func date(_ oid: CFString) -> Date? {
+                guard let entry = values[oid as String] as? [String: Any],
+                      let seconds = entry["value"] as? Double else { return nil }
+                // Values are seconds since the 2001 reference date.
+                return Date(timeIntervalSinceReferenceDate: seconds)
+            }
+            let formatter = ISO8601DateFormatter()
+            if let notBefore = date(kSecOIDX509V1ValidityNotBefore) {
+                text += " notBefore=\(formatter.string(from: notBefore))"
+            }
+            if let notAfter = date(kSecOIDX509V1ValidityNotAfter) {
+                text += " notAfter=\(formatter.string(from: notAfter))"
+                let days = Int(notAfter.timeIntervalSinceNow / 86_400)
+                text += days < 0 ? "  *** EXPIRED \(-days) DAYS AGO ***" : " (\(days) days left)"
+            }
+        }
+        return text
+    }
+
+    /// One request run through `dataTask`, purely so its metrics are collected.
+    /// Failures are expected and reported, never thrown: this exists to describe
+    /// the handshake, not to gate the connection on it.
+    private func traceHandshake() async {
+        guard let session, let url = URL(string: serverURL) else { return }
+        k8sTrace("probe: measuring a handshake with \(url.host ?? serverURL)")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var request = URLRequest(url: url.appendingPathComponent("version"))
+            request.timeoutInterval = 20
+            let task = session.dataTask(with: request) { _, response, error in
+                if let http = response as? HTTPURLResponse {
+                    k8sTrace("probe: HTTP \(http.statusCode) — the handshake completed")
+                }
+                if let error {
+                    let ns = error as NSError
+                    k8sTrace("probe: failed domain=\(ns.domain) code=\(ns.code) — \(ns.localizedDescription)")
+                    if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError {
+                        k8sTrace("probe: underlying domain=\(underlying.domain) code=\(underlying.code) "
+                                 + "— \(underlying.localizedDescription)")
+                    }
+                }
+                continuation.resume()
+            }
+            task.resume()
+        }
+    }
+
     private func buildSession(config: KubeConfig) throws -> URLSession {
         let cluster = config.activeCluster()!
         let user = config.activeUser()!
@@ -2069,10 +2144,33 @@ actor K8sClient {
         // TLS 1.3. The cost is small — 1.2 here negotiates ECDHE with AES-GCM,
         // so forward secrecy and an AEAD cipher either way — and the alternative
         // is not connecting at all.
-        if user.clientCertificateData != nil, user.clientKeyData != nil {
+        // K8SECRET_TLS_MAX=1.3 lifts the cap, =1.2 forces it, unset uses the rule
+        // above. The cap is a hypothesis about why a client certificate is never
+        // requested, and a hypothesis that cannot be turned off is untestable on
+        // the one machine that reproduces the problem.
+        let capOverride = ProcessInfo.processInfo.environment["K8SECRET_TLS_MAX"]
+        let usesClientCert = user.clientCertificateData != nil && user.clientKeyData != nil
+        switch capOverride {
+        case "1.2":
             sessionConfig.tlsMaximumSupportedProtocolVersion = .TLSv12
-            k8sTrace("session: capped at TLS 1.2 — this cluster uses a client certificate, "
-                     + "and URLSession cannot present one over TLS 1.3")
+            k8sTrace("session: TLS capped at 1.2 (forced by K8SECRET_TLS_MAX)")
+        case "1.3":
+            sessionConfig.tlsMaximumSupportedProtocolVersion = .TLSv13
+            k8sTrace("session: TLS allowed up to 1.3 (forced by K8SECRET_TLS_MAX)")
+        default:
+            if usesClientCert {
+                sessionConfig.tlsMaximumSupportedProtocolVersion = .TLSv12
+                k8sTrace("session: TLS capped at 1.2 — this cluster uses a client certificate. "
+                         + "Set K8SECRET_TLS_MAX=1.3 to lift this.")
+            } else {
+                k8sTrace("session: TLS uncapped — this cluster does not use a client certificate")
+            }
+        }
+        k8sTrace("session: auth material — clientCert=\(user.clientCertificateData != nil) "
+                 + "clientKey=\(user.clientKeyData != nil) token=\(user.token != nil) "
+                 + "exec=\(user.exec != nil) basicAuth=\(user.username != nil)")
+        if let certData = user.clientCertificateData {
+            k8sTrace("session: " + Self.describeCertificate(certData))
         }
 
         return URLSession(configuration: sessionConfig, delegate: delegate, delegateQueue: nil)
@@ -2088,7 +2186,7 @@ actor K8sClient {
 
 // MARK: - TLS Delegate
 
-final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     /// Guards the two pieces of per-connection state below. Delegate callbacks
     /// arrive on arbitrary queues, and this class is `@unchecked Sendable`.
     private let identityLock = NSLock()
@@ -2164,6 +2262,45 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         self.clientCertData = clientCertData
         self.clientKeyData = clientKeyData
         self.insecure = insecure
+    }
+
+    /// What actually happened on the wire.
+    ///
+    /// Every other line in this trace is what *we* did; this is what the two
+    /// machines agreed on, which is the part that differs between them. Without
+    /// it, "the handshake failed" leaves the negotiated version, the cipher and
+    /// whether the connection was even reused entirely to guesswork.
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didFinishCollecting metrics: URLSessionTaskMetrics) {
+        guard k8sTraceEnabled else { return }
+        for transaction in metrics.transactionMetrics {
+            let version = transaction.negotiatedTLSProtocolVersion.map {
+                switch $0 {
+                case .TLSv10: return "TLS 1.0"
+                case .TLSv11: return "TLS 1.1"
+                case .TLSv12: return "TLS 1.2"
+                case .TLSv13: return "TLS 1.3"
+                case .DTLSv10: return "DTLS 1.0"
+                case .DTLSv12: return "DTLS 1.2"
+                @unknown default: return String(format: "0x%04X", $0.rawValue)
+                }
+            } ?? "none (handshake did not complete)"
+            let suite = transaction.negotiatedTLSCipherSuite.map {
+                String(format: "0x%04X", $0.rawValue)
+            } ?? "none"
+            k8sTrace("metrics: negotiated=\(version) cipher=\(suite) "
+                     + "reusedConnection=\(transaction.isReusedConnection) "
+                     + "proxy=\(transaction.isProxyConnection) "
+                     + "protocol=\(transaction.networkProtocolName ?? "?") "
+                     + "remote=\(transaction.remoteAddress ?? "?"):\(transaction.remotePort.map(String.init) ?? "?")")
+            if let start = transaction.secureConnectionStartDate {
+                let finished = transaction.secureConnectionEndDate
+                k8sTrace("metrics: TLS handshake "
+                         + (finished == nil
+                            ? "started at \(start) and never finished"
+                            : "took \(String(format: "%.3f", finished!.timeIntervalSince(start)))s"))
+            }
+        }
     }
 
     func urlSession(
@@ -2485,7 +2622,12 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     ///
     /// Splitting on the BEGIN/END markers is the whole point: a bundle's blocks are
     /// separate DER documents and must not be run together.
-    private func pemBlocks(_ data: Data) -> [Data] {
+    static func pemBlocksStatic(_ data: Data) -> [Data] {
+        K8sTLSDelegate(caData: nil, clientCertData: nil, clientKeyData: nil, insecure: false)
+            .pemBlocks(data)
+    }
+
+    fileprivate func pemBlocks(_ data: Data) -> [Data] {
         guard let pem = String(data: data, encoding: .utf8), pem.contains("-----BEGIN") else {
             return []
         }
