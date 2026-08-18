@@ -2548,12 +2548,30 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
         }
         k8sTrace("    createIdentity: buildPKCS12 -> \(bundle.data.count) bytes")
 
+        // Keep the identity in memory. Apple's own note on SecPKCS12Import:
+        // "The normal behavior of this function is to import items into process
+        // memory on iOS, and *into the default keychain on macOS*." That default
+        // is what made this app start writing users' cluster keys into their
+        // login keychain, and then asking them for a keychain password to use
+        // one — an ad-hoc signed app gets a fresh signature every release, so
+        // macOS sees each update as a different application reaching for an item
+        // the last one stored, and challenges it.
+        //
+        // kSecImportToMemoryOnly says don't store it, which is what this app
+        // always wanted: the key is needed for one handshake, in one process,
+        // and belongs nowhere else.
+        var options: [String: Any] = [kSecImportExportPassphrase as String: bundle.passphrase]
+        if #available(macOS 15.0, *) {
+            options[kSecImportToMemoryOnly as String] = true
+            k8sTrace("    createIdentity: importing to memory only, nothing is stored")
+        } else {
+            // macOS 14 has no way to say this, so the import lands in the default
+            // keychain. It is removed again below.
+            k8sTrace("    createIdentity: macOS 14 — import goes via the keychain and is cleaned up")
+        }
+
         var items: CFArray?
-        let importStatus = SecPKCS12Import(
-            bundle.data as CFData,
-            [kSecImportExportPassphrase as String: bundle.passphrase] as CFDictionary,
-            &items
-        )
+        let importStatus = SecPKCS12Import(bundle.data as CFData, options as CFDictionary, &items)
         k8sTrace("    createIdentity: SecPKCS12Import -> \(k8sStatusText(importStatus))")
 
         guard importStatus == errSecSuccess,
@@ -2568,6 +2586,22 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
         }
 
         let identity = identityRef as! SecIdentity
+
+        // On macOS 14 the import persisted; take it back out. The identity we
+        // already hold keeps working for this process, and nothing is left in
+        // the user's keychain to prompt about later.
+        if #unavailable(macOS 15.0) {
+            var certificate: SecCertificate?
+            SecIdentityCopyCertificate(identity, &certificate)
+            if let certificate {
+                let removed = SecItemDelete([
+                    kSecClass as String: kSecClassCertificate,
+                    kSecValueRef as String: certificate,
+                ] as CFDictionary)
+                k8sTrace("    createIdentity: removed the stored certificate -> \(k8sStatusText(removed))")
+            }
+        }
+
         identityLock.lock()
         cachedIdentity = identity
         identityLock.unlock()
