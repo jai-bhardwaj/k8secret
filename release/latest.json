@@ -1,8 +1,8 @@
 {
-  "version": "0.6.17",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.17/K8Secret-0.6.17.dmg",
-  "notes": "K8Secret 0.6.17 — a fix for macOS 14, and colour that follows your theme.\n\nIf you are on macOS 14 and your cluster uses a client certificate, 0.6.15 and 0.6.16 could not connect to it. Removing a certificate from the keychain immediately after use also invalidated the identity built from it, so the handshake failed. Please update. Newer versions of macOS were unaffected.\n\nEverywhere else, this is about colour. Eighty-nine places in the app painted with macOS's own red, orange, yellow, green and blue. Those are fixed shades that know nothing about the light or dark mode you are in, or the colour you chose for the cluster — so in light mode a crash-looping container announced itself in a pale yellow you could barely read, and status colours drifted away from everything around them. They now come from the app's palette, which has a value for each mode.\n\nSettings drew the lines between its sections in white, which is a smear on a light panel and invisible on a dark one. The sidebar's flyout had the same edge. Both now use the same hairline as everywhere else.",
+  "version": "0.6.18",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.18/K8Secret-0.6.18.dmg",
+  "notes": "K8Secret 0.6.18 — macOS 14, and panels that fit the window.\n\nmacOS 14 users with a client-certificate cluster should update: 0.6.15 through 0.6.17 could fail to connect, or ask for a keychain password on launch and then hang waiting for an answer. The certificate K8Secret builds to authenticate with now lives in a keychain of its own, created for the session and deleted when you quit — never your login keychain, and never a password prompt. On macOS 15 and later nothing is stored at all.\n\nThe What's New panel could also grow taller than the window and push its own buttons off the bottom, leaving no way to dismiss it. It scrolls now, and the buttons stay put. Settings and the YAML editor were bounded the same way, so they fit a small window rather than running past its edges.",
   "minOS": "14.0",
   "date": "2026-08-18",
-  "sha256": "4293c3ebd08008a5d043c0f172818080b33102fa1a9a3b2ca4dc16b51cac31b6"
+  "sha256": "8dd42f9e41e38c6efaef60abc250958ee7f8d5fb08b7b4cd3e61ee8c9da43f5c"
 }
