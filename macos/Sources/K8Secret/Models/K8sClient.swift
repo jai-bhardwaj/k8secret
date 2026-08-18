@@ -601,7 +601,10 @@ actor K8sClient {
         // callbacks, so the negotiated TLS version — the one fact that differs
         // between a machine where this works and one where it doesn't — is
         // invisible without a task we drive ourselves.
-        if k8sTraceEnabled { await traceHandshake() }
+        // Detached: this is a measurement, and it must not sit in front of the
+        // connection it is measuring. Awaiting it put its whole timeout between
+        // the user and their cluster whenever tracing was on.
+        if k8sTraceEnabled { Task { await traceHandshake() } }
 
         // Test connectivity
         let _ = try await request(path: "/api/v1/namespaces?limit=1")
@@ -2595,19 +2598,16 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
 
         let identity = identityRef as! SecIdentity
 
-        // On macOS 14 the import persisted; take it back out. The identity we
-        // already hold keeps working for this process, and nothing is left in
-        // the user's keychain to prompt about later.
+        // On macOS 14 the import landed in the default keychain and there is no
+        // way to prevent that. It cannot be deleted here: the identity is backed
+        // by the item, so removing it immediately invalidates the very identity
+        // we are about to present — which broke every client-certificate
+        // handshake on macOS 14 in 0.6.15. It is registered instead, and removed
+        // when the app quits, by which time nothing is using it.
         if #unavailable(macOS 15.0) {
             var certificate: SecCertificate?
             SecIdentityCopyCertificate(identity, &certificate)
-            if let certificate {
-                let removed = SecItemDelete([
-                    kSecClass as String: kSecClassCertificate,
-                    kSecValueRef as String: certificate,
-                ] as CFDictionary)
-                k8sTrace("    createIdentity: removed the stored certificate -> \(k8sStatusText(removed))")
-            }
+            if let certificate { ImportedIdentities.register(certificate) }
         }
 
         identityLock.lock()
@@ -2747,5 +2747,40 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
     /// If the data is already raw DER (no PEM headers), returns it unchanged.
     private func pemToDER(_ data: Data) -> Data {
         pemBlocks(data).first ?? data
+    }
+}
+
+
+/// Certificates macOS 14 forced into the default keychain, to be removed when
+/// the app quits.
+///
+/// macOS 15 has `kSecImportToMemoryOnly` and never gets here. On 14 the import
+/// is unavoidable, and so is waiting: deleting an identity's certificate while
+/// the identity is in use invalidates it, so the only safe moment is once
+/// nothing can be using it.
+enum ImportedIdentities {
+    private static let lock = NSLock()
+    private static var pending: [SecCertificate] = []
+
+    static func register(_ certificate: SecCertificate) {
+        lock.lock()
+        defer { lock.unlock() }
+        pending.append(certificate)
+    }
+
+    /// Called from `applicationWillTerminate`.
+    static func removeAll() {
+        lock.lock()
+        let certificates = pending
+        pending.removeAll()
+        lock.unlock()
+
+        for certificate in certificates {
+            let status = SecItemDelete([
+                kSecClass as String: kSecClassCertificate,
+                kSecValueRef as String: certificate,
+            ] as CFDictionary)
+            k8sTrace("cleanup: removed an imported certificate -> \(k8sStatusText(status))")
+        }
     }
 }

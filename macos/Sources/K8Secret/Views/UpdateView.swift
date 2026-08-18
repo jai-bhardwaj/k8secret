@@ -10,7 +10,7 @@ struct UpdateBannerView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.system(size: 16))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Theme.cpu)
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Update Available — v\(release.version)")
@@ -71,7 +71,7 @@ struct UpdateBannerView: View {
                     .frame(maxHeight: 120)
                 }
             }
-            .background(.blue.opacity(0.06))
+            .background(Theme.cpu.opacity(0.06))
             .overlay(alignment: .bottom) { Divider() }
         }
 
@@ -79,7 +79,7 @@ struct UpdateBannerView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.warn)
                 Text(error)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -95,7 +95,7 @@ struct UpdateBannerView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.orange.opacity(0.06))
+            .background(Theme.warn.opacity(0.06))
             .overlay(alignment: .bottom) { Divider() }
         }
     }
@@ -115,7 +115,7 @@ struct UpdateSheetView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.system(size: 36))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Theme.cpu)
 
                     Text("K8Secret v\(release.version)")
                         .font(.system(size: 17, weight: .bold, design: .monospaced))
@@ -160,7 +160,7 @@ struct UpdateSheetView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 36))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.ok)
 
                     Text("You're up to date!")
                         .font(.system(size: 15, weight: .semibold, design: .monospaced))
@@ -178,7 +178,7 @@ struct UpdateSheetView: View {
             if let error = checker.error {
                 Text(error)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.bad)
             }
         }
         .padding(24)

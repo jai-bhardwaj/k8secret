@@ -289,7 +289,7 @@ struct SecretDetailView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .background(.orange.opacity(0.06))
+        .background(Theme.warn.opacity(0.06))
         .overlay(alignment: .bottom) {
             Divider()
         }
@@ -298,20 +298,20 @@ struct SecretDetailView: View {
     @ViewBuilder
     private var changeStatus: some View {
         Image(systemName: "pencil.circle.fill")
-            .foregroundStyle(.orange)
+            .foregroundStyle(Theme.warn)
 
         Text(verbatim: "\(state.changeCount) unsaved change\(state.changeCount == 1 ? "" : "s")")
             .font(.system(size: 12, weight: .medium, design: .default))
             .lineLimit(1)
 
         if !state.modifications.isEmpty {
-            badge("~\(state.modifications.count)", color: .orange)
+            badge("~\(state.modifications.count)", color: Theme.warn)
         }
         if !state.additions.isEmpty {
-            badge("+\(state.additions.count)", color: .green)
+            badge("+\(state.additions.count)", color: Theme.ok)
         }
         if !state.deletions.isEmpty {
-            badge("-\(state.deletions.count)", color: .red)
+            badge("-\(state.deletions.count)", color: Theme.bad)
         }
     }
 
@@ -464,15 +464,15 @@ struct KVRow: View {
         switch kv.status {
         case .modified:
             Image(systemName: "pencil.circle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(Theme.warn)
                 .font(.system(size: 14))
         case .added:
             Image(systemName: "plus.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(Theme.ok)
                 .font(.system(size: 14))
         case .deleted:
             Image(systemName: "minus.circle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(Theme.bad)
                 .font(.system(size: 14))
         case .none:
             Image(systemName: "key.fill")
@@ -483,18 +483,18 @@ struct KVRow: View {
 
     private var keyColor: Color {
         switch kv.status {
-        case .modified: return .orange
-        case .added: return .green
-        case .deleted: return .red
+        case .modified: return Theme.warn
+        case .added: return Theme.ok
+        case .deleted: return Theme.bad
         case .none: return .accentColor
         }
     }
 
     private var rowBackground: Color {
         switch kv.status {
-        case .modified: return Color.orange.opacity(0.04)
-        case .added: return Color.green.opacity(0.04)
-        case .deleted: return Color.red.opacity(0.04)
+        case .modified: return Theme.warn.opacity(0.04)
+        case .added: return Theme.ok.opacity(0.04)
+        case .deleted: return Theme.bad.opacity(0.04)
         case .none: return isHovered ? Color.primary.opacity(0.03) : Color.clear
         }
     }
@@ -528,7 +528,7 @@ struct KVRow: View {
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 12))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.bad)
                 }
                 .buttonStyle(IconButtonStyle())
                 .help("Delete key")
@@ -566,7 +566,7 @@ struct EditSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "pencil.circle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Theme.warn)
                 Text("Edit Value")
                     .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
@@ -605,7 +605,7 @@ struct EditSheet: View {
                 if value != initialValue {
                     Text("Modified")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Theme.warn)
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -648,7 +648,7 @@ struct AddKeySheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Theme.ok)
                 Text("Add Key")
                     .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()
@@ -663,7 +663,7 @@ struct AddKeySheet: View {
                     if isDuplicate {
                         Label("Key already exists", systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Theme.bad)
                     }
                 }
                 TextField("e.g. DATABASE_URL, API_KEY", text: $key)
@@ -672,7 +672,7 @@ struct AddKeySheet: View {
                     .focused($keyFieldFocused)
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
-                            .stroke(isDuplicate ? Color.red.opacity(0.5) : Color.clear, lineWidth: 1)
+                            .stroke(isDuplicate ? Theme.bad.opacity(0.5) : Color.clear, lineWidth: 1)
                     )
                     .onSubmit { valueFieldFocused = true }
             }

@@ -168,7 +168,7 @@ struct LogStreamWindow: View {
             } label: {
                 Image(systemName: state.isStreaming ? "pause.fill" : "play.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(state.isStreaming ? .orange : .green)
+                    .foregroundStyle(state.isStreaming ? Theme.warn : Theme.ok)
             }
             .buttonStyle(.plain)
             .help(state.isStreaming ? "Pause stream" : "Resume stream")
@@ -246,7 +246,7 @@ struct LogStreamWindow: View {
             // Stream status
             HStack(spacing: 5) {
                 Circle()
-                    .fill(state.isStreaming ? .green : .red)
+                    .fill(state.isStreaming ? Theme.ok : Theme.bad)
                     .frame(width: 6, height: 6)
                 Text(state.isStreaming ? "Streaming" : "Paused")
                     .font(.system(size: 10.5, weight: .medium, design: .monospaced))
@@ -282,10 +282,10 @@ struct LogStreamWindow: View {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.bad)
                     Text(err)
                         .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.bad)
                         .lineLimit(1)
                 }
             }

@@ -276,6 +276,12 @@ struct ContentView: View {
         .background(WindowReader { hostWindow = $0 })
         .task {
             UITestTour.startIfRequested(state: state)
+            // Debug-only: pin the tint and appearance so a theme audit is a
+            // matrix rather than a lot of clicking.
+            if let tint = ProcessInfo.processInfo.environment["K8SECRET_UITEST_TINT"],
+               let picked = Theme.ClusterTint(rawValue: tint) {
+                state.clusterTint = picked
+            }
             // The launch is a first impression, not a per-window tax. Windows
             // two through ten of a session open straight into the app and just
             // connect — nobody wants to watch the ceremony ten times.

@@ -52,7 +52,7 @@ struct SettingsView: View {
                 .padding(.top, 4)
             }
 
-            Divider().overlay(Color.white.opacity(0.14))
+            Divider().overlay(Theme.line)
 
             // Appearance
             HStack(alignment: .firstTextBaseline) {
@@ -74,7 +74,7 @@ struct SettingsView: View {
                     }
             }
 
-            Divider().overlay(Color.white.opacity(0.14))
+            Divider().overlay(Theme.line)
 
             // Feedback
             HStack(alignment: .firstTextBaseline) {

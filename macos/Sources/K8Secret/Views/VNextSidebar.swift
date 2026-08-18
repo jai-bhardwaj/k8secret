@@ -398,7 +398,7 @@ struct VNextSidebar: View {
             // Edge ring as an inner line, not a border (Retina seam rule).
             UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                                    bottomTrailingRadius: 16, topTrailingRadius: 16)
-                .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                .strokeBorder(Theme.lineStrong, lineWidth: 1)
         }
         .clipShape(Self.flyoutShape)
     }

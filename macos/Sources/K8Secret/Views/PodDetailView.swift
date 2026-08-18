@@ -134,7 +134,7 @@ struct PodDetailView: View {
                 if pod.restarts > 0 {
                     Label("\(pod.restarts) restarts", systemImage: "arrow.clockwise")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(pod.restarts > 5 ? .red : .orange)
+                        .foregroundStyle(pod.restarts > 5 ? Theme.bad : Theme.warn)
                         .fixedSize()
                 }
 
@@ -244,7 +244,7 @@ struct PodDetailView: View {
         let completed = container.state == "terminated" && healthy
         return HStack(spacing: 12) {
             Image(systemName: healthy ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(completed ? .blue : healthy ? .green : .red)
+                .foregroundStyle(completed ? Theme.cpu : healthy ? Theme.ok : Theme.bad)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(container.name)
@@ -264,7 +264,7 @@ struct PodDetailView: View {
                 if container.restarts > 0 {
                     Text(verbatim: "\(container.restarts) restarts")
                         .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(container.restarts > 3 ? .red : .orange)
+                        .foregroundStyle(container.restarts > 3 ? Theme.bad : Theme.warn)
                 }
             }
         }
@@ -284,11 +284,11 @@ struct PodDetailView: View {
 
     private func containerStateInfo(_ c: ContainerInfo) -> (String, Color) {
         switch c.state {
-        case "running": return ("Running", .green)
-        case "waiting": return (c.stateReason.isEmpty ? "Waiting" : c.stateReason, .yellow)
+        case "running": return ("Running", Theme.ok)
+        case "waiting": return (c.stateReason.isEmpty ? "Waiting" : c.stateReason, Theme.warn)
         case "terminated":
             let isSuccess = c.stateReason == "Completed" || c.stateReason.isEmpty
-            return (isSuccess ? "Completed" : c.stateReason, isSuccess ? .blue : .red)
+            return (isSuccess ? "Completed" : c.stateReason, isSuccess ? Theme.cpu : Theme.bad)
         default: return ("Unknown", .secondary)
         }
     }
@@ -469,10 +469,10 @@ struct PodDetailView: View {
 
     private func phaseColor(_ pod: K8sPod) -> Color {
         switch pod.phase.lowercased() {
-        case "running": return pod.readyCount == pod.totalCount ? .green : .yellow
-        case "succeeded": return .blue
-        case "pending": return .yellow
-        case "failed": return .red
+        case "running": return pod.readyCount == pod.totalCount ? Theme.ok : Theme.warn
+        case "succeeded": return Theme.cpu
+        case "pending": return Theme.warn
+        case "failed": return Theme.bad
         default: return .secondary
         }
     }

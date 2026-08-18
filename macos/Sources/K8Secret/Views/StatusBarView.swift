@@ -152,10 +152,10 @@ struct StatusBarView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "bolt.horizontal.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.ok)
                     Text(verbatim: "\(activeCount)")
                         .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.ok)
                 }
             }
             .buttonStyle(.plain)
@@ -189,9 +189,9 @@ struct StatusBarView: View {
     }
 
     private func gaugeColor(_ percent: Int) -> Color {
-        if percent > 85 { return .red }
-        if percent > 65 { return .orange }
-        return .green
+        if percent > 85 { return Theme.bad }
+        if percent > 65 { return Theme.warn }
+        return Theme.ok
     }
 
     // MARK: - Helpers

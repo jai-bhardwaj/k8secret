@@ -84,7 +84,7 @@ struct BulkImportSheet: View {
             if let error = parseError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.bad)
             }
 
             // Preview
@@ -212,7 +212,7 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "square.and.arrow.up")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Theme.ok)
                 Text("Export")
                     .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 Spacer()

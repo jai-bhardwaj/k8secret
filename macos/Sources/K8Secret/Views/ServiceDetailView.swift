@@ -162,17 +162,17 @@ struct ServiceDetailView: View {
                         mgr.openInBrowser(fwd.localURL)
                     } label: {
                         HStack(spacing: 5) {
-                            Circle().fill(.green).frame(width: 6, height: 6)
+                            Circle().fill(Theme.ok).frame(width: 6, height: 6)
                             Text(verbatim: "localhost:\(fwd.localPort)")
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.green.opacity(0.25), lineWidth: 1))
+                        .background(Theme.ok.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.ok.opacity(0.25), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Theme.ok)
 
                     Button {
                         mgr.stop(id: fwd.id)
@@ -193,10 +193,10 @@ struct ServiceDetailView: View {
                 .accessibilityLabel("Port forward starting")
             } else if existing?.status == .reconnecting {
                 HStack(spacing: 6) {
-                    Circle().fill(.orange).frame(width: 6, height: 6)
+                    Circle().fill(Theme.warn).frame(width: 6, height: 6)
                     Text("Reconnecting…")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Theme.warn)
                 }
                 .help(existing?.error ?? "The tunnel dropped and is being re-established.")
                 .accessibilityLabel("Port forward reconnecting")
@@ -218,11 +218,11 @@ struct ServiceDetailView: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.red.opacity(0.25), lineWidth: 1))
+                        .background(Theme.bad.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.bad.opacity(0.25), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.bad)
                     .accessibilityLabel("Retry port forward")
 
                     if let reason = failed.error {
@@ -250,11 +250,11 @@ struct ServiceDetailView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.blue.opacity(0.25), lineWidth: 1))
+                    .background(Theme.cpu.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.cpu.opacity(0.25), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.blue)
+                .foregroundStyle(Theme.cpu)
             }
         }
     }
@@ -344,16 +344,16 @@ struct ServiceDetailView: View {
                 .frame(minWidth: 80, maxWidth: 140, alignment: .leading)
         }
         HStack(spacing: 6) {
-            portChip("\(port.port)", color: .blue, label: "Port")
+            portChip("\(port.port)", color: Theme.cpu, label: "Port")
             Image(systemName: "arrow.right")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
-            portChip(port.targetPort, color: .green, label: "Target")
+            portChip(port.targetPort, color: Theme.ok, label: "Target")
             if let np = port.nodePort {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
-                portChip("\(np)", color: .orange, label: "Node")
+                portChip("\(np)", color: Theme.warn, label: "Node")
             }
         }
     }
@@ -404,14 +404,14 @@ struct ServiceDetailView: View {
                     if let fwd = existing { mgr.openInBrowser(fwd.localURL) }
                 } label: {
                     HStack(spacing: 4) {
-                        Circle().fill(.green).frame(width: 5, height: 5)
+                        Circle().fill(Theme.ok).frame(width: 5, height: 5)
                         Text(verbatim: ":\(existing?.localPort ?? 0)")
                             .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
-                .tint(.green)
+                .tint(Theme.ok)
                 .help("Open http://localhost:\(existing?.localPort ?? 0)")
                 .accessibilityLabel("Open forwarded port \(existing?.localPort ?? 0) in browser")
 
@@ -426,10 +426,10 @@ struct ServiceDetailView: View {
 
             case .reconnecting:
                 HStack(spacing: 4) {
-                    Circle().fill(.orange).frame(width: 5, height: 5)
+                    Circle().fill(Theme.warn).frame(width: 5, height: 5)
                     Text("reconnecting")
                         .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Theme.warn)
                 }
                 .help(existing?.error ?? "The tunnel dropped and is being re-established.")
                 .accessibilityLabel("Port forward reconnecting")
@@ -451,7 +451,7 @@ struct ServiceDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
-                .tint(.red)
+                .tint(Theme.bad)
                 .help(existing?.error ?? "Port forward failed. Click to try again.")
                 .accessibilityLabel("Port forward failed, retry")
 
@@ -484,7 +484,7 @@ struct ServiceDetailView: View {
                 ForEach(svc.selector.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                     HStack(spacing: 4) {
                         Text(key)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Theme.cpu)
                         Text("=")
                             .foregroundStyle(.tertiary)
                         Text(value)
@@ -493,7 +493,7 @@ struct ServiceDetailView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    .background(Theme.cpu.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                 }
             }
         }
@@ -562,9 +562,9 @@ struct ServiceDetailView: View {
 
     private func typeColor(_ svc: K8sService) -> Color {
         switch svc.type.lowercased() {
-        case "loadbalancer": return .purple
-        case "nodeport": return .orange
-        case "clusterip": return .blue
+        case "loadbalancer": return Theme.memory
+        case "nodeport": return Theme.warn
+        case "clusterip": return Theme.cpu
         default: return .secondary
         }
     }

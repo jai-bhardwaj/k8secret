@@ -470,19 +470,19 @@ struct DeploymentDetailView: View {
 
     private func statusColor(_ dep: K8sDeployment) -> Color {
         switch dep.status {
-        case .running: return .green
-        case .updating: return .orange
-        case .scaled: return .blue
-        case .degraded: return .red
+        case .running: return Theme.ok
+        case .updating: return Theme.warn
+        case .scaled: return Theme.cpu
+        case .degraded: return Theme.bad
         }
     }
 
     private func statusInfo(_ dep: K8sDeployment) -> (String, Color) {
         switch dep.status {
-        case .running: return ("Running", .green)
-        case .updating: return ("Updating", .orange)
-        case .scaled: return ("Scaled to 0", .blue)
-        case .degraded: return ("Degraded", .red)
+        case .running: return ("Running", Theme.ok)
+        case .updating: return ("Updating", Theme.warn)
+        case .scaled: return ("Scaled to 0", Theme.cpu)
+        case .degraded: return ("Degraded", Theme.bad)
         }
     }
 }
@@ -540,7 +540,7 @@ struct EventsSectionView: View {
     private func eventRow(_ event: K8sEvent) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: event.type == "Warning" ? "exclamationmark.triangle.fill" : "info.circle.fill")
-                .foregroundStyle(event.type == "Warning" ? .orange : .blue)
+                .foregroundStyle(event.type == "Warning" ? Theme.warn : Theme.cpu)
                 .font(.system(size: 12))
                 .padding(.top, 2)
 
@@ -551,7 +551,7 @@ struct EventsSectionView: View {
                     if event.count > 1 {
                         Text(verbatim: "×\(event.count)")
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Theme.warn)
                     }
                 }
                 Text(event.message)
@@ -570,7 +570,7 @@ struct EventsSectionView: View {
         }
         .padding(8)
         .background(
-            (event.type == "Warning" ? Color.orange : Color.blue).opacity(0.04),
+            (event.type == "Warning" ? Theme.warn : Theme.cpu).opacity(0.04),
             in: RoundedRectangle(cornerRadius: 6)
         )
     }

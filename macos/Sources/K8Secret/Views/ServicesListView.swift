@@ -147,9 +147,9 @@ struct ServiceRow: View {
 
     private var typeColor: Color {
         switch service.type.lowercased() {
-        case "loadbalancer": return .purple
-        case "nodeport": return .orange
-        case "clusterip": return .blue
+        case "loadbalancer": return Theme.memory
+        case "nodeport": return Theme.warn
+        case "clusterip": return Theme.cpu
         default: return .secondary
         }
     }

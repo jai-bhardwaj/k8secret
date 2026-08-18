@@ -158,7 +158,7 @@ struct PodRow: View {
                 Image(systemName: "checkmark.circle")
                     .font(.system(size: 9))
             }
-            .foregroundStyle(pod.readyCount == pod.totalCount && pod.totalCount > 0 ? .green : .orange)
+            .foregroundStyle(pod.readyCount == pod.totalCount && pod.totalCount > 0 ? Theme.ok : Theme.warn)
 
             if pod.restarts > 0 {
                 HStack(spacing: 3) {
@@ -166,7 +166,7 @@ struct PodRow: View {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 9))
                 }
-                .foregroundStyle(pod.restarts > 5 ? .red : .orange)
+                .foregroundStyle(pod.restarts > 5 ? Theme.bad : Theme.warn)
             }
 
             if pod.containers.count > 1 {
