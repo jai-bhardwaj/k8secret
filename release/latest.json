@@ -1,8 +1,8 @@
 {
-  "version": "0.6.15",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.15/K8Secret-0.6.15.dmg",
-  "notes": "K8Secret 0.6.15 — no more keychain password prompt.\n\nIf K8Secret asked you for a keychain password, this release stops it, and you can say no to any prompt you have already been given.\n\nTo present a client certificate to your cluster, macOS has to turn the certificate and key from your kubeconfig into something it can use for a handshake. The function that does this stores the result in your login keychain by default — which K8Secret was letting it do. Because K8Secret is signed without an Apple Developer account, every release carries a different signature, so macOS treated each update as a new application reaching for something the previous one had stored, and asked you to authorise it.\n\nNothing is stored now. The certificate is used for the handshake and exists only for as long as the app is running. On macOS 15 and later this is what the system provides for exactly this purpose; on macOS 14, which has no equivalent, K8Secret removes the item immediately after use.\n\nIf earlier versions left certificates in your keychain, you can remove them in Keychain Access — look for your cluster user's name, such as 'masterclient' or 'system:admin'.",
+  "version": "0.6.16",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.16/K8Secret-0.6.16.dmg",
+  "notes": "K8Secret 0.6.16 — events that appear, logs that read like logs.\n\nThe Events tab showed nothing on most real clusters. It was asking every namespace separately and letting any one of them fail the lot, so a single namespace your account cannot read emptied the entire feed. It now asks the cluster once, and where it has to ask namespace by namespace, one refusal costs only its own events.\n\nLogs open showing your container's output instead of a button that offers to fetch it, fill the pane rather than a small box, and carry the filter and Follow controls the design always had. Timestamps step back, lines reporting a failure stand out, and Follow keeps re-reading the tail — which is what you want pointed at a container that keeps restarting.\n\nYAML is now laid out as the manifest it is: its own panel, with keys and quoted values coloured so structure is scannable instead of a wall of one colour.",
   "minOS": "14.0",
   "date": "2026-08-18",
-  "sha256": "a80257b2de95d0d6ab84be0974c68656fbaac324f07da4b5a42189fcb06768be"
+  "sha256": "a8627c402454301a360e404abdcf7e9ae6eec25e64c7bce3838a364bf993132b"
 }
