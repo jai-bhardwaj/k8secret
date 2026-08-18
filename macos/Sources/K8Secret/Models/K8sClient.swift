@@ -2046,6 +2046,35 @@ actor K8sClient {
         // value); a large explicit interval is.
         sessionConfig.timeoutIntervalForResource = 86_400
 
+        // Cap at TLS 1.2 when this cluster authenticates with a client
+        // certificate, because URLSession cannot present one over TLS 1.3 here.
+        //
+        // In TLS 1.2 the server asks for the certificate during the handshake and
+        // URLSession turns that into an NSURLAuthenticationMethodClientCertificate
+        // challenge we answer. TLS 1.3 moved that request after the handshake —
+        // and some API server front ends, AKS among them, send nothing during it
+        // at all. Probing one directly shows the difference plainly: at TLS 1.2 it
+        // offers "Acceptable client certificate CA names", at TLS 1.3 it offers
+        // none. URLSession never raises a challenge, we never send the
+        // certificate we were holding, and the server closes an unauthenticated
+        // connection — surfacing as "a TLS error caused the secure connection to
+        // fail", which sounds like the cluster's fault and is not.
+        //
+        // It also explains why this depended on the machine: whether 1.3 is
+        // negotiated is a property of the OS, so the same kubeconfig connects on
+        // one Mac and fails on the next. kubectl is unaffected because Go's TLS
+        // stack implements post-handshake auth.
+        //
+        // Scoped to client-certificate clusters: token and exec clusters keep
+        // TLS 1.3. The cost is small — 1.2 here negotiates ECDHE with AES-GCM,
+        // so forward secrecy and an AEAD cipher either way — and the alternative
+        // is not connecting at all.
+        if user.clientCertificateData != nil, user.clientKeyData != nil {
+            sessionConfig.tlsMaximumSupportedProtocolVersion = .TLSv12
+            k8sTrace("session: capped at TLS 1.2 — this cluster uses a client certificate, "
+                     + "and URLSession cannot present one over TLS 1.3")
+        }
+
         return URLSession(configuration: sessionConfig, delegate: delegate, delegateQueue: nil)
     }
 

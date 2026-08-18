@@ -151,6 +151,23 @@ final class TLSIntegrationTests: XCTestCase {
         }
     }
 
+    /// TLS 1.3 moved the client-certificate request to after the handshake, and
+    /// URLSession does not do post-handshake auth — so against a server that
+    /// requests nothing during the handshake (AKS's front end behaves exactly
+    /// this way; at TLS 1.2 it offers acceptable CA names, at TLS 1.3 it offers
+    /// none) we are never asked, never send the certificate we are holding, and
+    /// the server closes an unauthenticated connection.
+    ///
+    /// Capping at 1.2 for client-certificate clusters is what keeps the request
+    /// inside the handshake, where URLSession surfaces it. Whether 1.3 gets
+    /// negotiated is a property of the OS, which is why the same kubeconfig
+    /// worked on one Mac and not the next.
+    func testAClientCertificateClusterStillCompletesItsHandshake() async throws {
+        try useKubeconfig(caFile: "ca.crt")
+        let context = try await K8sClient().connect()
+        XCTAssertEqual(context, "test", "capping the TLS version must not break connecting")
+    }
+
     func testConnectsWhenTheCertificateChainsToTheConfiguredCA() async throws {
         try useKubeconfig(caFile: "ca.crt")
 
