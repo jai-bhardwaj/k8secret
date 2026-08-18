@@ -2155,6 +2155,12 @@ actor K8sClient {
         // above. The cap is a hypothesis about why a client certificate is never
         // requested, and a hypothesis that cannot be turned off is untestable on
         // the one machine that reproduces the problem.
+        // No explicit TLS floor. Setting one to 1.2 alongside the 1.2 ceiling
+        // below collapsed the range and broke the handshake outright
+        // (errSSLPeerHandshakeFail on a cluster that had been connecting), and
+        // it buys nothing: macOS has refused TLS 1.0 and 1.1 by default for
+        // years, with or without ATS.
+
         let capOverride = ProcessInfo.processInfo.environment["K8SECRET_TLS_MAX"]
         let usesClientCert = user.clientCertificateData != nil && user.clientKeyData != nil
         switch capOverride {

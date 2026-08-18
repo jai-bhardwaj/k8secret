@@ -28,12 +28,34 @@
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
-    <!-- ATS stays on for the public internet: API servers and the update host are
-         HTTPS. Local networking is exempted so `kubectl proxy` and local clusters
-         (minikube, kind, Rancher Desktop) on http://localhost still work. -->
+    <!-- App Transport Security is turned off, and the reason is specific.
+
+         ATS applies Apple's rules for *public web* certificates to every
+         connection. One of them caps a TLS server certificate's validity at 398
+         days. Kubernetes cluster certificates routinely run far longer — AKS
+         issues its API server a 731-day certificate — so ATS rejects them, and
+         it does so after our own delegate has already verified the chain and
+         approved it. What the user sees is a handshake that dies with "a TLS
+         error caused the secure connection to fail" while kubectl, whose TLS
+         stack has no such rule, talks to the same cluster perfectly well. It is
+         also why this depended on the machine: macOS 26 enforces this where
+         macOS 14 did not.
+
+         Verification is not being given up, it is being done by K8sTLSDelegate,
+         which is stricter than ATS in the ways that matter here. It pins the
+         chain to the certificate-authority-data in the kubeconfig via
+         SecTrustSetAnchorCertificatesOnly, so system roots cannot vouch for a
+         cluster; it keeps hostname verification on with an explicit SSL policy;
+         it refuses the connection outright if a configured CA cannot be parsed,
+         rather than falling back; and insecure-skip-tls-verify only relaxes
+         anything when the user has written it in their own kubeconfig. The TLS
+         floor ATS would have enforced is set on the session directly.
+
+         The narrower NSExceptionDomains cannot be used: the domains are the
+         user's clusters, and they are not known when this file is written. -->
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsLocalNetworking</key>
+        <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
     <key>NSHumanReadableCopyright</key>
