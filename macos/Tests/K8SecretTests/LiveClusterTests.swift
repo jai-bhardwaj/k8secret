@@ -11,7 +11,7 @@ import Security
 /// Skipped unless `K8SECRET_LIVE=1`. Expects a cluster reachable from the
 /// current kubeconfig with a `payments` namespace containing a `app-config`
 /// secret and an `api` deployment. See scripts/live-cluster.sh.
-final class LiveClusterTests: PromptFreeTestCase {
+final class LiveClusterTests: XCTestCase {
 
     private let namespace = "payments"
 
@@ -41,40 +41,26 @@ final class LiveClusterTests: PromptFreeTestCase {
         XCTAssertTrue(version.hasPrefix("v1."), "unexpected server version: \(version)")
     }
 
-    /// The prompt users reported: the machine sleeps, macOS locks the transient
-    /// keychain (`SecKeychainCreate` sets `lockOnSleep` and it cannot be turned
-    /// off), and the next handshake reaches for a private key behind a lock whose
-    /// password only ever existed in this process's memory — so macOS asks the
-    /// user for something they cannot know.
+    /// The prompt users reported came from the transient keychain: the machine
+    /// slept, macOS locked it, and the next handshake reached for a private key
+    /// behind a lock whose password only ever existed in this process's memory.
     ///
-    /// A unit test can prove `ensureUnlocked()` unlocks. Only this can prove the
-    /// real path does: a genuine client-certificate handshake against a live
-    /// cluster, made while the keychain is locked. Sleep is simulated with an
-    /// explicit lock, which is the same state it leaves behind.
-    func testAHandshakeAfterTheKeychainLocksDoesNotNeedTheUser() async throws {
+    /// There is no keychain now — the identity is imported straight into the
+    /// process — so that lock cannot happen. What still has to hold is the part
+    /// that mattered: a second, fresh client can complete its own
+    /// client-certificate handshake without asking the user for anything.
+    func testASecondClientCanHandshakeWithoutTheUser() async throws {
         let client = try await connected()
         _ = try await client.getServerVersion()
 
-        let keychain = try XCTUnwrap(TransientKeychain.shared.get(),
-                                     "client-cert auth should have created the transient keychain")
-        XCTAssertEqual(SecKeychainLock(keychain), errSecSuccess, "what sleep does to us")
-
-        var locked = SecKeychainStatus()
-        XCTAssertEqual(SecKeychainGetStatus(keychain, &locked), errSecSuccess)
-        XCTAssertEqual(locked & UInt32(kSecUnlockStateStatus), 0, "precondition: locked")
-
-        // A fresh client means a fresh URLSession, so this cannot be served by a
-        // pooled connection — it forces the handshake that sleep would force.
-        let afterSleep = K8sClient()
-        _ = try await afterSleep.connect()
-        let version = try await afterSleep.getServerVersion()
+        // A fresh client means a fresh URLSession and a fresh delegate, so this
+        // cannot be served by a pooled connection: it forces a real handshake,
+        // and a new identity to be built for it.
+        let second = K8sClient()
+        _ = try await second.connect()
+        let version = try await second.getServerVersion()
         XCTAssertTrue(version.hasPrefix("v1."),
                       "the handshake must succeed without a password prompt")
-
-        var after = SecKeychainStatus()
-        XCTAssertEqual(SecKeychainGetStatus(keychain, &after), errSecSuccess)
-        XCTAssertNotEqual(after & UInt32(kSecUnlockStateStatus), 0,
-                          "the identity path must leave the keychain usable, not locked")
     }
 
     func testListsRealNamespaces() async throws {

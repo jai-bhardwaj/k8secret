@@ -10,7 +10,7 @@ import XCTest
 /// Skipped unless `K8SECRET_TLS_LAB` points at a directory containing `ca.crt`
 /// and `other.crt`, with a TLS server on `K8SECRET_TLS_PORT` presenting a
 /// certificate signed by `ca.crt`. See `scripts/tls-lab.sh`.
-final class TLSIntegrationTests: PromptFreeTestCase {
+final class TLSIntegrationTests: XCTestCase {
 
     private var lab: URL!
     private var port: String!

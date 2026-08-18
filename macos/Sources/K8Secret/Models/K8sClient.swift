@@ -1598,6 +1598,21 @@ actor K8sClient {
                 k8sTrace("  underlying domain=\(underlying.domain) code=\(underlying.code) "
                          + "desc=\(underlying.localizedDescription)")
             }
+            // A handshake failure right after we failed to build a client identity
+            // is not the server's fault, and "a secure connection cannot be made"
+            // sends people to look at the cluster. We know we presented nothing;
+            // say so, and name the step that actually broke.
+            if ns.domain == NSURLErrorDomain,
+               ns.code == NSURLErrorSecureConnectionFailed,
+               let tlsDelegate = session.delegate as? K8sTLSDelegate,
+               tlsDelegate.clientCertificateUnavailable {
+                throw K8sError.networkError(
+                    "Couldn't present this cluster's client certificate, so the server closed "
+                    + "the connection. The certificate and key in your kubeconfig were read, but "
+                    + "macOS wouldn't build an identity from them. Re-run with K8SECRET_TLS_DEBUG=1 "
+                    + "for the exact step that failed."
+                )
+            }
             throw K8sError.networkError(error.localizedDescription)
         }
     }
@@ -2190,23 +2205,20 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
 
     /// Build a client-certificate identity without ever prompting the user.
     ///
-    /// macOS forms a `SecIdentity` only from a keychain-resident key, so a keychain
-    /// is unavoidable — but it is a throwaway created for this process, never the
-    /// login keychain, and it is deleted on quit (see `TransientKeychain`).
+    /// This used to import into a throwaway file-based keychain, because macOS
+    /// was believed to form a `SecIdentity` only from a keychain-resident key.
+    /// That has not been true for years: `SecPKCS12Import` with no destination
+    /// keychain returns an identity whose key lives only in this process, and it
+    /// signs a handshake exactly as well — verified against a server that
+    /// *requires* a client certificate.
     ///
-    /// The route matters. `SecItemAdd` of a `SecKeyCreateWithData` key into a
-    /// file-based keychain now fails with `errSecParam` — the approach v0.3.4 used,
-    /// which stopped working on a later macOS — and `SecIdentityCreateWithCertificate`
-    /// wanders into the login keychain and prompts when it finds nothing. What does
-    /// work is importing a PKCS#12 with the destination keychain named explicitly:
-    /// it returns the identity directly, with no prompt and nothing left behind.
+    /// Dropping the keychain removes the only deprecated API left in the app and,
+    /// more usefully, an entire class of bug: that keychain locked itself when the
+    /// Mac slept, and using a key from a locked keychain is what made macOS ask
+    /// for a password nobody could answer — it was randomly generated and held in
+    /// memory. There is now no keychain to lock, nothing written to disk, and
+    /// nothing to clean up on quit.
     private func createIdentity(certPEM: Data, keyPEM: Data) -> SecIdentity? {
-        // Before the cache check, not after: the identity is cached for the life of
-        // the process but its keychain locks itself on sleep, and using the private
-        // key from a locked keychain is what makes macOS prompt. This runs on every
-        // handshake because that is where the key is about to be used.
-        TransientKeychain.shared.ensureUnlocked()
-
         identityLock.lock()
         let cached = cachedIdentity
         identityLock.unlock()
@@ -2215,44 +2227,36 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             return cached
         }
 
-        let keychainRef = TransientKeychain.shared.get()
-        k8sTrace("    createIdentity: TransientKeychain.get() -> "
-                 + (keychainRef == nil ? "nil (SecKeychainCreate failed)" : "ok"))
-
-        let bundleRef = Self.buildPKCS12(certPEM: certPEM, keyPEM: keyPEM)
-        k8sTrace("    createIdentity: buildPKCS12 -> "
-                 + (bundleRef == nil ? "nil (openssl failed)" : "\(bundleRef!.data.count) bytes"))
-
-        guard let keychain = keychainRef, let bundle = bundleRef else {
+        func unavailable() -> SecIdentity? {
             identityLock.lock()
             _clientCertificateUnavailable = true
             identityLock.unlock()
             return nil
         }
 
-        var options: [String: Any] = [
-            kSecImportExportPassphrase as String: bundle.passphrase,
-            kSecImportExportKeychain as String: keychain,
-        ]
-        // Grant "any application" so macOS never challenges for the keychain
-        // password. Safe because this keychain is process-private, randomly named
-        // and keyed, absent from the search list, and deleted on quit.
-        if let access = TransientKeychain.shared.promptlessAccess(label: "K8Secret client certificate") {
-            options[kSecImportExportAccess as String] = access
+        guard let bundle = Self.buildPKCS12(certPEM: certPEM, keyPEM: keyPEM) else {
+            k8sTrace("    createIdentity: buildPKCS12 -> nil (openssl failed)")
+            return unavailable()
         }
+        k8sTrace("    createIdentity: buildPKCS12 -> \(bundle.data.count) bytes")
 
         var items: CFArray?
-        let importStatus = SecPKCS12Import(bundle.data as CFData, options as CFDictionary, &items)
+        let importStatus = SecPKCS12Import(
+            bundle.data as CFData,
+            [kSecImportExportPassphrase as String: bundle.passphrase] as CFDictionary,
+            &items
+        )
         k8sTrace("    createIdentity: SecPKCS12Import -> \(k8sStatusText(importStatus))")
 
         guard importStatus == errSecSuccess,
               let entries = items as? [[String: Any]],
               let identityRef = entries.first?[kSecImportItemIdentity as String] else {
+            // errSecPkcs12VerifyFailure (-25264) here says "wrong password?", which
+            // is misleading: the passphrase was generated moments ago and used
+            // once. It means Security would not read the bundle's encryption —
+            // see buildPKCS12, which pins the algorithms it accepts.
             k8sTrace("    createIdentity: no identity in imported bundle")
-            identityLock.lock()
-            _clientCertificateUnavailable = true
-            identityLock.unlock()
-            return nil
+            return unavailable()
         }
 
         let identity = identityRef as! SecIdentity
@@ -2269,7 +2273,10 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     /// in a private `0700` directory with `0600` files, the passphrase is random and
     /// single-use, and it is passed through the environment rather than argv —
     /// argv is world-readable via `ps`.
-    private static func buildPKCS12(certPEM: Data, keyPEM: Data) -> (data: Data, passphrase: String)? {
+    /// Internal rather than private so a test can hold it to its contract:
+    /// whatever openssl this machine ships, the bundle must be one that
+    /// Security.framework will import.
+    static func buildPKCS12(certPEM: Data, keyPEM: Data) -> (data: Data, passphrase: String)? {
         let staging = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("k8secret-identity-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: staging) }
@@ -2296,20 +2303,58 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
             return nil
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
-        process.arguments = ["pkcs12", "-export", "-out", p12Path,
-                             "-inkey", keyPath, "-in", certPath,
-                             "-passout", "env:K8SECRET_P12_PASS"]
-        process.environment = ["K8SECRET_P12_PASS": passphrase]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        process.waitUntilExit()
+        // Pin the PKCS#12 algorithms rather than taking openssl's defaults.
+        //
+        // Security.framework only imports the legacy PKCS#12 encryption. Apple's
+        // LibreSSL still defaults to it, so this worked — but the default is a
+        // property of whichever openssl the machine happens to ship, not of
+        // anything we control. OpenSSL 3.x defaults to AES-256-CBC with a SHA-256
+        // MAC, and `SecPKCS12Import` rejects that with errSecPkcs12VerifyFailure
+        // (-25264), whose message claims a wrong password. The identity then can't
+        // be built, no client certificate is presented, and the server drops the
+        // handshake — which surfaces as "a secure connection cannot be made", three
+        // steps removed from the actual cause.
+        //
+        // 3DES for both bags with a SHA-1 MAC is what Security accepts, and unlike
+        // the RC2 that openssl otherwise picks for certificates it doesn't need
+        // OpenSSL 3.x's legacy provider.
+        let pinned = ["-certpbe", "PBE-SHA1-3DES", "-keypbe", "PBE-SHA1-3DES", "-macalg", "sha1"]
 
-        guard process.terminationStatus == 0,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: p12Path)) else { return nil }
-        return (data, passphrase)
+        func export(_ extraArguments: [String]) -> Data? {
+            try? FileManager.default.removeItem(atPath: p12Path)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+            process.arguments = ["pkcs12", "-export", "-out", p12Path,
+                                 "-inkey", keyPath, "-in", certPath,
+                                 "-passout", "env:K8SECRET_P12_PASS"] + extraArguments
+            process.environment = ["K8SECRET_P12_PASS": passphrase]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            do { try process.run() } catch {
+                k8sTrace("    buildPKCS12: could not run /usr/bin/openssl — \(error.localizedDescription)")
+                return nil
+            }
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                k8sTrace("    buildPKCS12: openssl exited \(process.terminationStatus) "
+                         + "for arguments \(extraArguments.isEmpty ? "<defaults>" : extraArguments.joined(separator: " "))")
+                return nil
+            }
+            return try? Data(contentsOf: URL(fileURLWithPath: p12Path))
+        }
+
+        if let data = export(pinned) {
+            k8sTrace("    buildPKCS12: exported with pinned legacy algorithms")
+            return (data, passphrase)
+        }
+        // An openssl that rejects those flags is not one we know of, but falling
+        // back to its defaults is strictly better than failing outright: on a
+        // machine whose defaults Security accepts, this still connects.
+        if let data = export([]) {
+            k8sTrace("    buildPKCS12: pinned flags rejected; exported with openssl defaults")
+            return (data, passphrase)
+        }
+        return nil
     }
 
     /// Each PEM block decoded to its own DER blob, preserving order.

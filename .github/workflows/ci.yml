@@ -40,26 +40,13 @@ jobs:
       # Warnings in this codebase have twice hidden real concurrency bugs, so any
       # new one fails the build.
       #
-      # A blanket -warnings-as-errors can't be used: TempKeychain has to call the
-      # SecKeychain API, which Apple deprecated in 10.10 and never replaced for
-      # file-based keychains — and SecIdentityCreateWithCertificate requires a
-      # keychain-resident key. Those four call sites are allowlisted explicitly
-      # rather than silenced globally, so everything else still fails.
-      - name: Build (no new warnings)
-        run: |
-          set -o pipefail
-          swift build -c debug 2>&1 | tee /tmp/build.log
-
-          UNEXPECTED=$(grep "warning:" /tmp/build.log \
-            | grep -v "SecKeychain is deprecated" \
-            || true)
-
-          if [[ -n "$UNEXPECTED" ]]; then
-            echo "::error::build produced unexpected warnings:"
-            echo "$UNEXPECTED"
-            exit 1
-          fi
-          echo "✓ no warnings outside the documented SecKeychain allowlist"
+      # This used to allowlist the deprecated SecKeychain API, because building a
+      # client-certificate identity was thought to need a file-based keychain.
+      # It doesn't — `SecPKCS12Import` with no destination keychain returns an
+      # identity that signs a handshake — so there is nothing left to exempt and
+      # the compiler can enforce this directly.
+      - name: Build (warnings are errors)
+        run: swift build -c debug -Xswiftc -warnings-as-errors
 
       - name: Test
         run: swift test
