@@ -1574,7 +1574,14 @@ actor K8sClient {
             // Pass the delegate explicitly: the async `data(for:)` form does not
             // route task-level callbacks — metrics among them — to the session
             // delegate, so the negotiated TLS version was never recorded.
-            let (data, response) = try await session.data(for: req)
+            // The delegate is passed explicitly as the task delegate too. The
+            // async form does not reliably route task-level callbacks to the
+            // session delegate — that is how the client-certificate challenge
+            // went missing in the first place — and naming it here does not
+            // depend on which way a given system happens to fall back.
+            let (data, response) = try await session.data(
+                for: req,
+                delegate: session.delegate as? URLSessionTaskDelegate)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 // A 401 right after we failed to build a client identity is not a
                 // credentials problem the user can fix by re-reading their token —
@@ -2303,9 +2310,43 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
         }
     }
 
+    /// The task-level challenge. This is where client certificates arrive.
+    ///
+    /// URLSession splits authentication in two. Connection-level challenges —
+    /// server trust among them — go to the session delegate. Everything else,
+    /// **client certificates included**, is delivered to the *task* delegate,
+    /// and only falls back to the session delegate on some systems. macOS 14
+    /// falls back; macOS 26 does not.
+    ///
+    /// With only the session method implemented, the effect on the newer system
+    /// was total and silent: the server asked for a certificate, nothing
+    /// answered, no certificate was sent, and the API server closed the
+    /// connection. The trace showed a server-trust challenge, a completed TLS
+    /// 1.2 handshake, and then failure with NSErrorClientCertificateStateKey=0
+    /// — none sent — and not one client-certificate challenge anywhere in it.
+    ///
+    /// Both methods route to the same handler, so behaviour is identical
+    /// wherever the challenge happens to be delivered.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        k8sTrace("task-level challenge arrived")
+        handle(challenge: challenge, completionHandler: completionHandler)
+    }
+
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        handle(challenge: challenge, completionHandler: completionHandler)
+    }
+
+    private func handle(
+        challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
         let protection = challenge.protectionSpace
