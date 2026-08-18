@@ -39,11 +39,15 @@ final class TLSIntegrationTests: XCTestCase {
     }
 
     /// Write a kubeconfig pointing at the test server and make it the active one.
-    private func useKubeconfig(caFile: String?, insecure: Bool = false) throws {
+    private func useKubeconfig(caFile: String?, insecure: Bool = false,
+                               caPath: String? = nil) throws {
         var clusterLines = ["    server: https://localhost:\(port!)"]
         if let caFile {
             let data = try Data(contentsOf: lab.appendingPathComponent(caFile))
             clusterLines.append("    certificate-authority-data: \(data.base64EncodedString())")
+        }
+        if let caPath {
+            clusterLines.append("    certificate-authority: \(caPath)")
         }
         if insecure {
             clusterLines.append("    insecure-skip-tls-verify: true")
@@ -115,6 +119,35 @@ final class TLSIntegrationTests: XCTestCase {
                           "the error should point at the setting to check, got: \(message)")
             XCTAssertFalse(message == "A TLS error caused the secure connection to fail.",
                            "the raw URLSession message blames the server")
+        }
+    }
+
+    /// A CA that is configured but unreadable must not quietly become "no CA".
+    ///
+    /// `certificate-authority` names a file, and a file is a property of the
+    /// machine — so a kubeconfig copied between Macs, or one written by a tool
+    /// whose certificates have since been cleaned up, resolves to nothing here
+    /// and to something there. The loader returned nil in that case, which is
+    /// indistinguishable from a cluster that configured no CA at all, so the app
+    /// fell back to the system trust store and the connection died as a bare TLS
+    /// error naming neither the file nor the fact that it was missing.
+    ///
+    /// It is also the one direction that is unsafe: elsewhere this code refuses
+    /// to fall back to system roots when a configured CA cannot be parsed,
+    /// precisely so it never trusts a certificate the user did not ask for.
+    func testAMissingCAFileIsReportedRatherThanIgnored() async throws {
+        let missing = tempDir.appendingPathComponent("no-such-ca.crt").path
+        try useKubeconfig(caFile: nil, caPath: missing)
+
+        do {
+            _ = try await K8sClient().connect()
+            XCTFail("connected while the configured CA file was missing")
+        } catch {
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("no-such-ca.crt"),
+                          "the error must name the file it could not read, got: \(message)")
+            XCTAssertTrue(message.lowercased().contains("certificate-authority"),
+                          "the error must name the setting, got: \(message)")
         }
     }
 

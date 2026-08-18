@@ -130,12 +130,28 @@ struct KubeConfig {
     /// minikube, kind and `kubeadm` all write the file-path form by default, so
     /// supporting only `-data` keys meant those configs silently produced a client
     /// with no CA and no client certificate.
+    /// A credential given either inline or as a file.
+    ///
+    /// Throws when the file is named but cannot be read, rather than returning
+    /// nil. Those two outcomes are not the same thing and treating them alike is
+    /// what made this class of failure so hard to place: a path is a property of
+    /// the machine, so a kubeconfig copied between Macs — or written by a tool
+    /// whose certificates were later cleaned up — resolves on one and not the
+    /// other. Silently, the cluster then looked like it had configured no CA and
+    /// no client certificate at all, and the connection failed several layers
+    /// later as a TLS error that named neither the file nor the setting.
+    ///
+    /// Reporting it is also the safe direction. This app deliberately refuses to
+    /// fall back to the system trust store when a configured CA cannot be
+    /// parsed, so that it never trusts a certificate the user did not ask for;
+    /// returning nil here walked around that guarantee.
     private static func credential(
         _ map: [String: YAMLValue],
         dataKey: String,
         fileKey: String,
-        configPath: String
-    ) -> Data? {
+        configPath: String,
+        context: String
+    ) throws -> Data? {
         if let encoded = map[dataKey]?.stringValue, let decoded = Data(base64Encoded: encoded) {
             return decoded
         }
@@ -147,7 +163,18 @@ struct KubeConfig {
             let dir = (configPath as NSString).deletingLastPathComponent
             path = (dir as NSString).appendingPathComponent(path)
         }
-        return FileManager.default.contents(atPath: path)
+
+        guard let data = FileManager.default.contents(atPath: path) else {
+            let exists = FileManager.default.fileExists(atPath: path)
+            throw K8sError.configParse(
+                "\(context) sets \(fileKey): \(rawPath), but that file "
+                + (exists ? "could not be read — check its permissions."
+                          : "does not exist at \(path).")
+                + " Kubeconfig paths point at this machine, so a config copied from "
+                + "another one will name files that aren't here."
+            )
+        }
+        return data
     }
 
     private static func parse(_ yaml: YAMLValue, relativeTo configPath: String) throws -> KubeConfig {
@@ -157,23 +184,25 @@ struct KubeConfig {
 
         let currentCtx = root["current-context"]?.stringValue ?? ""
 
-        let clusters: [ClusterEntry] = root["clusters"]?.sequenceValue?.compactMap { item in
+        var clusters: [ClusterEntry] = []
+        for item in root["clusters"]?.sequenceValue ?? [] {
             guard let m = item.mapValue,
                   let name = m["name"]?.stringValue,
                   let cluster = m["cluster"]?.mapValue,
-                  let server = cluster["server"]?.stringValue else { return nil }
-            return ClusterEntry(
+                  let server = cluster["server"]?.stringValue else { continue }
+            clusters.append(ClusterEntry(
                 name: name,
                 server: server,
-                certificateAuthorityData: credential(
+                certificateAuthorityData: try credential(
                     cluster,
                     dataKey: "certificate-authority-data",
                     fileKey: "certificate-authority",
-                    configPath: configPath
+                    configPath: configPath,
+                    context: "Cluster \"\(name)\""
                 ),
                 insecureSkipTLSVerify: cluster["insecure-skip-tls-verify"]?.boolValue ?? false
-            )
-        } ?? []
+            ))
+        }
 
         let contexts: [ContextEntry] = root["contexts"]?.sequenceValue?.compactMap { item in
             guard let m = item.mapValue,
@@ -189,10 +218,11 @@ struct KubeConfig {
             )
         } ?? []
 
-        let users: [UserEntry] = root["users"]?.sequenceValue?.compactMap { item in
+        var users: [UserEntry] = []
+        for item in root["users"]?.sequenceValue ?? [] {
             guard let m = item.mapValue,
                   let name = m["name"]?.stringValue,
-                  let user = m["user"]?.mapValue else { return nil }
+                  let user = m["user"]?.mapValue else { continue }
 
             var exec: ExecConfig?
             if let execMap = user["exec"]?.mapValue {
@@ -222,30 +252,43 @@ struct KubeConfig {
             var token = user["token"]?.stringValue
             if token == nil, let tokenFile = user["tokenFile"]?.stringValue, !tokenFile.isEmpty {
                 let path = expandTilde(tokenFile)
-                token = (try? String(contentsOfFile: path, encoding: .utf8))?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                // Same rule as the certificate files: named but unreadable is an
+                // error, not an absence. Swallowing it produced a 401 that looked
+                // like the user's credentials had been rejected, when in fact none
+                // were ever sent.
+                guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+                    throw K8sError.configParse(
+                        "User \"\(name)\" sets tokenFile: \(tokenFile), but that file "
+                        + (FileManager.default.fileExists(atPath: path)
+                           ? "could not be read — check its permissions."
+                           : "does not exist at \(path).")
+                    )
+                }
+                token = contents.trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            return UserEntry(
+            users.append(UserEntry(
                 name: name,
                 token: token,
-                clientCertificateData: credential(
+                clientCertificateData: try credential(
                     user,
                     dataKey: "client-certificate-data",
                     fileKey: "client-certificate",
-                    configPath: configPath
+                    configPath: configPath,
+                    context: "User \"\(name)\""
                 ),
-                clientKeyData: credential(
+                clientKeyData: try credential(
                     user,
                     dataKey: "client-key-data",
                     fileKey: "client-key",
-                    configPath: configPath
+                    configPath: configPath,
+                    context: "User \"\(name)\""
                 ),
                 exec: exec,
                 username: user["username"]?.stringValue,
                 password: user["password"]?.stringValue
-            )
-        } ?? []
+            ))
+        }
 
         // An empty parse almost always means the YAML shape wasn't understood.
         // Reporting that beats the downstream "No current-context set", which sent

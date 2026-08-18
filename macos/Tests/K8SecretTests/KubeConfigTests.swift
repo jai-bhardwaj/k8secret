@@ -30,6 +30,120 @@ final class KubeConfigTests: XCTestCase {
         return try KubeConfig.load()
     }
 
+    // MARK: - Credential files that aren't there
+
+    /// A kubeconfig names files, and files belong to a machine. Copy a config
+    /// between Macs — or let a tool clean up the certificates it wrote — and the
+    /// paths resolve on one and not the other.
+    ///
+    /// These used to resolve to nil, which is exactly what a cluster with no CA
+    /// and no client certificate looks like. The app then connected with no
+    /// credentials and failed several layers down as a TLS error naming neither
+    /// the file nor the setting, which is unplaceable: the cluster is fine, the
+    /// certificate is fine, and the message talks about neither.
+    func testAMissingCertificateAuthorityFileIsNamed() throws {
+        let path = try write("ca-missing.yaml", """
+        apiVersion: v1
+        kind: Config
+        current-context: c
+        clusters:
+        - cluster:
+            server: https://example.invalid:6443
+            certificate-authority: /definitely/not/here/ca.crt
+          name: cl
+        contexts:
+        - context: {cluster: cl, user: u}
+          name: c
+        users:
+        - name: u
+          user: {token: t}
+        """)
+
+        XCTAssertThrowsError(try load([path])) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("/definitely/not/here/ca.crt"), message)
+            XCTAssertTrue(message.contains("certificate-authority"), message)
+            XCTAssertTrue(message.contains("cl"), "name the cluster: \(message)")
+        }
+    }
+
+    /// The client-certificate case is the one that produced a bare TLS error:
+    /// with no identity to present, the API server simply closes the handshake.
+    func testAMissingClientCertificateFileIsNamed() throws {
+        let path = try write("cert-missing.yaml", """
+        apiVersion: v1
+        kind: Config
+        current-context: c
+        clusters:
+        - cluster: {server: https://example.invalid:6443}
+          name: cl
+        contexts:
+        - context: {cluster: cl, user: u}
+          name: c
+        users:
+        - name: u
+          user:
+            client-certificate: /gone/client.crt
+            client-key: /gone/client.key
+        """)
+
+        XCTAssertThrowsError(try load([path])) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("/gone/client.crt"), message)
+            XCTAssertTrue(message.contains("client-certificate"), message)
+            XCTAssertTrue(message.contains("u"), "name the user: \(message)")
+        }
+    }
+
+    /// A token file that isn't there sent no credentials at all, and the 401 that
+    /// came back read as "your token was rejected".
+    func testAMissingTokenFileIsNamed() throws {
+        let path = try write("token-missing.yaml", """
+        apiVersion: v1
+        kind: Config
+        current-context: c
+        clusters:
+        - cluster: {server: https://example.invalid:6443}
+          name: cl
+        contexts:
+        - context: {cluster: cl, user: u}
+          name: c
+        users:
+        - name: u
+          user:
+            tokenFile: /gone/token
+        """)
+
+        XCTAssertThrowsError(try load([path])) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("/gone/token"), message)
+            XCTAssertTrue(message.contains("tokenFile"), message)
+        }
+    }
+
+    /// Inline data must keep working untouched — it is what most kubeconfigs use.
+    func testInlineDataIsUnaffected() throws {
+        let path = try write("inline.yaml", """
+        apiVersion: v1
+        kind: Config
+        current-context: c
+        clusters:
+        - cluster:
+            server: https://example.invalid:6443
+            certificate-authority-data: \(Data("not-a-real-ca".utf8).base64EncodedString())
+          name: cl
+        contexts:
+        - context: {cluster: cl, user: u}
+          name: c
+        users:
+        - name: u
+          user: {token: t}
+        """)
+
+        let config = try load([path])
+        XCTAssertEqual(config.clusters.first?.certificateAuthorityData, Data("not-a-real-ca".utf8))
+    }
+
     // MARK: - KUBECONFIG merging
 
     func testMergesAllFilesInKubeconfigList() throws {
