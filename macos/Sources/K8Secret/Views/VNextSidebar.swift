@@ -353,6 +353,11 @@ struct VNextSidebar: View {
                 }
                 .padding(.horizontal, collapsed ? 0 : 10)
                 .padding(.top, collapsed ? 14 : 6)
+                // Room to scroll clear of the port-forwards foot. Without it the
+                // last item — Events — is bisected by the foot's hairline and
+                // cannot be scrolled past, which reads as a rendering fault
+                // rather than a list that has run out of room.
+                .padding(.bottom, 10)
                 .frame(maxWidth: .infinity)
             }
             Spacer(minLength: 0)

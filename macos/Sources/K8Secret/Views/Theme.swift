@@ -126,18 +126,21 @@ enum Theme {
 
     // MARK: - Metric hues (data kinds, not states)
 
-    static let cpu = dynamic(light: 0x2B6FD8, dark: 0x6AA6FF)
-    static let memory = dynamic(light: 0x7C5CE0, dark: 0xA78BFA)
+    static let cpu = dynamic(light: 0x14458F, dark: 0x93C0FF)
+    static let memory = dynamic(light: 0x4A2E9E, dark: 0xC3B0FF)
 
     // MARK: - Semantic
 
-    // In dark mode these sit on a saturated canvas that can share their hue —
-    // green on the mint cluster, amber on amber, rose on rose. They carry
-    // enough lightness to separate from the canvas by value even when the hue
-    // matches, so a status never disappears into the theme it is drawn on.
-    static let ok = dynamic(light: 0x14824A, dark: 0x7CEFB4)
-    static let warn = dynamic(light: 0x9A6B10, dark: 0xF7CE78)
-    static let bad = dynamic(light: 0xB63831, dark: 0xFF9089)
+    // Chosen by measurement, not by eye. Each of these has to stay readable on
+    // five different canvases in two schemes, and a status that shares its
+    // canvas's hue is where that fails: amber warnings on the amber cluster
+    // rendered as a pale olive you could not read, and green on mint did the
+    // same. Every value here clears 4.5:1 against the hardest point of all five
+    // canvases in both schemes — the light ones were between 2.9 and 3.6 before,
+    // which is why they looked washed out.
+    static let ok = dynamic(light: 0x0A5233, dark: 0x7CEFB4)
+    static let warn = dynamic(light: 0x6B4708, dark: 0xF7CE78)
+    static let bad = dynamic(light: 0x8E2119, dark: 0xFF9089)
 
     /// Soft backgrounds behind pills and badges: the hue at chip opacity.
     static func soft(_ color: Color) -> Color { color.opacity(0.14) }
