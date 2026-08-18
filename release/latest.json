@@ -1,8 +1,8 @@
 {
-  "version": "0.6.9",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.9/K8Secret-0.6.9.dmg",
-  "notes": "K8Secret 0.6.9 — errors that say what actually went wrong.\n\nWhen K8Secret refuses a connection, it now tells you why it refused, instead of leaving you with a message that points at your cluster.\n\nTwo of them were genuinely misleading. Rejecting a server's certificate showed the single word \"cancelled\" — as though you had done something. Failing to present a client certificate showed a TLS error, which reads as the cluster being broken when it is answering perfectly well. Both now name the step that failed: which host, which setting in your kubeconfig to look at, and what macOS said about it.\n\nIf you are the person who wrote in about a cluster that connects on one Mac and not another, this is the release to try — and if it still fails, the error itself should now tell us both which of the two causes it is.",
+  "version": "0.6.10",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.10/K8Secret-0.6.10.dmg",
+  "notes": "K8Secret 0.6.10 — a kubeconfig that points at files which aren't there.\n\nYour kubeconfig can supply a certificate authority, a client certificate, a key or a token either inline or as a path to a file. Paths belong to a machine. Copy a config from another Mac, or let a tool clean up the certificates it once wrote, and those paths resolve there and not here.\n\nK8Secret used to treat a file it couldn't read exactly like a setting you never wrote — so it connected with no certificate authority and no client certificate, and the failure arrived several layers later as either a warning that the server was 'pretending to be' your cluster, or a bare TLS error. Neither mentioned a file, and both pointed at a cluster that was working perfectly.\n\nIt now stops at the kubeconfig and tells you which setting names a file it cannot read, what that path resolved to, whether it is missing or just unreadable, and which cluster or user it belongs to.\n\nThis is also the safer behaviour: K8Secret already refuses to fall back to your Mac's trust store when a cluster's certificate authority can't be parsed, so that it never trusts a certificate you didn't ask for. A missing file quietly went around that.",
   "minOS": "14.0",
   "date": "2026-08-18",
-  "sha256": "ec086e7ecc173a3e06fa8f9835df236222beae97bd1f602040a7619ea2f7e04c"
+  "sha256": "cf2b2f2f4e7ce13911796d52438a2db31881ea4d7567590c7abb03892e0193ca"
 }
