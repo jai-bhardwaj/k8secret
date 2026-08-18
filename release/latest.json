@@ -1,8 +1,8 @@
 {
-  "version": "0.6.18",
-  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.18/K8Secret-0.6.18.dmg",
-  "notes": "K8Secret 0.6.18 — macOS 14, and panels that fit the window.\n\nmacOS 14 users with a client-certificate cluster should update: 0.6.15 through 0.6.17 could fail to connect, or ask for a keychain password on launch and then hang waiting for an answer. The certificate K8Secret builds to authenticate with now lives in a keychain of its own, created for the session and deleted when you quit — never your login keychain, and never a password prompt. On macOS 15 and later nothing is stored at all.\n\nThe What's New panel could also grow taller than the window and push its own buttons off the bottom, leaving no way to dismiss it. It scrolls now, and the buttons stay put. Settings and the YAML editor were bounded the same way, so they fit a small window rather than running past its edges.",
+  "version": "0.6.19",
+  "url": "https://github.com/jai-bhardwaj/k8secret/releases/download/v0.6.19/K8Secret-0.6.19.dmg",
+  "notes": "K8Secret 0.6.19 — colour you can actually read, on every theme.\n\nStatus colours were chosen by eye and it showed. Measured properly — as contrast against every one of the five cluster colours, in light and dark — they sat well below the threshold for readable text in light mode, and worst of all where a status shared its cluster's colour: a crash-looping container announced itself on the amber cluster in a pale olive that was, in practice, invisible.\n\nEvery status and metric colour has been rechosen against that measurement, and the app's tests now check it, so this cannot quietly drift again.\n\nThe sidebar also cut its last item, Events, in half against the port-forwards footer with no way to scroll it into view. Fixed.",
   "minOS": "14.0",
   "date": "2026-08-18",
-  "sha256": "8dd42f9e41e38c6efaef60abc250958ee7f8d5fb08b7b4cd3e61ee8c9da43f5c"
+  "sha256": "52ec4fbba338ed4377c0fd39b26a226284c3dee0b09997b1d4d26914e20c3d3b"
 }
