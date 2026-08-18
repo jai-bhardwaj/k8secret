@@ -1423,8 +1423,16 @@ actor K8sClient {
 
     // MARK: - Events
 
-    func getEvents(namespace: String, fieldSelector: String? = nil) async throws -> [K8sEvent] {
-        let basePath = "/api/v1/namespaces/\(Self.encodePath(namespace))/events"
+    /// Events for one namespace, or — with `namespace: nil` — the whole cluster
+    /// in a single call.
+    ///
+    /// The cluster-wide form is what `kubectl get events -A` uses. Asking each
+    /// namespace separately means one request per namespace and, worse, gives
+    /// every one of them a veto: a single 403 from a namespace the user cannot
+    /// read used to discard the entire feed.
+    func getEvents(namespace: String?, fieldSelector: String? = nil) async throws -> [K8sEvent] {
+        let basePath = namespace.map { "/api/v1/namespaces/\(Self.encodePath($0))/events" }
+            ?? "/api/v1/events"
         // A field selector is `k=v,k=v`, so its separators must survive encoding
         // while the values inside it must not — encode each value on its own.
         let query = fieldSelector.map { selector -> String in

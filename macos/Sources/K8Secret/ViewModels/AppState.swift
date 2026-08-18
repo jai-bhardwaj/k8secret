@@ -1016,12 +1016,48 @@ final class AppState {
 
     func loadClusterEvents() async {
         loadingClusterEvents = true
-        let fetched = (try? await listAcrossAll { [client] in
-            try await client.getEvents(namespace: $0, fieldSelector: nil) }) ?? []
-        guard selectedDestination == .events else { loadingClusterEvents = false; return }
+        defer { loadingClusterEvents = false }
+
+        // One cluster-wide call, the way `kubectl get events -A` does it.
+        //
+        // This used to ask every namespace separately inside a throwing task
+        // group, which gave each one a veto over the whole feed: a single 403
+        // from a namespace the user cannot read threw, `try?` swallowed it, and
+        // the tab showed nothing at all — on exactly the large, RBAC-restricted
+        // clusters where events matter most.
+        var fetched: [K8sEvent]
+        do {
+            fetched = try await client.getEvents(namespace: nil, fieldSelector: nil)
+        } catch {
+            // No permission to read events cluster-wide is common and fine; fall
+            // back to per-namespace, keeping whatever each one gives us.
+            fetched = await eventsPerNamespace()
+        }
+        if fetched.isEmpty, !namespaces.isEmpty {
+            fetched = await eventsPerNamespace()
+        }
+
+        guard selectedDestination == .events else { return }
         // Newest first; the feed answers "what just happened".
         clusterEvents = fetched.sorted { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }
-        loadingClusterEvents = false
+    }
+
+    /// Events from every namespace we can read, skipping the ones we can't.
+    /// Partial results beat none: a namespace that refuses is not a reason to
+    /// hide the events from all the others.
+    private func eventsPerNamespace() async -> [K8sEvent] {
+        let names = namespaces.map(\.name)
+        guard !names.isEmpty else { return [] }
+        return await withTaskGroup(of: [K8sEvent].self) { group in
+            for name in names {
+                group.addTask { [client] in
+                    (try? await client.getEvents(namespace: name, fieldSelector: nil)) ?? []
+                }
+            }
+            var all: [K8sEvent] = []
+            for await batch in group { all.append(contentsOf: batch) }
+            return all
+        }
     }
 
     // MARK: - Secret selection

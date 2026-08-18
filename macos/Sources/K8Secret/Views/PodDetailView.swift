@@ -4,6 +4,8 @@ struct PodDetailView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openWindow) private var openWindow
     @State private var selectedLogContainer: String?
+    @State private var logFilter = ""
+    @State private var followLogs = false
     @State private var logRange: LogRange = .last200
 
     var body: some View {
@@ -296,18 +298,45 @@ struct PodDetailView: View {
             logsHeader(pod)
             logsContent
         }
+        // Logs load because the tab was opened. Asking the user to press "Load
+        // Logs" first made the pane's whole purpose a second click, and the
+        // prototype simply shows them.
+        .task(id: logsRequestKey(pod)) {
+            await state.loadPodLogs(container: selectedLogContainer ?? pod.containers.first?.name,
+                                    tailLines: logRange.tail,
+                                    sinceSeconds: logRange.since)
+        }
+        // Follow re-reads the tail. A crash-looping container is the case that
+        // matters: its next attempt appears without anyone touching anything.
+        .task(id: followLogs ? logsRequestKey(pod) + "|follow" : "") {
+            guard followLogs else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                if Task.isCancelled { return }
+                await state.loadPodLogs(container: selectedLogContainer ?? pod.containers.first?.name,
+                                        tailLines: logRange.tail,
+                                        sinceSeconds: logRange.since)
+            }
+        }
     }
 
+    /// Everything that decides which lines we should be showing. When any of it
+    /// changes the tail is re-read, and nothing else re-reads it.
+    private func logsRequestKey(_ pod: K8sPod) -> String {
+        [pod.namespace, pod.name,
+         selectedLogContainer ?? pod.containers.first?.name ?? "",
+         logRange.rawValue].joined(separator: "|")
+    }
+
+    /// The prototype's `.loghead`: container, range, a filter, and Follow —
+    /// all in the app's own controls. Native pickers and bordered buttons wore
+    /// system chrome in the middle of a canvas that has none.
     private func logsHeader(_ pod: K8sPod) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                logsTitle(pod)
-                Spacer(minLength: 8)
-                logsActions(pod)
-            }
+            HStack(spacing: 8) { logsControls(pod) }
             VStack(alignment: .leading, spacing: 8) {
-                logsTitle(pod)
-                HStack(spacing: 8) { logsActions(pod) }
+                HStack(spacing: 8) { logsPickers(pod) }
+                HStack(spacing: 8) { logsFilterAndActions(pod) }
             }
         }
     }
@@ -320,104 +349,122 @@ struct PodDetailView: View {
     }
 
     @ViewBuilder
-    private func logsTitle(_ pod: K8sPod) -> some View {
-        Label("Logs", systemImage: "text.alignleft")
-            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-        Picker("Range", selection: $logRange) {
-            ForEach(LogRange.allCases, id: \.self) { r in
-                Text(r.rawValue).tag(r)
-            }
-        }
-        .frame(maxWidth: 120)
-        .labelsHidden()
+    private func logsControls(_ pod: K8sPod) -> some View {
+        logsPickers(pod)
+        logsFilterAndActions(pod)
+    }
+
+    @ViewBuilder
+    private func logsPickers(_ pod: K8sPod) -> some View {
         if pod.containers.count > 1 {
-            Picker("Container", selection: Binding(
-                get: { selectedLogContainer ?? pod.containers.first?.name ?? "" },
-                set: { selectedLogContainer = $0 }
-            )) {
-                ForEach(pod.containers, id: \.name) { c in
-                    Text(c.name).tag(c.name)
-                }
-            }
-            .frame(maxWidth: 200)
+            LogMenu(title: selectedLogContainer ?? pod.containers.first?.name ?? "container",
+                    options: pod.containers.map(\.name)) { selectedLogContainer = $0 }
+        }
+        LogMenu(title: logRange.rawValue, options: LogRange.allCases.map(\.rawValue)) { picked in
+            if let range = LogRange(rawValue: picked) { logRange = range }
         }
     }
 
     @ViewBuilder
-    private func logsActions(_ pod: K8sPod) -> some View {
-        Button {
-            Task {
-                await state.loadPodLogs(container: selectedLogContainer ?? pod.containers.first?.name,
-                                        tailLines: logRange.tail, sinceSeconds: logRange.since)
-            }
-        } label: {
-            Label(state.podLogs.isEmpty ? "Load Logs" : "Refresh", systemImage: "arrow.clockwise")
+    private func logsFilterAndActions(_ pod: K8sPod) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.text3)
+            TextField("Filter…", text: $logFilter)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11.5))
+                .frame(width: 130)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(state.loadingLogs)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.line, lineWidth: 1))
+
+        Spacer(minLength: 4)
+
+        // Follow: the prototype's switch. Re-reads the tail on a timer, so a
+        // crash-looping container shows its next attempt without a click.
+        Toggle("Follow", isOn: $followLogs)
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .font(.system(size: 11.5))
+            .foregroundStyle(Theme.text2)
 
         Button {
             let container = selectedLogContainer ?? pod.containers.first?.name ?? ""
-            let logID = LogStreamID(
-                context: state.context,
-                namespace: pod.namespace,
-                pod: pod.name,
-                container: container
-            )
-            openWindow(id: "log-stream", value: logID)
+            openWindow(id: "log-stream", value: LogStreamID(
+                context: state.context, namespace: pod.namespace,
+                pod: pod.name, container: container))
         } label: {
             Label("Live Tail", systemImage: "play.circle")
+                .font(.system(size: 11.5, weight: .semibold))
         }
-        .buttonStyle(Theme.PrimaryPill())
-        .controlSize(.small)
+        .buttonStyle(Theme.SoftPill())
 
-        if !state.podLogs.isEmpty {
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(state.podLogs, forType: .string)
-                state.showToast("Logs copied")
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(state.podLogs, forType: .string)
+            state.showToast("Logs copied")
+        } label: {
+            Image(systemName: "doc.on.doc")
         }
+        .buttonStyle(IconButtonStyle())
+        .disabled(state.podLogs.isEmpty)
+        .help("Copy all logs")
     }
 
+    /// The prototype's `.logstream`: fills the pane, 11.5pt mono at a 1.75
+    /// line-height, timestamps muted and errors in the bad hue.
     @ViewBuilder
     private var logsContent: some View {
-        if state.loadingLogs {
-            HStack {
-                ProgressView().controlSize(.small)
-                Text("Loading logs...")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        Group {
+            if state.loadingLogs && state.podLogs.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading the container's output…")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.text3)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredLogLines.isEmpty {
+                Text(state.podLogs.isEmpty
+                     ? "This container hasn't logged anything yet."
+                     : "No lines match “\(logFilter)”.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.text3)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(filteredLogLines.enumerated()), id: \.offset) { _, line in
+                            Text(LogLine.attributed(line))
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .lineSpacing(3)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                }
             }
-            .padding(12)
-        } else if !state.podLogs.isEmpty {
-            ScrollView(.vertical) {
-                Text(state.podLogs)
-                    .font(.system(size: 11, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-            }
-            .frame(maxHeight: 400)
-            .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06), lineWidth: 0.5))
-        } else {
-            HStack {
-                Image(systemName: "text.alignleft")
-                    .foregroundStyle(.tertiary)
-                Text("Click \"Load Logs\" to view container output")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity)
-            .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line, lineWidth: 1))
+    }
+
+    private var filteredLogLines: [String] {
+        // "(no logs available)" is the loader's stand-in for an empty read, not
+        // something the container printed — showing it as a log line puts a
+        // sentence in monospace where output belongs.
+        guard state.podLogs != "(no logs available)" else { return [] }
+        let lines = state.podLogs
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard !logFilter.isEmpty else { return lines }
+        return lines.filter { $0.localizedCaseInsensitiveContains(logFilter) }
     }
 
     private func phaseColor(_ pod: K8sPod) -> Color {
@@ -428,5 +475,70 @@ struct PodDetailView: View {
         case "failed": return .red
         default: return .secondary
         }
+    }
+}
+
+/// A small menu in the app's own pill grammar.
+///
+/// SwiftUI's `Picker` renders as an AppKit popup button: grey system chrome,
+/// system accent, system focus ring — three things this canvas has none of, in
+/// the middle of a log toolbar.
+struct LogMenu: View {
+    let title: String
+    let options: [String]
+    let onPick: (String) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.self) { option in
+                Button(option) { onPick(option) }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Theme.text3)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Theme.inset, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+}
+
+/// Colouring for one log line, following the prototype: the leading timestamp
+/// muted, a line that announces a failure in the bad hue, everything else
+/// ordinary. Matching on the text is what a reader does at a glance, and it is
+/// all that is available — container logs carry no severity metadata.
+enum LogLine {
+    private static let failureMarkers = ["error", "err ", "fatal", "panic", "exception",
+                                         "failed", "failure", "cannot", "unable to"]
+
+    static func attributed(_ line: String) -> AttributedString {
+        var body = AttributedString(line)
+        let lowered = line.lowercased()
+        body.foregroundColor = failureMarkers.contains(where: lowered.contains)
+            ? Theme.bad
+            : Theme.text2
+
+        // Split a leading ISO-ish timestamp off, if the line starts with one.
+        guard let space = line.firstIndex(of: " ") else { return body }
+        let head = String(line[line.startIndex..<space])
+        guard head.count >= 8, head.first?.isNumber == true,
+              head.contains(":") || head.contains("-") else { return body }
+
+        var stamp = AttributedString(head)
+        stamp.foregroundColor = Theme.text3
+        var rest = AttributedString(String(line[space...]))
+        rest.foregroundColor = body.foregroundColor
+        return stamp + rest
     }
 }

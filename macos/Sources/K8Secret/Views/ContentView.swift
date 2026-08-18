@@ -330,6 +330,7 @@ struct ContentView: View {
             case "nsmenu": state.namespaceMenuOpen = true
             case "switcher": state.clusterSwitcherOpen = true
             case "settings": state.settingsOpen = true
+            case "events": await state.selectDestination(.events)
             case "yamledit":
                 await state.selectNamespaceScope(all: true)
                 await state.selectResourceType(.secrets)
@@ -384,8 +385,10 @@ struct ContentView: View {
                     case .deployments: state.selectedDeployment = state.deployments.first
                     case .pods:
                         state.selectedPod = state.pods.first
-                        if ProcessInfo.processInfo.environment["K8SECRET_UITEST_TAB"] == "yaml" {
-                            state.podDetailTab = .yaml
+                        switch ProcessInfo.processInfo.environment["K8SECRET_UITEST_TAB"] {
+                        case "yaml": state.podDetailTab = .yaml
+                        case "logs": state.podDetailTab = .logs
+                        default: break
                         }
                     case .services: state.selectedService = state.services.first
                     case .configmaps: state.selectedConfigMap = state.configMaps.first
