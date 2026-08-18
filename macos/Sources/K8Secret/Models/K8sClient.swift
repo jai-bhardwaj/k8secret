@@ -2538,6 +2538,13 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
     /// memory. There is now no keychain to lock, nothing written to disk, and
     /// nothing to clean up on quit.
     private func createIdentity(certPEM: Data, keyPEM: Data) -> SecIdentity? {
+        // Before the cache check, not after: the identity is cached for the life
+        // of the process, but on macOS 14 its keychain locks itself when the Mac
+        // sleeps, and using a key from a locked keychain is what makes macOS
+        // prompt. This runs on every handshake because that is where the key is
+        // about to be used.
+        if #unavailable(macOS 15.0) { TransientKeychain.shared.ensureUnlocked() }
+
         identityLock.lock()
         let cached = cachedIdentity
         identityLock.unlock()
@@ -2576,9 +2583,26 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
             options[kSecImportToMemoryOnly as String] = true
             k8sTrace("    createIdentity: importing to memory only, nothing is stored")
         } else {
-            // macOS 14 has no way to say this, so the import lands in the default
-            // keychain. It is removed again below.
-            k8sTrace("    createIdentity: macOS 14 — import goes via the keychain and is cleaned up")
+            // macOS 14 has no memory-only import, and the two alternatives are
+            // both wrong: leaving the item in the login keychain makes the *next*
+            // launch prompt for a password — this app is ad-hoc signed, so each
+            // build is a different application as far as macOS is concerned —
+            // and deleting it straight away invalidates the identity it backs.
+            //
+            // So it goes into a keychain of our own: created for this process,
+            // randomly named and keyed, never added to the search list, deleted
+            // on quit. That is what TransientKeychain is for, and why it has to
+            // stay until macOS 14 is no longer supported.
+            if let keychain = TransientKeychain.shared.get() {
+                options[kSecImportExportKeychain as String] = keychain
+                if let access = TransientKeychain.shared.promptlessAccess(
+                    label: "K8Secret client certificate") {
+                    options[kSecImportExportAccess as String] = access
+                }
+                k8sTrace("    createIdentity: macOS 14 — importing into this process's own keychain")
+            } else {
+                k8sTrace("    createIdentity: macOS 14 — no transient keychain; import will use the default")
+            }
         }
 
         var items: CFArray?
@@ -2597,18 +2621,6 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
         }
 
         let identity = identityRef as! SecIdentity
-
-        // On macOS 14 the import landed in the default keychain and there is no
-        // way to prevent that. It cannot be deleted here: the identity is backed
-        // by the item, so removing it immediately invalidates the very identity
-        // we are about to present — which broke every client-certificate
-        // handshake on macOS 14 in 0.6.15. It is registered instead, and removed
-        // when the app quits, by which time nothing is using it.
-        if #unavailable(macOS 15.0) {
-            var certificate: SecCertificate?
-            SecIdentityCopyCertificate(identity, &certificate)
-            if let certificate { ImportedIdentities.register(certificate) }
-        }
 
         identityLock.lock()
         cachedIdentity = identity
@@ -2751,36 +2763,3 @@ final class K8sTLSDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate
 }
 
 
-/// Certificates macOS 14 forced into the default keychain, to be removed when
-/// the app quits.
-///
-/// macOS 15 has `kSecImportToMemoryOnly` and never gets here. On 14 the import
-/// is unavoidable, and so is waiting: deleting an identity's certificate while
-/// the identity is in use invalidates it, so the only safe moment is once
-/// nothing can be using it.
-enum ImportedIdentities {
-    private static let lock = NSLock()
-    private static var pending: [SecCertificate] = []
-
-    static func register(_ certificate: SecCertificate) {
-        lock.lock()
-        defer { lock.unlock() }
-        pending.append(certificate)
-    }
-
-    /// Called from `applicationWillTerminate`.
-    static func removeAll() {
-        lock.lock()
-        let certificates = pending
-        pending.removeAll()
-        lock.unlock()
-
-        for certificate in certificates {
-            let status = SecItemDelete([
-                kSecClass as String: kSecClassCertificate,
-                kSecValueRef as String: certificate,
-            ] as CFDictionary)
-            k8sTrace("cleanup: removed an imported certificate -> \(k8sStatusText(status))")
-        }
-    }
-}

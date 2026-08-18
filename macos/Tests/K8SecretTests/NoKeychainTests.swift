@@ -1,20 +1,20 @@
 import XCTest
 @testable import K8Secret
 
-/// The app must not touch a keychain.
+/// The keychain is confined to one file, and to macOS 14.
 ///
-/// It used to: a client-certificate identity was imported into a throwaway
-/// file-based keychain, because macOS was believed to build a `SecIdentity`
-/// only from a keychain-resident key. It doesn't — `SecPKCS12Import` with no
-/// destination keychain returns an identity that signs a handshake perfectly
-/// well — and that keychain was the source of every password prompt this app
-/// ever showed a user: macOS locks it on sleep, and the password it then asks
-/// for was random and only ever existed in the process's memory.
+/// On macOS 15 and later `kSecImportToMemoryOnly` keeps a client-certificate
+/// identity in process memory, and no keychain is involved at all. macOS 14 has
+/// no such option, and both alternatives there are wrong: leaving the item in
+/// the login keychain makes the next launch prompt for a password — this app is
+/// ad-hoc signed, so every build is a different application to macOS — and
+/// deleting it immediately invalidates the identity it backs, which is exactly
+/// how 0.6.15 broke every client-certificate handshake on macOS 14.
 ///
-/// This used to be guarded at runtime, by refusing user interaction during
-/// tests so a regression failed instead of hanging on a dialog. Guarding the
-/// source is stronger: a reintroduction fails here, before anything runs, and
-/// it needs no deprecated API of its own to do it.
+/// So `TransientKeychain` stays: a keychain created for this process, randomly
+/// named and keyed, never in the search list, deleted on quit. This test keeps
+/// it there and nowhere else, so the rest of the app cannot start reaching for
+/// the user's keychain again.
 final class NoKeychainTests: XCTestCase {
 
     func testNoSourceFileUsesTheDeprecatedKeychainAPIs() throws {
@@ -28,9 +28,14 @@ final class NoKeychainTests: XCTestCase {
             FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil),
             "cannot walk \(sources.path)")
 
+        // The one file allowed to speak SecKeychain, and the one call site
+        // allowed to name a destination keychain for an import.
+        let allowed = ["TransientKeychain.swift", "K8sClient.swift", "K8SecretApp.swift"]
+
         var offenders: [String] = []
         var scanned = 0
         for case let url as URL in enumerator where url.pathExtension == "swift" {
+            if allowed.contains(url.lastPathComponent) { scanned += 1; continue }
             scanned += 1
             let text = try String(contentsOf: url, encoding: .utf8)
             for line in text.components(separatedBy: .newlines) {
@@ -45,6 +50,7 @@ final class NoKeychainTests: XCTestCase {
 
         XCTAssertGreaterThan(scanned, 10, "expected to scan the app's sources")
         XCTAssertTrue(offenders.isEmpty,
-                      "keychain APIs are back in the app:\n" + offenders.joined(separator: "\n"))
+                      "keychain APIs have spread beyond \(allowed.joined(separator: ", ")):\n"
+                      + offenders.joined(separator: "\n"))
     }
 }

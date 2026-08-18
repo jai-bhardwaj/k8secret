@@ -117,7 +117,8 @@ struct SettingsView: View {
             }
         }
         .padding(26)
-        .frame(width: 460)
+        .frame(maxWidth: 460)
+        .fixedSize(horizontal: false, vertical: true)
         .popGlass(radius: 22)
         .sheet(isPresented: $showFeedback) { FeedbackSheet() }
     }

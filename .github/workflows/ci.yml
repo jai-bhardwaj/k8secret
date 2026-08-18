@@ -40,13 +40,26 @@ jobs:
       # Warnings in this codebase have twice hidden real concurrency bugs, so any
       # new one fails the build.
       #
-      # This used to allowlist the deprecated SecKeychain API, because building a
-      # client-certificate identity was thought to need a file-based keychain.
-      # It doesn't — `SecPKCS12Import` with no destination keychain returns an
-      # identity that signs a handshake — so there is nothing left to exempt and
-      # the compiler can enforce this directly.
-      - name: Build (warnings are errors)
-        run: swift build -c debug -Xswiftc -warnings-as-errors
+      # SecKeychain is allowlisted, and only that. macOS 15+ imports a client
+      # certificate straight into process memory, but macOS 14 has no such API
+      # and the alternatives there are a password prompt on the next launch or
+      # an identity invalidated the moment it is built — so TransientKeychain
+      # stays until macOS 14 is dropped. NoKeychainTests keeps it confined.
+      - name: Build (no new warnings)
+        run: |
+          set -o pipefail
+          swift build -c debug 2>&1 | tee /tmp/build.log
+
+          UNEXPECTED=$(grep "warning:" /tmp/build.log \
+            | grep -v "SecKeychain is deprecated" \
+            || true)
+
+          if [[ -n "$UNEXPECTED" ]]; then
+            echo "::error::build produced unexpected warnings:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+          echo "✓ no warnings outside the documented SecKeychain allowlist"
 
       - name: Test
         run: swift test

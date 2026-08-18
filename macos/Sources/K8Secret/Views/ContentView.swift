@@ -110,6 +110,7 @@ struct ContentView: View {
                     if state.settingsOpen {
                         scrim { state.settingsOpen = false }
                         SettingsView()
+                            .padding(28)
                             .transition(.scale(scale: 0.96).combined(with: .opacity))
                     }
                 }

@@ -60,9 +60,9 @@ struct K8SecretApp: App {
             // Delivered on the main queue, so main-actor state is safe to touch here.
             MainActor.assumeIsolated {
                 PortForwardManager.shared.stopAll()
-                // macOS 14 has no memory-only PKCS#12 import, so anything it
-                // forced into the keychain is taken back out here.
-                ImportedIdentities.removeAll()
+                // macOS 14 only: remove the throwaway keychain the client
+                // certificate lived in. Nothing on 15+ ever created one.
+                if #unavailable(macOS 15.0) { TransientKeychain.shared.cleanup() }
             }
         }
     }

@@ -132,7 +132,7 @@ struct FirstRunView: View {
                 .buttonStyle(Theme.PrimaryPill())
         }
         .padding(30)
-        .frame(width: 460)
+        .frame(maxWidth: 460)
         .popGlass(radius: 22)
     }
 }
@@ -158,7 +158,8 @@ struct WhatsNewView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 12) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
                 ForEach(Welcome.highlights, id: \.0) { item in
                     HStack(alignment: .top, spacing: 10) {
                         Circle()
@@ -176,7 +177,14 @@ struct WhatsNewView: View {
                         }
                     }
                 }
+                }
             }
+            // Capped and scrolling: a release with a lot to say used to make
+            // this panel taller than the window, which pushed its own buttons
+            // off the bottom edge — leaving no way to dismiss it or take the
+            // tour it was offering.
+            .frame(maxHeight: 320)
+            .scrollBounceBehavior(.basedOnSize)
 
             HStack(spacing: 10) {
                 Text("Takes about a minute")
@@ -191,7 +199,7 @@ struct WhatsNewView: View {
             }
         }
         .padding(26)
-        .frame(width: 440)
+        .frame(maxWidth: 440)
         .popGlass(radius: 22)
     }
 }

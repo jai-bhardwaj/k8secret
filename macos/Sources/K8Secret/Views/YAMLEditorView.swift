@@ -89,7 +89,10 @@ struct YAMLEditorView: View {
                     }
             }
         }
-        .frame(width: 720, height: 540)
+        // Bounded, not fixed: a hard 720×540 overflowed a window at the app's
+        // own minimum size, clipping the editor's own Close button.
+        .frame(maxWidth: 720, maxHeight: 540)
+        .padding(24)
         .popGlass(radius: 20)
         .shadow(color: .black.opacity(0.4), radius: 40, y: 20)
         // The editor fetches its own manifest and follows it in. It used to
