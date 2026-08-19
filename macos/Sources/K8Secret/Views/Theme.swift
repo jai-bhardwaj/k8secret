@@ -492,12 +492,29 @@ enum ToolbarGeometry {
         let hosted = items.compactMap(\.view)
         guard hosted.indices.contains(index) else { return nil }
         let view = hosted[index]
-        let inWindow = view.convert(view.bounds, to: nil)
-        // AppKit measures from the bottom-left, SwiftUI from the top-left.
-        return CGRect(x: inWindow.minX,
-                      y: window.frame.height - inWindow.maxY,
-                      width: inWindow.width,
-                      height: inWindow.height)
+        guard let content = window.contentView, let itemWindow = view.window else { return nil }
+
+        // The route runs through the screen, and that is the whole point: in
+        // full screen macOS lifts the titlebar out of the window and into its
+        // own (NSToolbarFullScreenWindow), so `convert(_:to: nil)` on a toolbar
+        // item answers in *that* window's coordinates. Measuring them against
+        // our window's height put the namespace menu ~845pt down a 900pt
+        // screen — off the bottom edge — while the same arithmetic was exact
+        // in a windowed frame, where the two windows are one and the same.
+        //
+        // Screen coordinates are the only space both windows agree on, so the
+        // conversion goes item view → its own window → screen → our window →
+        // our content view. The last hop also settles the axis flip: the
+        // content view is SwiftUI's hosting view and is flipped, so converting
+        // into it yields the top-left origin SwiftUI lays out in.
+        let inItemWindow = view.convert(view.bounds, to: nil)
+        let onScreen = itemWindow.convertToScreen(inItemWindow)
+        let inContent = content.convert(window.convertFromScreen(onScreen), from: nil)
+        guard !content.isFlipped else { return inContent }
+        return CGRect(x: inContent.minX,
+                      y: content.bounds.height - inContent.maxY,
+                      width: inContent.width,
+                      height: inContent.height)
     }
 
     /// The namespace scope pill: second of the hosted items.

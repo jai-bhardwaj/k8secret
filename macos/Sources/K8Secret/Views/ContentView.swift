@@ -1381,6 +1381,10 @@ struct WindowConfigurator: NSViewRepresentable {
         Self.configureWhenAttached(nsView, attempts: 0)
     }
 
+    /// Debug-only latch for the full-screen hook below, so the toggle is asked
+    /// for once rather than on every SwiftUI update.
+    @MainActor private static var fullScreenRequested = false
+
     /// The view can be created before it's in a window; retry briefly until
     /// the window exists (observed: nil on the first main-queue hop).
     private static func configureWhenAttached(_ v: NSView, attempts: Int) {
@@ -1413,6 +1417,20 @@ struct WindowConfigurator: NSViewRepresentable {
                                        y: screen.frame.midY - parts[1] / 2,
                                        width: parts[0], height: parts[1])
                     w.setFrame(frame, display: true)
+                }
+            }
+            // Debug-only: open straight into full screen. It is a genuinely
+            // different window, not a bigger one — macOS moves the titlebar
+            // and its toolbar into a window of their own — so anything placed
+            // from an AppKit measurement has to be seen here as well as in a
+            // windowed frame. Screenshotting that by hand every time is how it
+            // went unnoticed. Fired once: this runs on every SwiftUI update.
+            if ProcessInfo.processInfo.environment["K8SECRET_UITEST_FULLSCREEN"] == "1",
+               !fullScreenRequested {
+                fullScreenRequested = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak w] in
+                    guard let w, !w.styleMask.contains(.fullScreen) else { return }
+                    w.toggleFullScreen(nil)
                 }
             }
             w.isOpaque = false
