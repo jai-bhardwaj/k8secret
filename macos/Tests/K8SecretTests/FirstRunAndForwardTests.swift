@@ -3,11 +3,12 @@ import XCTest
 
 /// What a fresh install lands on.
 ///
-/// Opening the app showed two side-by-side placeholders — "Select a Namespace"
-/// next to "Select a Deployment" — even when the kubeconfig said exactly which
-/// namespace the current context works in. That field was parsed and then never
-/// read, so the first impression of the app was an empty window asking the user
-/// to go find their own data.
+/// Two rules, and the order matters. A kubeconfig context that names a
+/// namespace wins, because that is the user's own `kubectl` setting stated
+/// deliberately. Everything else opens on all namespaces: landing in `default`
+/// was a guess dressed as a decision, and on most clusters `default` is the one
+/// namespace with nothing in it — so the app's first screen showed an empty
+/// cluster and the scope responsible sat in the titlebar corner.
 @MainActor
 final class InitialNamespaceTests: XCTestCase {
 
@@ -22,26 +23,43 @@ final class InitialNamespaceTests: XCTestCase {
         XCTAssertEqual(s.initialNamespaceChoice(preferred: "payments")?.name, "payments")
     }
 
-    func testFallsBackToDefaultWhenTheContextNamesNone() {
+    func testOpensOnAllNamespacesWhenTheContextNamesNone() {
+        // `default` exists here and is deliberately not chosen: it is almost
+        // always empty, and picking it is what made the app look broken on a
+        // cluster that was working perfectly well.
         let s = AppState()
         s.namespaces = namespaces(["kube-system", "default", "payments"])
 
-        XCTAssertEqual(s.initialNamespaceChoice(preferred: nil)?.name, "default")
+        XCTAssertNil(s.initialNamespaceChoice(preferred: nil),
+                     "no namespace named by the context means every namespace")
     }
 
-    func testFallsBackToDefaultWhenTheNamedNamespaceIsGone() {
-        // A context can name a namespace that has since been deleted.
+    func testOpensOnAllNamespacesWhenTheNamedNamespaceIsGone() {
+        // A context can name a namespace that has since been deleted. Showing
+        // the whole cluster is honest; silently substituting `default` is not.
         let s = AppState()
         s.namespaces = namespaces(["default", "kube-system"])
 
-        XCTAssertEqual(s.initialNamespaceChoice(preferred: "deleted-ns")?.name, "default")
+        XCTAssertNil(s.initialNamespaceChoice(preferred: "deleted-ns"))
     }
 
-    func testFallsBackToTheFirstNamespaceWhenThereIsNoDefault() {
+    func testDoesNotFallBackToWhicheverNamespaceHappensToBeFirst() {
+        // API order is not a preference. Two users on the same cluster used to
+        // land somewhere different depending on what the server listed first.
         let s = AppState()
         s.namespaces = namespaces(["alpha", "beta"])
 
-        XCTAssertEqual(s.initialNamespaceChoice(preferred: nil)?.name, "alpha")
+        XCTAssertNil(s.initialNamespaceChoice(preferred: nil))
+    }
+
+    func testAllNamespacesCountsAsAChoiceAlready() {
+        // Re-entering connect must not drag a user who is looking at the whole
+        // cluster back into a single namespace.
+        let s = AppState()
+        s.namespaces = namespaces(["default", "payments"])
+        s.allNamespaces = true
+
+        XCTAssertFalse(s.shouldSelectInitialNamespace)
     }
 
     func testChoosesNothingWhenThereAreNoNamespaces() {

@@ -634,8 +634,9 @@ actor K8sClient {
         }
     }
 
-    func listSecrets(namespace: String) async throws -> [K8sSecret] {
-        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/secrets")
+    func listSecrets(namespace: String?) async throws -> [K8sSecret] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/api/v1", "secrets", namespace: namespace))
 
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -746,8 +747,9 @@ actor K8sClient {
 
     // MARK: - Deployments
 
-    func listDeployments(namespace: String) async throws -> [K8sDeployment] {
-        let items = try await listItems(basePath: "/apis/apps/v1/namespaces/\(Self.encodePath(namespace))/deployments")
+    func listDeployments(namespace: String?) async throws -> [K8sDeployment] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/apis/apps/v1", "deployments", namespace: namespace))
         return items.compactMap { parseDeployment($0) }
     }
 
@@ -840,8 +842,9 @@ actor K8sClient {
 
     // MARK: - Pods
 
-    func listPods(namespace: String) async throws -> [K8sPod] {
-        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/pods")
+    func listPods(namespace: String?) async throws -> [K8sPod] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/api/v1", "pods", namespace: namespace))
         return items.compactMap { parsePod($0) }
     }
 
@@ -1061,8 +1064,9 @@ actor K8sClient {
 
     // MARK: - Services
 
-    func listServices(namespace: String) async throws -> [K8sService] {
-        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/services")
+    func listServices(namespace: String?) async throws -> [K8sService] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/api/v1", "services", namespace: namespace))
         return items.compactMap { parseService($0) }
     }
 
@@ -1118,8 +1122,9 @@ actor K8sClient {
     // MARK: - CronJobs
 
     /// Jobs in the namespace, with their owning CronJob (for run history).
-    func listJobs(namespace: String) async throws -> [K8sJob] {
-        let items = try await listItems(basePath: "/apis/batch/v1/namespaces/\(Self.encodePath(namespace))/jobs")
+    func listJobs(namespace: String?) async throws -> [K8sJob] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/apis/batch/v1", "jobs", namespace: namespace))
         return items.compactMap { item in
             guard let meta = item["metadata"] as? [String: Any],
                   let name = meta["name"] as? String else { return nil }
@@ -1141,8 +1146,9 @@ actor K8sClient {
         }
     }
 
-    func listCronJobs(namespace: String) async throws -> [K8sCronJob] {
-        let items = try await listItems(basePath: "/apis/batch/v1/namespaces/\(Self.encodePath(namespace))/cronjobs")
+    func listCronJobs(namespace: String?) async throws -> [K8sCronJob] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/apis/batch/v1", "cronjobs", namespace: namespace))
         return items.compactMap { Self.parseCronJobStatic($0) }
     }
 
@@ -1218,8 +1224,9 @@ actor K8sClient {
 
     // MARK: - Ingresses
 
-    func listIngresses(namespace: String) async throws -> [K8sIngress] {
-        let items = try await listItems(basePath: "/apis/networking.k8s.io/v1/namespaces/\(Self.encodePath(namespace))/ingresses")
+    func listIngresses(namespace: String?) async throws -> [K8sIngress] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/apis/networking.k8s.io/v1", "ingresses", namespace: namespace))
         return items.compactMap { Self.parseIngressStatic($0) }
     }
 
@@ -1259,8 +1266,9 @@ actor K8sClient {
 
     // MARK: - ConfigMaps
 
-    func listConfigMaps(namespace: String) async throws -> [K8sConfigMap] {
-        let items = try await listItems(basePath: "/api/v1/namespaces/\(Self.encodePath(namespace))/configmaps")
+    func listConfigMaps(namespace: String?) async throws -> [K8sConfigMap] {
+        let items = try await listItems(
+            basePath: Self.collectionPath("/api/v1", "configmaps", namespace: namespace))
 
         return items.compactMap { item in
             guard let meta = item["metadata"] as? [String: Any],
@@ -1701,6 +1709,23 @@ actor K8sClient {
     /// On a namespace with thousands of pods that's a multi-megabyte payload, a
     /// memory spike, and a long stall — and it failed hardest on exactly the large
     /// clusters that matter most. Paging keeps each response bounded.
+    /// The collection URL for a kind, in one namespace or across the cluster.
+    ///
+    /// `nil` means every namespace, and it is not the same request repeated: the
+    /// API server has a cluster-wide collection endpoint for each kind
+    /// (`/api/v1/pods` beside `/api/v1/namespaces/x/pods`), which answers in one
+    /// round trip what fanning out answers in one per namespace. That matters
+    /// now that all-namespaces is where the app starts — a 200-namespace cluster
+    /// would otherwise open with 200 requests per list, times seven lists for
+    /// the rail's counts.
+    ///
+    /// Every parser here reads `metadata.namespace` off the item itself, so the
+    /// cluster-wide response needs no special handling downstream.
+    static func collectionPath(_ apiPrefix: String, _ plural: String, namespace: String?) -> String {
+        guard let namespace else { return "\(apiPrefix)/\(plural)" }
+        return "\(apiPrefix)/namespaces/\(encodePath(namespace))/\(plural)"
+    }
+
     private func listItems(basePath: String, query: String? = nil) async throws -> [[String: Any]] {
         var items: [[String: Any]] = []
         var continueToken: String?

@@ -517,27 +517,34 @@ final class AppState {
     /// fresh install was an app that looked empty and asked the user to go find
     /// their own data.
     ///
-    /// Preference order: the namespace named by the current context, then
-    /// `default`, then the first one that exists. Only ever runs when nothing is
-    /// selected, so it can't override a choice the user already made.
+    /// The app now opens on **every** namespace unless the kubeconfig context
+    /// names one. Landing in `default` was a guess dressed as a decision: on
+    /// most clusters `default` is the one namespace with nothing in it, so a
+    /// new user's first screen was an app that looked broken, and the scope
+    /// that caused it sat in the corner where they were least likely to look.
+    /// All-namespaces shows the cluster the user actually has. A context that
+    /// names a namespace is different — that is the user's own `kubectl`
+    /// setting, stated deliberately, and it still wins.
     private func selectInitialNamespace(preferred: String?) async {
-        guard shouldSelectInitialNamespace,
-              let namespace = initialNamespaceChoice(preferred: preferred) else { return }
-        await selectNamespace(namespace)
+        guard shouldSelectInitialNamespace else { return }
+        if let namespace = initialNamespaceChoice(preferred: preferred) {
+            await selectNamespace(namespace)
+        } else {
+            await selectNamespaceScope(all: true)
+        }
     }
 
     /// Only auto-select when the user hasn't chosen anything yet.
     var shouldSelectInitialNamespace: Bool {
-        selectedNamespace == nil && !namespaces.isEmpty
+        selectedNamespace == nil && !allNamespaces && !namespaces.isEmpty
     }
 
-    /// Context namespace, then `default`, then whatever exists.
+    /// The namespace the kubeconfig context names, if it names one that exists.
+    /// Anything else means all namespaces, so this no longer falls back to
+    /// `default` or to whichever namespace happened to be listed first.
     func initialNamespaceChoice(preferred: String?) -> K8sNamespace? {
-        let candidates = [preferred, "default"].compactMap { $0 }
-        let match = candidates.lazy
-            .compactMap { name in self.namespaces.first { $0.name == name } }
-            .first
-        return match ?? namespaces.first
+        guard let preferred else { return nil }
+        return namespaces.first { $0.name == preferred }
     }
 
     func loadNamespaces() async {
@@ -667,9 +674,15 @@ final class AppState {
 
     /// List a resource across every namespace in scope, concurrently, keeping a
     /// deterministic order (namespace order, then API order within each).
+    ///
+    /// All-namespaces takes the cluster-wide endpoint instead of fanning out —
+    /// one request rather than one per namespace. The rail alone asks for seven
+    /// lists, so on a large cluster the difference is seven requests against
+    /// seven hundred, and this is now the scope the app opens in.
     private func listScoped<T: Sendable>(
-        _ fetch: @escaping @Sendable (String) async throws -> [T]
+        _ fetch: @escaping @Sendable (String?) async throws -> [T]
     ) async throws -> [T] {
+        if allNamespaces { return try await fetch(nil) }
         let names = scopedNamespaceNames
         guard names.count > 1 else {
             guard let only = names.first else { return [] }
@@ -1003,15 +1016,12 @@ final class AppState {
     }
 
     private func listAcrossAll<T: Sendable>(
-        _ fetch: @escaping @Sendable (String) async throws -> [T]
+        _ fetch: @escaping @Sendable (String?) async throws -> [T]
     ) async throws -> [T] {
-        let names = namespaces.map(\.name)
-        return try await withThrowingTaskGroup(of: (Int, [T]).self) { group in
-            for (i, ns) in names.enumerated() { group.addTask { (i, try await fetch(ns)) } }
-            var slots = [[T]](repeating: [], count: names.count)
-            for try await (i, items) in group { slots[i] = items }
-            return slots.flatMap { $0 }
-        }
+        // One cluster-wide request. This runs on every launch for the Overview,
+        // so fanning out per namespace made the cost of opening the app scale
+        // with how many namespaces the cluster happens to have.
+        try await fetch(nil)
     }
 
     func loadClusterEvents() async {

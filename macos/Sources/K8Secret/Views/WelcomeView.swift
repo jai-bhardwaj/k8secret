@@ -14,6 +14,8 @@ enum Welcome {
 
     /// What this build should announce after an update.
     static let highlights: [(String, String)] = [
+        ("It opens on your whole cluster",
+         "K8Secret used to start in the namespace called default, which on most clusters is the one with nothing in it — so the first thing you saw was an empty app. It now opens on every namespace, and asks the API server for the whole cluster in one request rather than one per namespace. A kubeconfig context that names a namespace still wins."),
         ("A window per cluster",
          "Every window is one cluster, painted in its own color — ⌘N opens as many as you need, each with its own namespace, scope and selection."),
         ("It opens like an app",
