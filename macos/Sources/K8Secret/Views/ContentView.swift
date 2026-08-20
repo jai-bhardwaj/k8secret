@@ -131,7 +131,7 @@ struct ContentView: View {
                 // Confirm dialog — same reasoning as settings.
                 ZStack {
                     if let action = state.confirmAction {
-                        scrim { state.confirmAction = nil }
+                        scrim { state.cancelConfirmation() }
                         ConfirmDialogView(action: action)
                             .transition(.scale(scale: 0.96).combined(with: .opacity))
                     }
@@ -1331,7 +1331,7 @@ struct ConfirmDialogView: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Spacer()
-                Button("Cancel") { state.confirmAction = nil }
+                Button("Cancel") { state.cancelConfirmation() }
                     .buttonStyle(Theme.SoftPill())
                     .keyboardShortcut(.cancelAction)
                 Button(action.confirmLabel) {

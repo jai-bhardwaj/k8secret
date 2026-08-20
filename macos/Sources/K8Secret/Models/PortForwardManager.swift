@@ -22,6 +22,12 @@ struct PortForward: Identifiable {
     /// The readability handler fires per chunk of output, so both lines were
     /// treated as "ready" and each opened a tab. That is the two-tabs bug.
     var hasOpenedBrowser = false
+    /// Path opened in the browser for this forward, e.g. `/dashboard`.
+    ///
+    /// A forwarded port is rarely useful at its root: a jobs dashboard lives at
+    /// /admin/queues, an API's docs at /docs. Without this, every open landed on
+    /// / and the user retyped the rest of the URL every time.
+    var path: String = ""
 
     enum Status {
         case starting
@@ -33,7 +39,25 @@ struct PortForward: Identifiable {
     static let maxRetries = 5
 
     var localURL: String {
-        "http://localhost:\(localPort)"
+        "http://localhost:\(localPort)" + PortForward.normalize(path)
+    }
+
+    /// A path as typed, made safe to append to an origin.
+    ///
+    /// Users type `admin`, `/admin`, and `admin/` interchangeably and mean the
+    /// same thing. Anything with a scheme or host in it is refused rather than
+    /// repaired — pasting a full URL here would otherwise send the browser
+    /// somewhere other than the tunnel, which is the one thing this must not do.
+    static func normalize(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "/" else { return "" }
+        guard !trimmed.contains("://"), !trimmed.hasPrefix("//") else { return "" }
+        let withSlash = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+        // Percent-encoding is left to whatever the user typed if they already
+        // did it; only the characters that cannot appear literally are escaped.
+        return withSlash.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed.union(CharacterSet(charactersIn: "?#&=%+"))
+        ) ?? withSlash
     }
 
     /// Two forwards are the same only if they point at the same target in the same
@@ -54,6 +78,44 @@ final class PortForwardManager {
     private(set) var forwards: [PortForward] = []
     private var processes: [UUID: Process] = [:]
 
+    /// Remembered landing paths, keyed by cluster + namespace + target + port.
+    ///
+    /// The path is a property of the service, not of one tunnel: the dashboard
+    /// is at /admin/queues every time you forward it. Keeping it in defaults
+    /// means setting it once, and keying it by the same four fields that make
+    /// two forwards the same target means staging's /admin cannot leak into
+    /// production's.
+    private static func pathKey(context: String, namespace: String,
+                                target: String, remotePort: Int) -> String {
+        "portForwardPath.\(context)|\(namespace)|\(target)|\(remotePort)"
+    }
+
+    func savedPath(context: String, namespace: String, target: String, remotePort: Int) -> String {
+        UserDefaults.standard.string(
+            forKey: Self.pathKey(context: context, namespace: namespace,
+                                 target: target, remotePort: remotePort)) ?? ""
+    }
+
+    /// Remember a path, and apply it to a forward that is already running so the
+    /// change takes effect on the next open rather than the next restart.
+    func setPath(_ path: String, context: String, namespace: String,
+                 target: String, remotePort: Int) {
+        let key = Self.pathKey(context: context, namespace: namespace,
+                               target: target, remotePort: remotePort)
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: key)
+        }
+        for i in forwards.indices where forwards[i].context == context
+            && forwards[i].namespace == namespace
+            && forwards[i].target == target
+            && forwards[i].remotePort == remotePort {
+            forwards[i].path = trimmed
+        }
+    }
+
     /// Start a port forward to a service
     func forwardService(context: String, namespace: String, serviceName: String, remotePort: Int) {
         let localPort = findFreePort()
@@ -63,7 +125,9 @@ final class PortForwardManager {
             target: "svc/\(serviceName)",
             displayName: serviceName,
             remotePort: remotePort,
-            localPort: localPort
+            localPort: localPort,
+            path: savedPath(context: context, namespace: namespace,
+                            target: "svc/\(serviceName)", remotePort: remotePort)
         )
 
         // Check if already forwarding this target+port. Context and namespace are
@@ -92,7 +156,9 @@ final class PortForwardManager {
             target: "pod/\(podName)",
             displayName: podName,
             remotePort: remotePort,
-            localPort: localPort
+            localPort: localPort,
+            path: savedPath(context: context, namespace: namespace,
+                            target: "pod/\(podName)", remotePort: remotePort)
         )
 
         if let existing = forwards.first(where: { $0.matches(pf) && ($0.status == .active || $0.status == .starting) }) {

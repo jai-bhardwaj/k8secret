@@ -274,6 +274,19 @@ final class AppState {
         let confirmLabel: String
         let destructive: Bool
         let action: () async -> Void
+        /// Run when the user answers "no" — by the Cancel button, Escape, or
+        /// clicking the scrim. A caller that armed something in anticipation
+        /// needs to hear about the answer it did not get, and until this
+        /// existed the replica stepper stayed armed forever and went dead.
+        var onCancel: (() -> Void)?
+    }
+
+    /// Dismiss a pending confirmation as declined. Every route out that isn't
+    /// the confirm button goes through here, so none of them can forget.
+    func cancelConfirmation() {
+        let pending = confirmAction
+        confirmAction = nil
+        pending?.onCancel?()
     }
 
     /// Ask before doing something irreversible. Presented centrally by `ContentView`.
@@ -282,6 +295,7 @@ final class AppState {
         message: String,
         confirmLabel: String,
         destructive: Bool = true,
+        onCancel: (() -> Void)? = nil,
         action: @escaping () async -> Void
     ) {
         // Never replace a confirmation the user hasn't answered yet.
@@ -292,14 +306,21 @@ final class AppState {
         // appearing twice, and answering one of them acted on an action they
         // hadn't read. Dropping the duplicate is right in every one of those
         // cases: the first request is the one the user initiated.
-        guard confirmAction == nil else { return }
+        //
+        // The dropped request still has to be told it was dropped, or a caller
+        // that armed itself for this attempt stays armed with no dialog coming.
+        guard confirmAction == nil else {
+            onCancel?()
+            return
+        }
 
         confirmAction = ConfirmAction(
             title: title,
             message: message,
             confirmLabel: confirmLabel,
             destructive: destructive,
-            action: action
+            action: action,
+            onCancel: onCancel
         )
     }
 
@@ -1545,7 +1566,8 @@ final class AppState {
         return "\(reqStr)  /  \(limStr) per pod"
     }
 
-    func requestScale(_ dep: K8sDeployment, to replicas: Int) {
+    func requestScale(_ dep: K8sDeployment, to replicas: Int,
+                      onCancel: (() -> Void)? = nil) {
         let takingDown = replicas == 0 && dep.replicas > 0
 
         // A big jump is usually deliberate, but it is also what a typo looks like
@@ -1573,7 +1595,8 @@ final class AppState {
             title: takingDown ? "Stop \(dep.name)?" : "Scale deployment",
             message: what + productionWarning,
             confirmLabel: takingDown ? "Stop" : "Scale",
-            destructive: takingDown
+            destructive: takingDown,
+            onCancel: onCancel
         ) { [weak self] in
             await self?.scaleDeployment(dep, to: replicas)
         }

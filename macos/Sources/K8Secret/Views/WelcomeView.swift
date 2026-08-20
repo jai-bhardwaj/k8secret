@@ -14,6 +14,8 @@ enum Welcome {
 
     /// What this build should announce after an update.
     static let highlights: [(String, String)] = [
+        ("Three things you reported",
+         "The replica editor could get permanently stuck — cancelling the confirmation left Apply doing nothing at all for that number, and Esc now puts the field back. Port forwards can take a path, remembered per service, so a dashboard opens where it actually lives instead of at the root. And sending feedback finally fills in the issue title, rather than leaving you to invent one."),
         ("It opens on your whole cluster",
          "K8Secret used to start in the namespace called default, which on most clusters is the one with nothing in it — so the first thing you saw was an empty app. It now opens on every namespace, and asks the API server for the whole cluster in one request rather than one per namespace. A kubeconfig context that names a namespace still wins."),
         ("A window per cluster",

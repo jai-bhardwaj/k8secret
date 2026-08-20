@@ -155,7 +155,22 @@ struct ServiceDetailView: View {
         )
         let activeForward = existing?.status == .active ? existing : nil
 
-        return Group {
+        return HStack(spacing: 10) {
+            forwardControl(svc, port: port, existing: existing, activeForward: activeForward)
+            PortForwardPathField(
+                context: state.context,
+                namespace: svc.namespace,
+                target: "svc/\(svc.name)",
+                remotePort: port.port
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func forwardControl(_ svc: K8sService, port: ServicePort,
+                                existing: PortForward?, activeForward: PortForward?) -> some View {
+        let mgr = PortForwardManager.shared
+        Group {
             if let fwd = activeForward {
                 HStack(spacing: 8) {
                     Button {
@@ -163,7 +178,7 @@ struct ServiceDetailView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Circle().fill(Theme.ok).frame(width: 6, height: 6)
-                            Text(verbatim: "localhost:\(fwd.localPort)")
+                            Text(verbatim: "localhost:\(fwd.localPort)\(PortForward.normalize(fwd.path))")
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         }
                         .padding(.horizontal, 10)
@@ -576,5 +591,65 @@ struct ServiceDetailView: View {
         case "clusterip": return "network"
         default: return "network"
         }
+    }
+}
+
+/// The landing path for a forwarded port, e.g. `/admin/queues`.
+///
+/// A forwarded port is rarely useful at its root — a dashboard lives under a
+/// path, an API's docs under another — so opening the tunnel always landed on
+/// `/` and left the user to retype the rest. This sets it once per service and
+/// remembers it, so every later click on the forward goes straight there.
+///
+/// It commits on blur and on Return rather than per keystroke: writing a
+/// half-typed path to defaults would mean "/adm" is what gets remembered if
+/// attention moves elsewhere mid-word.
+struct PortForwardPathField: View {
+    let context: String
+    let namespace: String
+    let target: String
+    let remotePort: Int
+
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    private var manager: PortForwardManager { .shared }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.turn.down.right")
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.text3)
+            TextField("/path", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(width: 108)
+                .focused($focused)
+                .onSubmit(commit)
+                .onChange(of: focused) { wasFocused, isFocused in
+                    if wasFocused && !isFocused { commit() }
+                }
+                .accessibilityLabel("Path to open for this port forward")
+                .help("Opened after the port, e.g. /admin/queues. Remembered for this service.")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Theme.inset, in: Capsule())
+        .overlay(Capsule().strokeBorder(focused ? Theme.cpu.opacity(0.55) : Theme.line, lineWidth: 1))
+        .task(id: "\(context)|\(namespace)|\(target)|\(remotePort)") {
+            // Keyed on the target: selecting a different service must not leave
+            // the previous one's path sitting in the field.
+            text = manager.savedPath(context: context, namespace: namespace,
+                                     target: target, remotePort: remotePort)
+        }
+    }
+
+    private func commit() {
+        manager.setPath(text, context: context, namespace: namespace,
+                        target: target, remotePort: remotePort)
+        // Show it back the way it will actually be used, so a typed "admin"
+        // visibly becomes "/admin" rather than silently differing from the URL.
+        let normalized = PortForward.normalize(text)
+        text = normalized.isEmpty ? "" : normalized
     }
 }

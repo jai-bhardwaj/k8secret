@@ -190,11 +190,49 @@ struct FeedbackSheet: View {
         .background(Theme.CanvasBackground(tint: state.clusterTint, hero: false))
     }
 
+    /// A title for the issue, taken from what the user actually wrote.
+    ///
+    /// GitHub will not create an issue without a title, so leaving it blank
+    /// handed every reporter an extra thing to invent at the moment they were
+    /// already annoyed. What people did instead was type their whole report
+    /// into the title and leave the body — with the diagnostics in it — empty,
+    /// which is exactly how this bug was reported.
+    ///
+    /// The first sentence or line is the title; the full text still goes in the
+    /// body, so nothing is lost to the summarising.
+    static func title(from message: String) -> String {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "Feedback" }
+
+        // First line, then first sentence within it — people write both ways.
+        var candidate = text.components(separatedBy: .newlines)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? text
+        candidate = candidate.trimmingCharacters(in: .whitespaces)
+        if let stop = candidate.firstIndex(where: { $0 == "." || $0 == "!" || $0 == "?" }) {
+            let sentence = candidate[candidate.startIndex..<stop]
+                .trimmingCharacters(in: .whitespaces)
+            // A trailing "." on a short phrase is a sentence; "e.g." is not.
+            if sentence.count >= 15 { candidate = sentence }
+        }
+
+        let limit = 72
+        guard candidate.count > limit else { return candidate }
+        // Cut on a word boundary rather than mid-word.
+        let clipped = String(candidate.prefix(limit))
+        if let space = clipped.lastIndex(of: " "), clipped.distance(from: clipped.startIndex, to: space) > 30 {
+            return String(clipped[clipped.startIndex..<space]) + "…"
+        }
+        return clipped + "…"
+    }
+
     private func send() {
         var body = message
         if includeDiagnostics { body += "\n\n" + diagnostics }
         var components = URLComponents(string: "https://github.com/jai-bhardwaj/k8secret/issues/new")!
-        components.queryItems = [URLQueryItem(name: "body", value: body)]
+        components.queryItems = [
+            URLQueryItem(name: "title", value: Self.title(from: message)),
+            URLQueryItem(name: "body", value: body),
+        ]
         if let url = components.url {
             NSWorkspace.shared.open(url)
         }

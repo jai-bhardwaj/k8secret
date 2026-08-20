@@ -278,8 +278,17 @@ struct DeploymentDetailView: View {
                             .disabled(state.scaling)
                             .opacity(state.scaling ? 0.25 : 1)
                             .onSubmit { commitReplicaInput(dep) }
+                            // Escape puts it back. Without a way out, a typed
+                            // number that the user thought better of could only
+                            // be undone by retyping the original exactly — and
+                            // then Apply disables itself, which reads as stuck.
+                            .onExitCommand {
+                                replicaInput = String(dep.replicas)
+                                lastRequestedReplicas = nil
+                                replicaFieldFocused = false
+                            }
                             .accessibilityLabel("Replica count")
-                            .help("Type a replica count, then Apply")
+                            .help("Type a replica count, then Apply. Esc to revert.")
                         if state.scaling {
                             ProgressView().controlSize(.small)
                         }
@@ -289,6 +298,15 @@ struct DeploymentDetailView: View {
                     .onChange(of: dep.replicas) { _, newValue in
                         if !replicaFieldFocused { replicaInput = String(newValue) }
                         if newValue == lastRequestedReplicas { lastRequestedReplicas = nil }
+                    }
+                    // Disarm when a scale finishes, however it finished. The
+                    // guard against double-submitting one edit used to be
+                    // cleared only by the cluster reaching the number asked
+                    // for, so a scale that was refused — by RBAC, by the API,
+                    // by anything — left the control armed for that value and
+                    // every later Apply silently did nothing.
+                    .onChange(of: state.scaling) { wasScaling, nowScaling in
+                        if wasScaling && !nowScaling { lastRequestedReplicas = nil }
                     }
 
                     stepButton("plus", enabled: !state.scaling) {
@@ -368,7 +386,13 @@ struct DeploymentDetailView: View {
         }
 
         lastRequestedReplicas = target
-        state.requestScale(dep, to: target)
+        // Answering "no" is an answer. Without this the control stayed armed
+        // for the value the user declined, and Apply stopped responding for it
+        // — permanently, since the cluster would never reach a number nobody
+        // asked it to reach.
+        state.requestScale(dep, to: target) {
+            lastRequestedReplicas = nil
+        }
     }
 
     /// A ceiling on what a typed value can request. A stray keystroke turning 2
