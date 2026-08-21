@@ -294,7 +294,22 @@ struct DeploymentDetailView: View {
                         }
                     }
                     .motion(Motion.stateChange, value: state.scaling)
-                    .onAppear { replicaInput = String(dep.replicas) }
+                    // The editor belongs to the deployment on screen, and this
+                    // view is a single instance whose @State outlives the
+                    // selection — so switching deployments has to reset it
+                    // explicitly. It used to reset only when the replica *count*
+                    // differed, which meant selecting another deployment with
+                    // the same count carried the previous one's typed value
+                    // straight over. Apply stayed enabled, and it would have
+                    // scaled the newly selected deployment to a number that was
+                    // typed for a different one. Keyed on identity, which is
+                    // namespace/name and therefore stable across the poll, so
+                    // a refresh cannot reset the field mid-edit.
+                    .onChange(of: dep.id, initial: true) { _, _ in
+                        replicaInput = String(dep.replicas)
+                        lastRequestedReplicas = nil
+                        replicaFieldFocused = false
+                    }
                     .onChange(of: dep.replicas) { _, newValue in
                         if !replicaFieldFocused { replicaInput = String(newValue) }
                         if newValue == lastRequestedReplicas { lastRequestedReplicas = nil }

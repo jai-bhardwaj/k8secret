@@ -213,3 +213,68 @@ final class ConfirmationCancelTests: XCTestCase {
                      "a one-pod change in a non-production context should just happen")
     }
 }
+
+// MARK: - #5 (as reported) · editing state survived changing deployment
+
+/// The replica editor's `@State` lives in a single `DeploymentDetailView`
+/// instance — `dep` is read from `state.selectedDeployment` inside the body —
+/// so selecting a different deployment does not give it fresh state. The only
+/// reset was `.onChange(of: dep.replicas)`, and these pin why that was never
+/// enough: the reset has to key on *which deployment*, not on its count.
+final class DeploymentIdentityTests: XCTestCase {
+
+    private func dep(_ ns: String, _ name: String, replicas: Int) -> K8sDeployment {
+        K8sDeployment(id: "\(ns)/\(name)", name: name, namespace: ns,
+                      replicas: replicas, readyReplicas: replicas,
+                      availableReplicas: replicas, updatedReplicas: replicas,
+                      images: [], strategy: "RollingUpdate", createdAt: Date(),
+                      labels: [:], conditions: [])
+    }
+
+    /// The bug in one assertion. Two different deployments routinely have the
+    /// same replica count — it is the single most common count there is — so a
+    /// reset that watches the count never fired, and the value typed for one
+    /// deployment stayed on screen for the next. Apply stayed enabled, and it
+    /// would have scaled the newly selected deployment to it.
+    func testTwoDeploymentsCanShareAReplicaCountButNeverAnIdentity() {
+        let a = dep("payments", "api", replicas: 3)
+        let b = dep("payments", "worker", replicas: 3)
+
+        XCTAssertEqual(a.replicas, b.replicas,
+                       "the count is not a reset trigger — this is the case that broke")
+        XCTAssertNotEqual(a.id, b.id, "identity is, and must differ")
+    }
+
+    /// Same name in two namespaces is a real arrangement, and the editor must
+    /// treat them as different deployments.
+    func testTheSameNameInAnotherNamespaceIsADifferentDeployment() {
+        XCTAssertNotEqual(dep("staging", "api", replicas: 2).id,
+                          dep("production", "api", replicas: 2).id)
+    }
+
+    /// The other half of keying on identity: it must be stable, or the poll
+    /// would reset the field every second while the user was typing into it.
+    func testIdentityIsStableAcrossRefreshesAndScaling() {
+        let before = dep("payments", "api", replicas: 3)
+        let afterPoll = dep("payments", "api", replicas: 3)
+        let afterScaling = dep("payments", "api", replicas: 9)
+
+        XCTAssertEqual(before.id, afterPoll.id, "a refresh must not look like a new deployment")
+        XCTAssertEqual(before.id, afterScaling.id,
+                       "scaling changes the count, not which deployment this is")
+    }
+
+    /// A pod's identity carries the same guarantee, which is what lets the log
+    /// pane clear a container choice that belongs to the pod you just left.
+    func testPodIdentityDistinguishesPodsWithMatchingShape() {
+        func pod(_ name: String) -> K8sPod {
+            K8sPod(id: "d/\(name)", name: name, namespace: "d", phase: "Running",
+                   readyCount: 1, totalCount: 1, restarts: 0, nodeName: "n1",
+                   podIP: "10.0.0.1", hostIP: "10.0.0.2", createdAt: Date(),
+                   labels: [:], containers: [], ownerKind: "ReplicaSet",
+                   ownerName: "web")
+        }
+        XCTAssertNotEqual(pod("web-1").id, pod("web-2").id,
+                          "two pods of the same deployment are still different pods")
+    }
+}

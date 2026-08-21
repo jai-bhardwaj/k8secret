@@ -298,6 +298,15 @@ struct PodDetailView: View {
             logsHeader(pod)
             logsContent
         }
+        // The chosen container belongs to the pod it was chosen in. This view is
+        // one instance for every pod, so without clearing it, picking "sidecar"
+        // on one pod and then selecting a pod that has no such container asked
+        // the API server for logs from a container that isn't there — an error
+        // where the obvious behaviour is simply the new pod's first container.
+        .onChange(of: pod.id) { _, _ in
+            selectedLogContainer = nil
+            logFilter = ""
+        }
         // Logs load because the tab was opened. Asking the user to press "Load
         // Logs" first made the pane's whole purpose a second click, and the
         // prototype simply shows them.
